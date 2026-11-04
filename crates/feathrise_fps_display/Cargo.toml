@@ -1,0 +1,25 @@
+# feathrise_fps_display：右上角轻量 FPS 显示插件 crate。
+[package]
+description = "Frame timing and rendering diagnostics for Bevy projects"
+name = "feathrise_fps_display"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[features] # 默认显示不引入候选SDK依赖。
+dlss_frame_generation = ["dep:feathrise_frame_generation"] # DLSS构建读取Streamline真实累计Present。
+fsr3_frame_generation = ["dep:feathrise_fsr3_frame_generation"] # 仅候选构建连接FSR呈现快照。
+
+[dependencies]
+feathrise_frame_generation = { workspace = true, optional = true } # 主世界POD快照供FPS采样，不从UI调用SDK。
+feathrise_fsr3_frame_generation = { workspace = true, optional = true } # 只读取现有主世界计数，不直接调用原生层。
+avian3d = { workspace = true }
+bevy = { workspace = true }
+feathrise_billboard_text = { workspace = true }
+feathrise_environment = { workspace = true, features = ["full"] } # F3从统一命名空间读取GpuBlade、树木及灌木岩石诊断，full不再启用旧草地别名。
+feathrise_scene = { workspace = true } # 共用素材预设稳定身份及叶片内容规格。
+feathrise_map_content = { workspace = true } # Clipmap几何工作计数与当前预设目录共用正式内容定义。
+# 固定预算访问实例诊断表，不复制每张地图的资源。
+feathrise_scene_core = { workspace = true }
+feathrise_settings = { workspace = true }

@@ -1,0 +1,14 @@
+# feathrise_portal：场景间传送门组件、检测系统、生成辅助函数 crate。
+[package]
+description = "Data driven portals and scene transitions for Bevy projects"
+name = "feathrise_portal"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[dependencies]
+bevy = { workspace = true }
+feathrise_billboard_text = { workspace = true }
+feathrise_scene_core = { workspace = true }
+feathrise_grounding = { workspace = true }

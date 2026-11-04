@@ -1,0 +1,9 @@
+# SDK 的示例和 CI 采用锁定版本；即使位于忽略 Cargo.lock 的父仓中也必须随源码保留。
+!/Cargo.lock
+/target/
+/.cargo/local-sdk.toml
+/.local/
+# 示例独立解析依赖，本机锁文件与 Python 缓存不属于 SDK 源码。
+/examples/native_plugin/Cargo.lock
+__pycache__/
+*.py[cod]

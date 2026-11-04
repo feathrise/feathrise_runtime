@@ -1,0 +1,55 @@
+# feathrise_environment：统一聚合GPU叶片植被、树木和固定景观公共底座。
+[package]
+name = "feathrise_environment"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = ["crates-io"]
+description = "Unified vegetation distribution and rendering entry point for Bevy"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+readme = "README.md"
+keywords = ["bevy", "environment", "vegetation", "grass", "tree"]
+categories = ["game-development", "graphics", "rendering"]
+
+[features]
+default = []
+# 正式消费者直接启用叶片后端并使用`GpuBlade*`公共API。
+blade = ["feathrise_vegetation/blade"]
+mesh = ["feathrise_vegetation/mesh"]
+# 通用PBR Mesh风材质可独立编译，不反向依赖树木或景观内容域。
+mesh-wind = ["dep:bevy"] # 风材质、程序噪声和WGSL现全部由本crate拥有，后续Bevy升级不再受第三方版本阻塞。
+# 树木实现依赖共享Mesh风材质，并继续按需启用Grounding旧根安全基线。
+tree = [
+    "mesh-wind",
+    "dep:feathrise_grounding",
+    "feathrise_vegetation/pbr-monitor",
+]
+# 固定景观实现已内收；仍以独立feature隔离Bevy PBR与Grounding编译成本。
+landscape = ["dep:bevy", "dep:feathrise_grounding"]
+diagnostics = ["blade", "feathrise_vegetation/diagnostics"]
+# 通用地形地表材质独立于叶片后端，只按需启用Bevy PBR与RenderApp依赖。
+terrain-surface = ["dep:bevy"]
+full = [
+    "blade",
+    "mesh",
+    "mesh-wind",
+    "tree",
+    "landscape",
+    "diagnostics",
+    "terrain-surface",
+]
+
+[dependencies]
+bevy_app = { workspace = true }
+bevy = { workspace = true, optional = true }
+feathrise_vegetation = { path = "../feathrise_vegetation", version = "0.1.0", default-features = false }
+feathrise_grounding = { workspace = true, optional = true }
+
+[dev-dependencies]
+bevy_solari = { workspace = true } # Mesh风离屏示例可选复现Solari最终合成，不进入生产依赖图。
+wgpu = { workspace = true } # 地表回归使用与Bevy锁定版本相同的Naga校验生产WGSL，避免错误延迟到进图建管线。
+
+[[example]]
+name = "mesh_wind_smoke"
+required-features = ["mesh-wind"]

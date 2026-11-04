@@ -1,0 +1,1110 @@
+{
+  "schema_version": 2,
+  "presets": [
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_ordinary_grass",
+      "label": "普通草",
+      "output_id": "fixture-blade-1",
+      "aliases": [],
+      "runtime": {
+        "type": "blade",
+        "lods": [
+          {
+            "name": "fixture-lod-0",
+            "level": 0,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 1,
+            "inner_radius": 0,
+            "outer_radius": 4,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 100,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-1",
+            "level": 1,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 2,
+            "inner_radius": 0,
+            "outer_radius": 8,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 101,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-2",
+            "level": 2,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 4,
+            "inner_radius": 0,
+            "outer_radius": 16,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 102,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-3",
+            "level": 3,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 8,
+            "inner_radius": 0,
+            "outer_radius": 32,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 103,
+            "snap_cells": 1
+          }
+        ],
+        "appearance": {
+          "geometry": [
+            0.5,
+            1,
+            0,
+            0
+          ],
+          "width_flexibility": [
+            0.05,
+            0.1,
+            0.5,
+            1
+          ],
+          "bending": [
+            0.3,
+            0.5,
+            1,
+            1
+          ],
+          "atlas_uv": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "root_color": [
+            0.2,
+            0.4,
+            0.1,
+            1
+          ],
+          "tip_color": [
+            0.5,
+            0.7,
+            0.2,
+            1
+          ],
+          "cool_tint": [
+            0.8,
+            1,
+            0.9,
+            0
+          ],
+          "warm_tint": [
+            1,
+            0.9,
+            0.8,
+            0
+          ]
+        },
+        "motion": {
+          "driver": "wind"
+        },
+        "bounds": {
+          "max_blade_height": 1,
+          "max_horizontal_sweep": 0.5,
+          "reference_height": 0.75,
+          "root_penetration": 0.1
+        },
+        "view_lod": {
+          "pixel_thresholds": [
+            [
+              12,
+              16
+            ],
+            [
+              6,
+              8
+            ],
+            [
+              2,
+              4
+            ]
+          ],
+          "camera_fade_distances": [
+            0.1,
+            0.3
+          ],
+          "reference_grass_height": 1,
+          "finest_grid_spacing": 1,
+          "residency_radii": [
+            4,
+            8,
+            16,
+            32
+          ],
+          "residency_margin": 1,
+          "residency_transition_widths": [
+            1,
+            1,
+            1
+          ]
+        },
+        "density_gain": 1,
+        "ultra_lod_budget": "medium",
+        "ultra_horizontal_sweep": 0
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_wheat",
+      "label": "Fixture blade 2",
+      "output_id": "fixture-blade-2",
+      "aliases": [],
+      "runtime": {
+        "type": "blade",
+        "lods": [
+          {
+            "name": "fixture-lod-0",
+            "level": 0,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 1,
+            "inner_radius": 0,
+            "outer_radius": 4,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 100,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-1",
+            "level": 1,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 2,
+            "inner_radius": 0,
+            "outer_radius": 8,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 101,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-2",
+            "level": 2,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 4,
+            "inner_radius": 0,
+            "outer_radius": 16,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 102,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-3",
+            "level": 3,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 8,
+            "inner_radius": 0,
+            "outer_radius": 32,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 103,
+            "snap_cells": 1
+          }
+        ],
+        "appearance": {
+          "geometry": [
+            0.5,
+            1,
+            0,
+            0
+          ],
+          "width_flexibility": [
+            0.05,
+            0.1,
+            0.5,
+            1
+          ],
+          "bending": [
+            0.3,
+            0.5,
+            1,
+            1
+          ],
+          "atlas_uv": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "root_color": [
+            0.2,
+            0.4,
+            0.1,
+            1
+          ],
+          "tip_color": [
+            0.5,
+            0.7,
+            0.2,
+            1
+          ],
+          "cool_tint": [
+            0.8,
+            1,
+            0.9,
+            0
+          ],
+          "warm_tint": [
+            1,
+            0.9,
+            0.8,
+            0
+          ]
+        },
+        "motion": {
+          "driver": "wind"
+        },
+        "bounds": {
+          "max_blade_height": 1,
+          "max_horizontal_sweep": 0.5,
+          "reference_height": 0.75,
+          "root_penetration": 0.1
+        },
+        "view_lod": {
+          "pixel_thresholds": [
+            [
+              12,
+              16
+            ],
+            [
+              6,
+              8
+            ],
+            [
+              2,
+              4
+            ]
+          ],
+          "camera_fade_distances": [
+            0.1,
+            0.3
+          ],
+          "reference_grass_height": 1,
+          "finest_grid_spacing": 1,
+          "residency_radii": [
+            4,
+            8,
+            16,
+            32
+          ],
+          "residency_margin": 1,
+          "residency_transition_widths": [
+            1,
+            1,
+            1
+          ]
+        },
+        "density_gain": 1,
+        "ultra_lod_budget": "medium",
+        "ultra_horizontal_sweep": 0
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_mixed_grain",
+      "label": "Fixture blade 3",
+      "output_id": "fixture-blade-3",
+      "aliases": [],
+      "runtime": {
+        "type": "blade",
+        "lods": [
+          {
+            "name": "fixture-lod-0",
+            "level": 0,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 1,
+            "inner_radius": 0,
+            "outer_radius": 4,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 100,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-1",
+            "level": 1,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 2,
+            "inner_radius": 0,
+            "outer_radius": 8,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 101,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-2",
+            "level": 2,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 4,
+            "inner_radius": 0,
+            "outer_radius": 16,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 102,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-3",
+            "level": 3,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 8,
+            "inner_radius": 0,
+            "outer_radius": 32,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 103,
+            "snap_cells": 1
+          }
+        ],
+        "appearance": {
+          "geometry": [
+            0.5,
+            1,
+            0,
+            0
+          ],
+          "width_flexibility": [
+            0.05,
+            0.1,
+            0.5,
+            1
+          ],
+          "bending": [
+            0.3,
+            0.5,
+            1,
+            1
+          ],
+          "atlas_uv": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "root_color": [
+            0.2,
+            0.4,
+            0.1,
+            1
+          ],
+          "tip_color": [
+            0.5,
+            0.7,
+            0.2,
+            1
+          ],
+          "cool_tint": [
+            0.8,
+            1,
+            0.9,
+            0
+          ],
+          "warm_tint": [
+            1,
+            0.9,
+            0.8,
+            0
+          ]
+        },
+        "motion": {
+          "driver": "wind"
+        },
+        "bounds": {
+          "max_blade_height": 1,
+          "max_horizontal_sweep": 0.5,
+          "reference_height": 0.75,
+          "root_penetration": 0.1
+        },
+        "view_lod": {
+          "pixel_thresholds": [
+            [
+              12,
+              16
+            ],
+            [
+              6,
+              8
+            ],
+            [
+              2,
+              4
+            ]
+          ],
+          "camera_fade_distances": [
+            0.1,
+            0.3
+          ],
+          "reference_grass_height": 1,
+          "finest_grid_spacing": 1,
+          "residency_radii": [
+            4,
+            8,
+            16,
+            32
+          ],
+          "residency_margin": 1,
+          "residency_transition_widths": [
+            1,
+            1,
+            1
+          ]
+        },
+        "density_gain": 1,
+        "ultra_lod_budget": "medium",
+        "ultra_horizontal_sweep": 0
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn02_water_grass",
+      "label": "Fixture blade 4",
+      "output_id": "fixture-blade-4",
+      "aliases": [
+        "hn02_wetland_grass"
+      ],
+      "runtime": {
+        "type": "blade",
+        "lods": [
+          {
+            "name": "fixture-lod-0",
+            "level": 0,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 1,
+            "inner_radius": 0,
+            "outer_radius": 4,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 100,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-1",
+            "level": 1,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 2,
+            "inner_radius": 0,
+            "outer_radius": 8,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 101,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-2",
+            "level": 2,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 4,
+            "inner_radius": 0,
+            "outer_radius": 16,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 102,
+            "snap_cells": 1
+          },
+          {
+            "name": "fixture-lod-3",
+            "level": 3,
+            "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+            "grid_side": 9,
+            "spacing": 8,
+            "inner_radius": 0,
+            "outer_radius": 32,
+            "inner_fade_width": 0,
+            "outer_fade_width": 1,
+            "seed": 103,
+            "snap_cells": 1
+          }
+        ],
+        "appearance": {
+          "geometry": [
+            0.5,
+            1,
+            0,
+            0
+          ],
+          "width_flexibility": [
+            0.05,
+            0.1,
+            0.5,
+            1
+          ],
+          "bending": [
+            0.3,
+            0.5,
+            1,
+            1
+          ],
+          "atlas_uv": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "root_color": [
+            0.2,
+            0.4,
+            0.1,
+            1
+          ],
+          "tip_color": [
+            0.5,
+            0.7,
+            0.2,
+            1
+          ],
+          "cool_tint": [
+            0.8,
+            1,
+            0.9,
+            0
+          ],
+          "warm_tint": [
+            1,
+            0.9,
+            0.8,
+            0
+          ]
+        },
+        "motion": {
+          "driver": "water_flow",
+          "direction": [
+            1,
+            0
+          ],
+          "speed": 1,
+          "tip_strength": 0.2,
+          "spatial_scale": 1
+        },
+        "bounds": {
+          "max_blade_height": 1,
+          "max_horizontal_sweep": 0.5,
+          "reference_height": 0.75,
+          "root_penetration": 0.1
+        },
+        "view_lod": {
+          "pixel_thresholds": [
+            [
+              12,
+              16
+            ],
+            [
+              6,
+              8
+            ],
+            [
+              2,
+              4
+            ]
+          ],
+          "camera_fade_distances": [
+            0.1,
+            0.3
+          ],
+          "reference_grass_height": 1,
+          "finest_grid_spacing": 1,
+          "residency_radii": [
+            4,
+            8,
+            16,
+            32
+          ],
+          "residency_margin": 1,
+          "residency_transition_widths": [
+            1,
+            1,
+            1
+          ]
+        },
+        "density_gain": 1,
+        "ultra_lod_budget": "medium",
+        "ultra_horizontal_sweep": 0
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_tree",
+      "label": "Fixture mesh 1",
+      "output_id": "fixture-mesh-1",
+      "runtime": {
+        "type": "mesh",
+        "lods": [
+          {
+            "level": 0,
+            "start": [
+              0,
+              0
+            ],
+            "end": [
+              16,
+              18
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "stem"
+                }
+              },
+              {
+                "part_id": 2,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "foliage"
+                }
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "start": [
+              14,
+              16
+            ],
+            "end": [
+              32,
+              34
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "stem"
+                }
+              },
+              {
+                "part_id": 2,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "foliage"
+                }
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "start": [
+              30,
+              32
+            ],
+            "end": [
+              48,
+              50
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "stem"
+                }
+              },
+              {
+                "part_id": 2,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "foliage"
+                }
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "start": [
+              46,
+              48
+            ],
+            "end": [
+              64,
+              66
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "stem"
+                }
+              },
+              {
+                "part_id": 2,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                },
+                "wind": {
+                  "root_height": 0,
+                  "tip_height": 1,
+                  "strength": 0.2,
+                  "frequency": 1,
+                  "part": "foliage"
+                }
+              }
+            ]
+          }
+        ],
+        "ground_embed_depth": 0.25,
+        "collision": {
+          "type": "cylinder",
+          "radius": 0.25,
+          "height": 8,
+          "center_y": 4,
+          "scale_with_instance": true,
+          "enter_distance": 72,
+          "exit_distance": 96
+        }
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_shrub",
+      "label": "Fixture mesh 2",
+      "output_id": "fixture-mesh-2",
+      "runtime": {
+        "type": "mesh",
+        "lods": [
+          {
+            "level": 0,
+            "start": [
+              0,
+              0
+            ],
+            "end": [
+              16,
+              18
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "start": [
+              14,
+              16
+            ],
+            "end": [
+              32,
+              34
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "start": [
+              30,
+              32
+            ],
+            "end": [
+              48,
+              50
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "start": [
+              46,
+              48
+            ],
+            "end": [
+              64,
+              66
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "dispersed_triangles",
+                  "max_triangles": 40
+                }
+              }
+            ]
+          }
+        ],
+        "ground_embed_depth": 0.25,
+        "collision": {
+          "type": "none"
+        }
+      }
+    },
+    {
+      "author_asset_path": "gltf/fixture_vegetation.gltf",
+      "resolution": [
+        8,
+        8
+      ],
+      "spacing_meters": 2,
+      "scale_range": [
+        1,
+        1
+      ],
+      "id": "hn01_rock",
+      "label": "Fixture mesh 3",
+      "output_id": "fixture-mesh-3",
+      "runtime": {
+        "type": "mesh",
+        "lods": [
+          {
+            "level": 0,
+            "start": [
+              0,
+              0
+            ],
+            "end": [
+              16,
+              18
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 1,
+            "start": [
+              14,
+              16
+            ],
+            "end": [
+              32,
+              34
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 2,
+            "start": [
+              30,
+              32
+            ],
+            "end": [
+              48,
+              50
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "direct"
+                }
+              }
+            ]
+          },
+          {
+            "level": 3,
+            "start": [
+              46,
+              48
+            ],
+            "end": [
+              64,
+              66
+            ],
+            "parts": [
+              {
+                "part_id": 1,
+                "mesh_path": "gltf/fixture_vegetation.gltf#Mesh0/Primitive0",
+                "material_path": "gltf/fixture_vegetation.gltf#Material0/std",
+                "mesh_derivation": {
+                  "type": "convex_hull",
+                  "max_sample_points": 384
+                }
+              }
+            ]
+          }
+        ],
+        "ground_embed_depth": 0.25,
+        "collision": {
+          "type": "none"
+        }
+      }
+    }
+  ]
+}

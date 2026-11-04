@@ -1,0 +1,16 @@
+# feathrise_map_terrain：动态地图GLB网格、高度派生和白模编码纯算法层。
+[package]
+description = "Terrain topology, height fields and authoring mesh algorithms"
+name = "feathrise_map_terrain"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[dependencies]
+bevy = { workspace = true }
+bytemuck = { workspace = true }
+meshopt = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }

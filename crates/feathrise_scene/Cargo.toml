@@ -1,0 +1,38 @@
+# feathrise_scene：自动从 game_plugins/game_scene 抽离。
+[package]
+description = "Data driven scene loading, author views and asset lifecycle"
+name = "feathrise_scene"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[features]
+default = []
+author_view = [] # 常驻编辑视口复用原显示管线；不打开F1诊断或碰撞采样。
+test_panel = [] # 仅测试构建启用稀疏碰撞固定窗口计时与F1诊断发布，不给正式包增加逐帧采样。
+runtime_test_support = [] # 下游无窗口交互回归构造已采用地形身份；仅由dev-dependency启用，不放宽生产查询。
+
+[dependencies]
+feathrise_author_tools = { workspace = true }
+avian3d = { workspace = true }
+bevy = { workspace = true }
+bevy-tnua = { workspace = true } # 稀疏承托冻结明确排在Tnua电机之后，避免物理调度出现写速度歧义。
+# 地图碰撞热重载只登记公共暂停原因，不直接争写Avian或虚拟时间。
+feathrise_scene_core = { workspace = true }
+# 【P1依赖收口】场景源码不使用Dither类型或材质；透明实现只由相机运行时持有，因此移除无效直接依赖。
+feathrise_grounding = { workspace = true }
+feathrise_environment = { workspace = true, features = ["full"] } # 场景只依赖统一入口，并显式启用GpuBlade、树木、固定景观、诊断与地表承接。
+feathrise_portal = { workspace = true }
+feathrise_billboard_text = { workspace = true } # 地图标签生产先于通用文字消费，避免旧显示请求覆盖新地图来源。
+serde_json = { workspace = true }
+sha2 = { workspace = true } # 流送版本载体与不可变对象共同校验摘要。
+serde = { workspace = true } # 全图林带从生成脚本输出的稳定JSON清单反序列化技术树位。
+feathrise_settings = { workspace = true }
+feathrise_atmosphere = { workspace = true }
+feathrise_map_content = { workspace = true } # 正式地图传送门与后续动态地图读取同一份热加载作者数据。
+feathrise_map_terrain = { workspace = true } # GLB地形捕获后共享后台栅格化、法线和高度单元编码。
+
+[dev-dependencies]
+image = { workspace = true } # 回归直接解码三张正式密度PNG，逐项对比既有冻结实例清单。
+wgpu = { workspace = true } # 水面回归使用与Bevy运行时一致的Naga解析并验证生产WGSL，避免错误延迟到进图建管线时才暴露。

@@ -1,0 +1,14 @@
+# feathrise_grounding：统一把需要站在地面的世界实体吸附到真实物理地形。
+[package]
+description = "Terrain grounding and shared surface placement for Bevy scenes"
+name = "feathrise_grounding"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[dependencies]
+avian3d = { workspace = true }
+bevy = { workspace = true }
+# 贴地资格使用命中实例自己的坐标和活动碰撞覆盖。
+feathrise_scene_core = { workspace = true }

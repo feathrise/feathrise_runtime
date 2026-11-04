@@ -1,0 +1,15 @@
+# Cargo通过Git获取SDK时需要真实资源字节；必要的小型二进制不依赖维护者的LFS对象库。
+*.ktx2 binary -filter
+*.png binary -filter
+*.gltf binary -filter
+*.glb binary -filter
+*.otf binary -filter
+*.ttf binary -filter
+# 运行时二进制资源必须随普通 Git/Cargo 获取真实字节，不能变成 LFS 指针。
+*.r8 binary -filter
+*.r16 binary -filter
+*.rgba8 binary -filter
+*.rgba32 binary -filter
+*.r16tile binary -filter
+*.vblk binary -filter
+*.vref binary -filter

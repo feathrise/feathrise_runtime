@@ -1,0 +1,13 @@
+# feathrise_fsr3：隔离的 FSR 3 时间域超分 RenderApp 运行时。
+[package]
+description = "Optional Vulkan FidelityFX FSR temporal upscaling integration"
+name = "feathrise_fsr3"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[dependencies]
+bevy = { workspace = true }
+wgpu = { workspace = true }
+wgpu-ffx = { workspace = true }

@@ -1,0 +1,14 @@
+# 仓库级跨包契约验证；不发布到 registry，也不成为 SDK 生产依赖。
+[package]
+name = "feathrise_sdk_workspace_tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Repository-only integration checks for Feathrise SDK production shaders"
+
+[dev-dependencies]
+# 这是测试应用，沿用 SDK 示例的开发动态链接；共享原 workspace 的锁文件、profile 和 target。
+bevy = { workspace = true, features = ["dynamic_linking"] }
+feathrise_environment = { workspace = true, features = ["terrain-surface", "blade"] }
+wgpu = { workspace = true }

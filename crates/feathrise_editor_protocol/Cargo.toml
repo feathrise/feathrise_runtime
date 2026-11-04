@@ -1,0 +1,13 @@
+[package]
+name = "feathrise_editor_protocol"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+description = "Bounded process protocol for Feathrise resident project views"
+
+[dependencies]
+feathrise_author_tools = { version = "0.1.0", path = "../feathrise_author_tools" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.11.0"

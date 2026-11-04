@@ -1,0 +1,81 @@
+# SDK 独立仓库基础检查：默认/验收特性只编译，不安装 GPU SDK，不启动窗口或发布。
+name: Windows SDK check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, validation]
+    env:
+      # 补丁修订随 SDK 源码版本锁定，升级时连同接入文档一起更新。
+      FEATHRISE_PATCH_REPOSITORY: hwyrq/feathrise_patches
+      FEATHRISE_PATCH_REV: 3c251d3530980b66e49b4748769db36ae9c6bd5a
+    steps:
+      - name: Validate the pinned public patch source
+        shell: pwsh
+        run: |
+          if ($env:FEATHRISE_PATCH_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or $env:FEATHRISE_PATCH_REV -notmatch '^[0-9a-fA-F]{40}$') {
+            throw 'SDK 工作流的补丁仓配置无效，必须使用 owner/repository 和完整 40 位提交。'
+          }
+      # actions/checkout v4.2.2；固定官方 tag 对应提交，避免可变 tag 漂移。
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: feathrise_runtime
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ env.FEATHRISE_PATCH_REPOSITORY }}
+          ref: ${{ env.FEATHRISE_PATCH_REV }}
+          path: feathrise_patches
+          persist-credentials: false
+      - name: Check SDK with existing Windows Rust and MSVC
+        working-directory: feathrise_runtime
+        shell: pwsh
+        env:
+          CHECK_VARIANT: ${{ matrix.variant }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (!(Test-Path -LiteralPath $vswhere)) { throw 'Runner 缺少 Visual Studio Installer/vswhere。' }
+          $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$installation) { throw 'Runner 缺少 MSVC x64/x86 工具。' }
+          Import-Module (Join-Path $installation 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64'
+          rustup show active-toolchain
+          if ($LASTEXITCODE -ne 0) { throw 'Runner 没有可用的 Rust 工具链。' }
+          rustc --version --verbose
+          if ($LASTEXITCODE -ne 0) { throw 'rustc 无法启动。' }
+          $sysroot = rustc --print sysroot
+          if ($LASTEXITCODE -ne 0) { throw '无法定位现有 Rust 工具链。' }
+          $linkerDirectory = Join-Path $sysroot 'lib/rustlib/x86_64-pc-windows-msvc/bin'
+          if (!(Test-Path -LiteralPath (Join-Path $linkerDirectory 'rust-lld.exe'))) { throw '当前工具链缺少 rust-lld.exe。' }
+          $env:PATH = "$linkerDirectory;$env:PATH"
+          $patchRoot = (Resolve-Path -LiteralPath '../feathrise_patches').Path
+          $patchRevision = git -C $patchRoot rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $patchRevision -ne $env:FEATHRISE_PATCH_REV) { throw '补丁仓检出身份与指定修订不一致。' }
+          # SDK 自己的 Cargo 配置加载同级补丁仓，验证独立检出的默认入口。
+          $cargoArguments = @('check', '--locked', '-p', 'feathrise_runtime', '-p', 'feathrise_scene_core', '-p', 'feathrise_map_content', '-p', 'feathrise_scene', '-p', 'feathrise_environment', '-p', 'feathrise_fps_display', '-p', 'feathrise_plugin_api', '-p', 'feathrise_sdk_workspace_tests', '--tests', '--examples')
+          if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_runtime/validation') }
+          elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
+          cargo @cargoArguments
+          if ($LASTEXITCODE -ne 0) { throw "Cargo 检查失败，退出码 $LASTEXITCODE。" }
+          # 场景基础五模块归并后，CI 继续执行原活动门、驻留和状态回归。
+          cargo test --locked -p feathrise_plugin_api -p feathrise_scene_core --all-features --lib
+          if ($LASTEXITCODE -ne 0) { throw '公共插件接口或场景基础测试失败。' }
+          cargo build --manifest-path examples/native_plugin/Cargo.toml --target-dir target --lib
+          if ($LASTEXITCODE -ne 0) { throw '无编辑器源码的中性插件编译失败。' }

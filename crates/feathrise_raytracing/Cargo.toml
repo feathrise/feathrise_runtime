@@ -1,0 +1,26 @@
+[package]
+description = "Optional Solari ray tracing lifecycle and rendering integration"
+name = "feathrise_raytracing"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+publish = ["crates-io"]
+
+[features]
+default = []
+# NVIDIA RTX + Vulkan专用的Ray Reconstruction；基础Solari原型继续允许无厂商降噪器构建。
+dlss_rr = ["bevy/dlss", "bevy_solari/dlss"]
+# 正式名称转发既有实现，旧dlss_rr feature继续兼容外部命令。
+rtx_rendering = ["dlss_rr", "feathrise_settings/dlss"]
+
+[dependencies]
+feathrise_scene_core = { workspace = true }
+bevy = { workspace = true }
+bevy_solari = { workspace = true }
+wgpu = { workspace = true }
+feathrise_atmosphere = { workspace = true }
+feathrise_environment = { workspace = true, features = ["mesh-wind", "terrain-surface"] }
+feathrise_scene = { workspace = true }
+feathrise_settings = { workspace = true }
+feathrise_vegetation = { workspace = true, features = ["mesh"] }

@@ -1,0 +1,1 @@
+{"schema_version":1,"celestial_lighting":{"day_base_illuminance_lux":9000.0,"day_base_color_srgb":[1.0,0.93,0.82],"night_peak_illuminance_lux":1000.0,"night_base_color_srgb":[0.42,0.52,0.78],"azimuth_offset_degrees":0.0,"light_source_angular_diameter_degrees":0.533}}

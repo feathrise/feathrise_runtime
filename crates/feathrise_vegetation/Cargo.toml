@@ -1,0 +1,59 @@
+# 通用种植核心：层分布、空间竞争、边界净空与可插拔实现后端。
+[package]
+name = "feathrise_vegetation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = ["crates-io"]
+description = "Deterministic vegetation distribution and spatial competition for Bevy"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+readme = "README.md"
+documentation = "https://docs.rs/feathrise_vegetation"
+keywords = ["bevy", "vegetation", "procedural", "lod", "gpu"]
+categories = ["game-development", "algorithms", "graphics", "rendering"]
+
+[features]
+default = []
+blade = [
+    "dep:wgpu",
+    "bevy/bevy_asset",
+    "bevy/bevy_camera",
+    "bevy/bevy_core_pipeline",
+    "bevy/bevy_image",
+    "bevy/bevy_light",
+    "bevy/bevy_mesh",
+    "bevy/bevy_pbr",
+    "bevy/bevy_render",
+    "bevy/bevy_shader",
+]
+pbr-monitor = [
+    "bevy/bevy_asset",
+    "bevy/bevy_camera",
+    "bevy/bevy_core_pipeline",
+    "bevy/bevy_light",
+    "bevy/bevy_mesh",
+    "bevy/bevy_pbr",
+    "bevy/bevy_render",
+]
+mesh = ["pbr-monitor", "bevy/bevy_shader"]
+diagnostics = ["blade"]
+full = ["blade", "mesh", "diagnostics"]
+
+[dependencies]
+# 宿主可保留地图布局和后端会话，不引入RPG状态依赖。
+feathrise_scene_core = { workspace = true }
+bevy = { version = "=0.19.1", default-features = false, features = ["std"] }
+bytemuck.workspace = true
+wgpu = { workspace = true, optional = true }
+
+[dev-dependencies]
+bevy = { version = "=0.19.1", default-features = true }
+
+[[example]]
+name = "dense_forest"
+required-features = ["mesh"]
+
+[[example]]
+name = "procedural_blades"
+required-features = ["blade"]

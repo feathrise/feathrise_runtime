@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "package_id": "fsr3-1.1.4-bl5-vulkan-lifetime-ui-1-abi1",
+  "target": "x86_64-pc-windows-msvc",
+  "crt": "dynamic",
+  "archive": "feathrise-fsr3-fg-windows-x86_64-msvc.zip",
+  "sha256": "C2BE4C92B3973CAD53F6A08B3939DC38D4DB6F81A6EC8B96035F8E8714426661",
+  "size": 2774215,
+  "native_manifest_sha256": "96F6086E993D7D577F211CD83ECABA7563AFFFCBFFA5298459F57FCA2813C947"
+}

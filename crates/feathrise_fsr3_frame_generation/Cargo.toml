@@ -1,0 +1,26 @@
+# feathrise_fsr3_frame_generation：Windows Vulkan FSR 3.1 固定 2× 帧生成候选。
+[package]
+description = "Optional Windows Vulkan FSR frame generation with pinned native binaries"
+name = "feathrise_fsr3_frame_generation"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+build = "build.rs"
+
+[dependencies]
+feathrise_frame_generation_ui = { workspace = true } # 无SDK公共UI事务，原生登记留在本crate。
+ash = "0.38.0" # 只读取 Bevy/wgpu 已拥有的 Vulkan 句柄和资源描述。
+bevy = { workspace = true }
+# 唯一玩法相机身份。
+feathrise_scene_core = { workspace = true }
+feathrise_settings = { workspace = true } # 唯一请求源与图形附件租约。
+sha2 = { workspace = true } # 每次启动在LoadLibrary前复验固定DLL与MIT许可字节身份。
+wgpu = { workspace = true }
+wgpu-hal = { version = "=29.0.4", features = ["vulkan"] }
+
+[build-dependencies]
+cc = "1.2.56" # 仅维护者显式源码重建时编译桥，普通用户直接链接配套 .lib。
+sha2 = { workspace = true } # 固定官方签名 DLL 和 MIT 许可证字节身份。
+serde_json = { workspace = true } # 构建期核验源码修订 manifest；运行帧不解析 JSON。
+zip = { workspace = true } # 有界解包固定 SHA 的预编译配套包。

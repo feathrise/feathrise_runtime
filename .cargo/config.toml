@@ -1,0 +1,6 @@
+# SDK 独立检出时从同级补丁仓加载 path；没有同级检出时可显式传入其他补丁配置。
+include = [{ path = "../../feathrise_patches/.cargo/config.toml", optional = true }]
+
+# 公共库沿用现有Windows链接器；不写维护者的SDK和缓存绝对路径。
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

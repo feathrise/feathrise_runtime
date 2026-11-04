@@ -1,0 +1,28 @@
+# 外部插件只依赖这份字节协议，不链接编辑器或Bevy。
+[package]
+name = "feathrise_plugin_api"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+description = "Versioned C ABI, messages and metadata tools for Feathrise native author plugins"
+readme = "README.md"
+
+[features]
+default = []
+# 作者动态库不携带文件解析器；宿主及独立检查命令显式启用。
+reader = ["dep:object"]
+reader-test-support = ["reader"]
+# 地图作者才需要不可变blob读写；普通表单插件不引入哈希实现。
+blob-io = ["dep:sha2"]
+
+[[bin]]
+name = "feathrise-plugin-meta"
+path = "src/bin/feathrise-plugin-meta.rs"
+required-features = ["reader"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "=0.11.0", optional = true }
+object = { version = "=0.40.0", optional = true, default-features = false, features = ["read", "std"] }

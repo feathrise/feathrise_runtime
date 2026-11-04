@@ -1,0 +1,24 @@
+# feathrise_settings：公共渲染请求、质量参数、后端状态与附件租约。
+[package]
+description = "Shared rendering quality parameters and runtime backend state"
+name = "feathrise_settings"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+
+[features]
+default = [] # 普通开发构建不链接 NVIDIA SDK，保持跨设备便携。
+dlss = ["bevy/dlss"] # 正式 RTX 构建启用独立 SR 相机接管与官方支持资源。
+dlss_frame_generation = ["dlss"] # 只开放FG持久字段与共享附件租约；NVIDIA运行库仍由独立crate隔离。
+fsr3_upscaling = ["dep:feathrise_fsr3"] # 候选构建才引用FSR相机组件和真实支持/遥测资源。
+
+[dependencies]
+bevy = { workspace = true }
+serde = { workspace = true } # 仅中性渲染输入可序列化，实际配置文件由应用拥有。
+# MarkerCamera 将 SSAO 严格限制到玩法主相机。
+feathrise_scene_core = { workspace = true }
+feathrise_fsr3 = { workspace = true, optional = true } # FSR运行时与默认便携构建保持依赖隔离。
+
+[dev-dependencies]
+wgpu = { workspace = true } # 使用与 Bevy 相同版本的 Naga 静态验证固定比例 WGSL。

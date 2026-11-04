@@ -1,0 +1,20 @@
+# feathrise_billboard_text：通用「离屏烘焙文字 Billboard」插件。
+#
+# 完全解耦、可独立开源：仅依赖 bevy。
+# 把任意文字烘焙到离屏纹理，再以世界空间 3D Billboard（朝向相机、近大远小、
+# 距离裁剪、可选 TTL 自动销毁）显示在某个实体头顶或任意世界坐标。
+[package]
+name = "feathrise_billboard_text"
+version = "0.1.0"
+edition = "2024"
+description = "Offscreen-baked world-space billboard text for Bevy."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hwyrq/feathrise_runtime"
+readme = "README.md"
+
+[dependencies]
+bevy = { workspace = true }
+
+# 示例（cargo run -p feathrise_billboard_text --example basic）按需启用更多 Bevy 功能。
+[dev-dependencies]
+bevy = { workspace = true }
