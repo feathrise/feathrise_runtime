@@ -6,13 +6,15 @@ use feathrise_map_content::{
 use feathrise_scene::MapPlacementInstance;
 pub(super) struct Prepared {
     map: MapId,
+    // 与显式验收的 evidence 一致；普通构建不保存仅用于报告的修订号副本。
+    #[cfg(feature = "validation")]
     revision: u64,
     value: Option<(MeshPreview, Mesh, StandardMaterial, Transform)>,
     committed: bool,
 }
 pub(super) fn prepare(
     map: MapId,
-    revision: u64,
+    _revision: u64,
     value: Option<MeshPreview>,
     committed: bool,
 ) -> Result<Prepared, String> {
@@ -68,7 +70,8 @@ pub(super) fn prepare(
         .transpose()?;
     Ok(Prepared {
         map,
-        revision,
+        #[cfg(feature = "validation")]
+        revision: _revision,
         value,
         committed,
     })

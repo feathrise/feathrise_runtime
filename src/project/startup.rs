@@ -3,9 +3,11 @@
 use crate::project::{ProjectContext, context};
 use bevy::prelude::*;
 use feathrise_map_content::{
-    MAP_CATALOG_ASSET_PATH, MAP_SCHEMA_VERSION, MapCatalogAsset, MapCatalogEntry, MapId,
+    MAP_CATALOG_ASSET_PATH, MAP_SCHEMA_VERSION, MapCatalogAsset, MapId,
     MapManifestAsset,
 };
+#[cfg(feature = "validation")]
+use feathrise_map_content::MapCatalogEntry;
 use std::{
     collections::BTreeSet,
     fs::File,
@@ -21,14 +23,9 @@ pub(crate) struct SavedGameStartup {
     pub map_id: MapId,
     pub name: String,
     pub spawn: Vec3,
+    // 仅显式运行验收需要目录条目核对来源；正式启动只保留地图身份、名称与出生点。
+    #[cfg(feature = "validation")]
     pub entry: MapCatalogEntry,
-}
-
-pub(crate) fn load(project: &ProjectContext, saved_play: bool) -> Result<SavedGameStartup, String> {
-    let requested = saved_play
-        .then(|| std::env::var("EDITOR_SAVED_PLAY_MAP").ok())
-        .flatten();
-    load_with_map(project, requested)
 }
 
 /// 空工程可以启动空窗口；只有没有地图也没有显式选择时才为空，坏启动图仍报告错误。
@@ -112,6 +109,7 @@ fn load_with_map_checked(
         map_id: entry.id.clone(),
         name: manifest.display_name,
         spawn: Vec3::from_array(manifest.default_spawn),
+        #[cfg(feature = "validation")]
         entry,
     })
 }
