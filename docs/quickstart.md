@@ -49,27 +49,27 @@ cargo run --locked --example minimal_project -- --capture "$env:TEMP/feathrise-m
 
 ## 在自己的工程使用
 
-推荐由 Feathrise 新建工程：它会生成根依赖、补丁、空资产目录及工程描述，工程只编译 SDK 和自身代码。编辑器通过 `sdk-source.toml` 选择本地路径或固定 Git 提交。
+推荐由 Feathrise 新建工程：它会生成根依赖、补丁、空资产目录及工程描述，工程只编译 SDK 和自身代码。编辑器通过 `sdk-source.toml` 选择 registry 版本、本地路径或固定 Git 提交。
 
-手动接入时，工程和 SDK 可以放在同一父目录；在**工程根** `Cargo.toml` 配置同一 SDK 的依赖和渲染补丁：
+手动接入已发布版本时，在**工程根** `Cargo.toml` 配置精确 SDK 版本与公开 Git 补丁：
 
 ```toml
 [dependencies]
 bevy = "=0.19.1"
-feathrise_runtime = { path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
+feathrise_runtime = { version = "=0.1.0", default-features = false, features = ["default_font"] }
 
 [patch.crates-io]
-avian3d = { path = "../feathrise_patches/avian3d" }
-bevy_anti_alias = { path = "../feathrise_patches/bevy_anti_alias" }
-bevy_render = { path = "../feathrise_patches/bevy_render" }
-bevy_core_pipeline = { path = "../feathrise_patches/bevy_core_pipeline" }
-wgpu-hal = { path = "../feathrise_patches/wgpu-hal" }
-parley = { path = "../feathrise_patches/parley-compat" }
-dlss_wgpu = { path = "../feathrise_patches/dlss_wgpu" }
-wgpu-ffx = { path = "../feathrise_patches/wgpu-ffx" }
+avian3d = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_anti_alias = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_render = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_core_pipeline = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-hal = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+parley = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+dlss_wgpu = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-ffx = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
 ```
 
-这只是已有工程清单中的依赖部分。Cargo 不会继承依赖包自己的 `[patch]`；替换为 Git 来源时，SDK 与补丁分别使用各自的仓库和配套的固定提交。工程维护自己的锁文件。
+这只是已有工程清单中的依赖部分；工程仍须提供下面的入口和公共资产目录。Cargo 不会继承依赖包自己的 `[patch]`。首次 `cargo check` 生成工程自己的锁文件后，再用 `cargo check --locked` 复验。需要联调源码时见[本地修改](crates-io.md#本地修改)。
 
 编辑器创建的工程入口使用实际 `ProjectContext::load`，例如：
 

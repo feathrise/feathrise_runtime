@@ -97,11 +97,11 @@ fn setup(
     commands.spawn((SceneRuntimeObserver, Transform::default()));
 
     // 不指定 TextFont.font，直接展示 run 自动安装的 SDK 默认中文字体。
-    // 关闭 default_font 时使用 Bevy 自带字体和英文文案，避免把缺字误作加载失败。
+    // 关闭 default_font 时使用 Bevy 自带字体和 ASCII 文案；该字体不保证包含中点等标点。
     let message = if cfg!(feature = "default_font") {
         "羽立 · 最小工程\nSDK 运行时 + 自定义 Plugin\n空格：暂停 / 继续旋转    Esc：退出"
     } else {
-        "Feathrise · Minimal project\nSDK runtime + your Plugin\nSpace: pause / resume    Esc: exit"
+        "Feathrise - Minimal project\nSDK runtime + your Plugin\nSpace: pause / resume    Esc: exit"
     };
     commands.spawn((
         Text::new(message),

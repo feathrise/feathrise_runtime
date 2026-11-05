@@ -2,7 +2,7 @@
 
 自有源码及各子包采用 MIT OR Apache-2.0，第三方组件保留原许可。
 
-SDK 当前先通过 [GitHub 源码仓](https://github.com/hwyrq/feathrise_runtime) 提供，下面的 registry 版本配置用于 crates.io 发布后。现在可按[最小工程示例](quickstart.md)克隆 SDK 与配套补丁仓，直接使用源码。
+SDK 0.1.0 的 23 个包现已发布到 [crates.io](https://crates.io/crates/feathrise_runtime)。外部工程可直接使用下面的 registry 配置；需要修改 SDK 或运行仓内示例时，仍可按[最小工程示例](quickstart.md)克隆源码与配套补丁仓。
 
 编辑器的原生运行库部署身份由无依赖的 `feathrise_runtime_manifest` 提供；帧生成包的构建与启动也消费同一清单。它需先于实际依赖它的包发布，单独使用清单不会编译 Bevy 或厂商桥。SDK 源码仓包含 23 个发布包：根包与 22 个独立子库，另有一个外部字体总包及其三个分片。发布顺序应从当前 Cargo 普通／构建依赖图生成。
 
@@ -50,7 +50,7 @@ wgpu-ffx = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c25
 
 所有补丁采用同一个实际公开 URL 和与 SDK 版本配套的完整提交。Cargo 自动取得源码，不要求手工维护本地 SDK。库内 `[patch]` 不会向上传递；使用 SDK 的工程应把它放在工作区根。
 
-版本发布后，在没有 SDK 源码路径覆盖的独立工程中使用上述版本与公开 Git 补丁，先执行 `cargo check` 生成锁文件，再以 `cargo check --locked` 复验。确认 SDK 自有包来自 registry，只有八项约定补丁来自固定 Git 修订；这才是发布后的消费验证。首次配置新工程时尚无锁文件，不直接要求 `--locked`。
+首次配置独立工程时，先执行 `cargo check` 生成锁文件，再以 `cargo check --locked` 复验。用 `cargo metadata --format-version 1` 核对实际来源：SDK 自有包应来自 crates.io，八项约定补丁来自固定 Git 修订；工程自己的源码保留本地路径。默认功能与关闭默认功能应分别检查，可选原生组合另外验证。首次配置尚无锁文件，不直接要求 `--locked`。
 
 ## 可选 Windows 原生能力
 

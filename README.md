@@ -6,7 +6,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 ## 使用与入口
 
-当前先通过 [GitHub](https://github.com/hwyrq/feathrise_runtime) 提供源码。克隆 SDK 与配套补丁、运行示例见[快速开始](docs/quickstart.md)；crates.io 发布后的版本配置和本地开发方式见[接入说明](docs/crates-io.md)。
+SDK 0.1.0 的全部 23 个包已发布到 [crates.io](https://crates.io/crates/feathrise_runtime)。外部工程使用精确版本与固定 Git 补丁，完整配置见[接入说明](docs/crates-io.md)；克隆源码并运行示例见[快速开始](docs/quickstart.md)。
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
@@ -19,7 +19,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime" }
 ```
 
-发布后的外部工程使用 `feathrise_runtime = "0.1.0"`。本仓内部子库同时声明 `version` 与 `path`，本地使用源码，发布归档中的依赖转为 registry 版本；路径失效不会自动回退到 registry。
+外部工程使用 `feathrise_runtime = "=0.1.0"`，并按接入说明配置八项补丁。本仓内部子库同时声明 `version` 与 `path`，本地使用源码，发布归档中的依赖转为 registry 版本；路径失效不会自动回退到 registry。
 
 渲染补丁必须在消费工程的根 `Cargo.toml` 或显式 Cargo 配置中提供，库包自己的 `[patch]` 不会向上传递。当前八项为 `avian3d`、`bevy_anti_alias`、`bevy_render`、`bevy_core_pipeline`、`wgpu-hal`、`parley`、`dlss_wgpu`、`wgpu-ffx`。使用 crates.io SDK 时，它们都从独立补丁仓的同一个、与包版本配套的完整 Git 提交获取。
 
