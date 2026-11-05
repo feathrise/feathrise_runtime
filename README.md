@@ -43,8 +43,8 @@ Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`
 | --- | --- |
 | `raytracing`（默认） | 编入光追能力，实际启用取决于工程设置和设备支持 |
 | `default_font`（默认） | 内嵌 Noto Sans CJK 默认字体与 OFL 文本 |
-| `dlss`、`dlss_frame_generation`、`rtx_rendering` | DLSS、Vulkan 与光追集成组合，按对应库说明配置上游 SDK |
-| `fsr`、`fsr3_upscaling`、`fsr3_frame_generation` | FSR 超分和帧生成组合；帧生成需要显式提供锁定的 Windows 原生包 |
+| `dlss`、`dlss_frame_generation`、`rtx_rendering` | DLSS、Vulkan 与光追集成组合，[构建前提](crates/feathrise_frame_generation/README.md)分别覆盖 NGX 与 Streamline |
+| `fsr`、`fsr3_upscaling`、`fsr3_frame_generation` | FSR 超分和帧生成组合；帧生成需显式提供原生 ZIP，或用包内脚本显式源码准备 |
 | `test_panel` | 供工程启用的调试特性 |
 | `physics_debug`、`initial_items` | 兼容旧特性名 |
 | `validation` | 启用工程验收及报告 |
@@ -63,7 +63,7 @@ cargo check --locked -p feathrise_runtime
 
 当前 Windows 构建需要 Rust/MSVC 工具链。仓库的 Windows 默认和可选验收特性编译工作流见 [CI 说明](docs/ci.md)；测试素材使用库内中性输入，不依赖编辑器或外部工程源码。
 
-FSR 帧生成构建从 `FEATHRISE_FSR3_PACKAGE` 指定的本地 ZIP 校验、解包并链接修订 DLL 和桥接静态库，无需 AMD/Vulkan SDK、CMake 或为 FSR 编译 C++。运行机器需要适用的 Vulkan 显卡驱动和 Microsoft Visual C++ 2015–2022 x64 运行库。离线配置、包身份与维护者显式源码重建见 [FSR 预编译说明](crates/feathrise_fsr3_frame_generation/prebuilt/README.md)。当前 FSR 仍为候选能力，编译检查不代表完整 GPU 和画面验收。可选 DLSS 帧生成仍需要显式 Streamline/Vulkan SDK 和 C++ 桥接工具链。
+FSR 帧生成使用 `FEATHRISE_FSR3_PACKAGE` 指定已有本地 ZIP 时，只校验、解包并链接修订 DLL 与桥接静态库，无需 AMD/Vulkan SDK、CMake 或为 FSR 编译 C++。没有原生包时，可按 [FSR 准备说明](crates/feathrise_fsr3_frame_generation/prebuilt/README.md)用公开包内脚本显式源码构建；这条路径需要对应 SDK 与原生构建工具。运行机器需要适用的 Vulkan 显卡驱动和 Microsoft Visual C++ 2015–2022 x64 运行库。当前 FSR 仍为候选能力，编译检查不代表完整 GPU 和画面验收。可选 DLSS 的 DLSS SDK、LLVM／Clang、Vulkan、MSVC 以及帧生成所需的 Streamline 前提见 [DLSS 构建说明](crates/feathrise_frame_generation/README.md)。
 
 ## 单包与仓库集成测试
 

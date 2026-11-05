@@ -4,18 +4,29 @@ use sha2::{Digest as _, Sha256}; // 官方来源与修订产物采用同一 SHA-
 use std::{
     // 标准库同时承担构建期磁盘校验与受控脚本启动。
     env,           // 手动解析 PowerShell 7 路径，避免 Cargo 环境中的 PATH 大小写条目冲突。
-    fs,            // 所有自动写入仅由当前工作树脚本落到 Git 忽略的私有目录。
+    fs,            // 源码重建写入显式独占输出，发布归档本身保持只读。
     io::Read as _, // 大 DLL 使用固定缓冲流式计算身份。
     path::{Path, PathBuf}, // 所有来源和目标都通过明确路径传递。
-    process::Command, // 缺少当前工作树运行包时启动唯一受控 PowerShell 构建入口。
+    process::Command, // 缺少当前输出的运行包时启动所属 crate 内的唯一构建入口。
 }; // 标准库导入结束。
 
 pub const REVISION: &str = "bl5-vulkan-lifetime-ui-1"; // 本项目修订号，明确区别 AMD 官方签名原件。
 pub const OFFICIAL_DLL_SHA256: &str =
     "A1624CC4238FEF046F30C4D80CE3F47BE63FC5F5373F49E3EE9EDB9960F54C78"; // 官方来源字节身份保持不变。
 pub const LICENSE_SHA256: &str = "C93D509CD69D50698796C9C3274247352736EF122A3197ACE2010F0978E21AA6"; // 原 MIT 许可不得改写。
-const RUNTIME_RELATIVE_DIRECTORY: &str = ".local/fsr3-sdk-patched/runtime"; // 每个工作树都持有自己源码编译得到的运行包。
-pub const RUNTIME_BUILD_SCRIPT: &str = "crates/feathrise_fsr3_frame_generation/scripts/构建FSR修订运行库.ps1"; // 源码重建脚本随所属 crate 保存；路径相对 SDK 仓库根。
+const RUNTIME_RELATIVE_DIRECTORY: &str = ".local/fsr3-sdk-patched/runtime"; // 保留维护者旧工作区预检入口，不作为发布包构建的目录推断。
+pub const RUNTIME_BUILD_SCRIPT: &str = "scripts/构建FSR修订运行库.ps1"; // 路径只相对当前 crate，解包后不需要完整 SDK 目录。
+
+/// Cargo 默认使用自身私有 OUT_DIR；显式绝对目录可复用维护者已有源码构建缓存。
+pub fn source_build_root(out_dir: &Path, configured: Option<&Path>) -> Result<PathBuf, String> {
+    let directory = configured
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| out_dir.join("fsr3-source"));
+    if !directory.is_absolute() {
+        return Err("FEATHRISE_FSR3_SOURCE_BUILD_ROOT 必须是绝对目录".into());
+    }
+    Ok(directory)
+}
 #[cfg(test)] // 生产 build.rs 不需要测试临时目录预算。
 const TEST_DIRECTORY_ATTEMPTS: u32 = 1024; // 并行测试使用有限唯一目录，避免异常残留造成无界循环。
 pub const FILE_NAMES: [&str; 6] = [
@@ -34,9 +45,14 @@ pub struct RuntimePackage {
     pub files: Vec<(PathBuf, String)>, // 顺序严格对应 FILE_NAMES，每项保存原路径和精确哈希。
 } // RuntimePackage 结束。
 
+#[allow(dead_code)] // 既有维护工具仍可预检工作区 .local 产物，Cargo 单包模式使用显式运行目录。
 pub fn inspect(workspace: &Path, patch_root: &Path) -> Result<RuntimePackage, String> {
+    inspect_runtime(&workspace.join(RUNTIME_RELATIVE_DIRECTORY), patch_root)
+}
+
+/// 来源校验只消费显式运行目录与外部补丁目录，不从包的父级推断任何输入。
+pub fn inspect_runtime(runtime: &Path, patch_root: &Path) -> Result<RuntimePackage, String> {
     // 所有失败在加载或写入发行包之前返回。
-    let runtime = workspace.join(RUNTIME_RELATIVE_DIRECTORY); // 修订运行库独立于 Cargo 缓存，后续构建复用当前工作树产物。
     // 原生补丁归独立补丁仓；调用者显式传入材料目录，不搜索 SDK 或私有父目录。
     let manifest_path = runtime.join(FILE_NAMES[1]); // 不搜索其他 SDK 版本或旁路目录。
     let manifest: serde_json::Value =
@@ -102,29 +118,47 @@ enum RuntimePairState {
     Missing,  // 专用目录不存在或为空，可以启动当前工作树构建脚本。
 } // RuntimePairState 结束。
 
+#[allow(dead_code)] // 保留 RPG 维护入口的四参合同；发布包构建不走完整工作区布局。
 pub fn ensure_runtime_built(
     workspace: &Path,
     sdk_root: &Path,
     vulkan_root: &Path,
     patch_root: &Path,
 ) -> Result<bool, String> {
-    // 构建与发行共用同一缺包引导入口。
-    ensure_runtime_built_with(workspace, || {
-        invoke_runtime_build_script(workspace, sdk_root, vulkan_root, patch_root)
-    }) // 生产路径把已预检 SDK 根显式传给脚本。
+    ensure_runtime_built_at(
+        &workspace.join("crates/feathrise_fsr3_frame_generation"),
+        &workspace.join(".local/fsr3-sdk-patched"),
+        sdk_root,
+        vulkan_root,
+        patch_root,
+    )
+}
+
+/// 当前包与写入目录各自独立，支持 Cargo registry 的只读解包布局。
+pub fn ensure_runtime_built_at(
+    crate_root: &Path,
+    build_root: &Path,
+    sdk_root: &Path,
+    vulkan_root: &Path,
+    patch_root: &Path,
+) -> Result<bool, String> {
+    // 脚本来自当前包；缓存和外部输入分别显式传入，二者不再共享“工作区根”假设。
+    ensure_runtime_built_with(build_root, || {
+        invoke_runtime_build_script(crate_root, build_root, sdk_root, vulkan_root, patch_root)
+    })
 } // ensure_runtime_built 结束。
 
-fn ensure_runtime_built_with<F>(workspace: &Path, mut build: F) -> Result<bool, String>
+fn ensure_runtime_built_with<F>(build_root: &Path, mut build: F) -> Result<bool, String>
 where
     F: FnMut() -> Result<(), String>,
 {
     // 闭包隔离外部进程，单元测试不需要真实 SDK。
-    let runtime = workspace.join(RUNTIME_RELATIVE_DIRECTORY); // 状态检查只观察当前工作树的固定运行目录。
+    let runtime = build_root.join("runtime"); // 状态检查只观察本次显式输出，不读取源码包或其他检出的运行库。
     if runtime_pair_state(&runtime)? == RuntimePairState::Complete {
         // 成对文件存在时直接进入后续身份校验。
         return Ok(false); // 后续构建不重复运行耗时的 SDK 源码编译。
     } // 已有运行包快速路径结束。
-    build().map_err(|error| format!("自动编译当前工作树 FSR 修订运行库失败：{error}"))?; // 只有完全缺失状态才能执行一次构建器。
+    build().map_err(|error| format!("编译当前包 FSR 修订运行库失败：{error}"))?; // 只有完全缺失状态才能执行一次构建器。
     match runtime_pair_state(&runtime)? {
         // 子进程成功退出后仍以磁盘事实确认固定文件对。
         RuntimePairState::Complete => Ok(true), // 调用方可输出仅本次首次构建提示。
@@ -137,52 +171,71 @@ where
 } // ensure_runtime_built_with 结束。
 
 fn invoke_runtime_build_script(
-    workspace: &Path,
+    crate_root: &Path,
+    build_root: &Path,
     sdk_root: &Path,
     vulkan_root: &Path,
     patch_root: &Path,
 ) -> Result<(), String> {
-    // 子进程只执行当前工作树的受控脚本。
-    let script = workspace.join(RUNTIME_BUILD_SCRIPT); // 分支自己的脚本决定补丁与构建协议。
-    let script_metadata = fs::metadata(&script)
-        .map_err(|error| format!("读取 FSR 构建脚本失败：{}（{error}）", script.display()))?; // 缺少脚本时不搜索其他工作树替代。
-    if !script_metadata.is_file() {
-        // 普通文件之外的路径不能作为自动执行入口。
-        return Err(format!("FSR 构建脚本不是普通文件：{}", script.display())); // 阻止目录或异常链接布局被当成命令。
-    } // 脚本类型检查结束。
-    let powershell = resolve_powershell_7()?; // Cargo 环境可能同时含 PATH/Path，必须先固定真实可执行文件。
-    let status = Command::new(&powershell) // 项目脚本依赖 PowerShell 7 的 UTF-8 与进程 API 行为。
-        .arg("-NoLogo") // 自动构建日志不输出无关启动标识。
-        .arg("-NoProfile") // 用户配置不得改变受控构建语义。
-        .arg("-NonInteractive") // Cargo 构建不能等待交互输入。
-        .arg("-ExecutionPolicy") // 仅对子进程指定脚本执行策略。
-        .arg("Bypass") // 允许执行当前仓库已审计脚本，不修改系统策略。
-        .arg("-File") // 后续路径作为脚本文件而非命令字符串解释。
-        .arg(&script) // 只运行当前工作树精确路径。
-        .arg("-SdkRoot") // 显式传入已经由调用方检查的 FidelityFX SDK。
-        .arg(sdk_root) // 外部 SDK 在脚本中保持只读。
-        .arg("-VulkanSdk") // 显式传入已经由调用方检查的 Vulkan SDK。
-        .arg(vulkan_root) // 避免脚本依赖调用终端临时变量。
-        .arg("-PatchRoot") // 来源材料只读自显式选择的独立补丁仓。
-        .arg(patch_root) // 不隐式依赖 SDK 的检出位置或私有父仓。
-        .current_dir(workspace) // Git 与相对来源都固定在当前工作树。
-        .status() // 继承 Cargo 日志流，长时间 CMake 构建不缓存在内存。
-        .map_err(|error| {
-            format!(
-                "无法启动 PowerShell 7 {} 执行 {}（{error}）",
-                powershell.display(),
-                script.display()
-            )
-        })?; // 启动失败时给出真实工具路径。
+    let powershell = resolve_powershell_7()?;
+    let mut command = runtime_build_command(
+        &powershell,
+        crate_root,
+        build_root,
+        sdk_root,
+        vulkan_root,
+        patch_root,
+    )?;
+    let status = command.status().map_err(|error| {
+        format!(
+            "无法启动 PowerShell 7 {} 执行包内 FSR 构建脚本（{error}）",
+            powershell.display()
+        )
+    })?;
     if !status.success() {
-        // 任一 SDK 校验、补丁或编译失败都阻止 Cargo 继续。
         return Err(format!(
             "{} 退出状态为 {status}；可手动运行该脚本查看完整诊断",
-            script.display()
-        )); // 不回退复制主工作树运行包。
-    } // 子进程退出状态检查结束。
-    Ok(()) // 文件完整性由调用方状态检查与随后 inspect 双重确认。
-} // invoke_runtime_build_script 结束。
+            crate_root.join(RUNTIME_BUILD_SCRIPT).display()
+        ));
+    }
+    Ok(()) // 文件完整性由调用方状态检查与随后 inspect_runtime 双重确认。
+}
+
+/// 构造真实子进程参数，测试可在无 SDK 的独立解包布局中核对脚本和输出位置。
+fn runtime_build_command(
+    powershell: &Path,
+    crate_root: &Path,
+    build_root: &Path,
+    sdk_root: &Path,
+    vulkan_root: &Path,
+    patch_root: &Path,
+) -> Result<Command, String> {
+    let script = crate_root.join(RUNTIME_BUILD_SCRIPT);
+    let script_metadata = fs::metadata(&script)
+        .map_err(|error| format!("读取包内 FSR 构建脚本失败：{}（{error}）", script.display()))?;
+    if !script_metadata.is_file() {
+        return Err(format!("FSR 构建脚本不是普通文件：{}", script.display()));
+    }
+    let mut command = Command::new(powershell);
+    command
+        .arg("-NoLogo")
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(script)
+        .arg("-SdkRoot")
+        .arg(sdk_root)
+        .arg("-VulkanSdk")
+        .arg(vulkan_root)
+        .arg("-PatchRoot")
+        .arg(patch_root)
+        .arg("-BuildRoot")
+        .arg(build_root)
+        .current_dir(crate_root); // Git apply 不需要主仓；相对进程位置只归当前包。
+    Ok(command)
+}
 
 fn resolve_powershell_7() -> Result<PathBuf, String> {
     // 显式配置优先，随后手动遍历所有大小写形式的 PATH。
@@ -422,9 +475,9 @@ mod tests {
         panic!("测试临时目录冲突超过 {TEST_DIRECTORY_ATTEMPTS} 次"); // 异常环境要求显式失败。
     } // create_test_root 结束。
 
-    fn write_runtime_pair(workspace: &Path) {
+    fn write_runtime_pair(build_root: &Path) {
         // 小字节夹具只验证构建触发状态，不冒充完整 manifest 身份。
-        let runtime = workspace.join(RUNTIME_RELATIVE_DIRECTORY); // 与生产入口使用同一固定相对位置。
+        let runtime = build_root.join("runtime"); // 与生产入口使用同一显式输出下的固定位置。
         fs::create_dir_all(&runtime).expect("应创建模拟运行目录"); // 测试根已独占，可以安全创建父目录。
         fs::write(runtime.join(FILE_NAMES[0]), b"runtime").expect("应写入模拟 DLL"); // 普通文件满足成对状态检查。
         fs::write(runtime.join(FILE_NAMES[1]), b"manifest").expect("应写入模拟 manifest"); // 内容解析不属于本组触发测试。
@@ -434,6 +487,269 @@ mod tests {
         // 构造只用于协议测试的合法结构。
         serde_json::json!({"schema_version": 1, "sdk_version": "1.1.4", "revision": REVISION, "official_dll_sha256": OFFICIAL_DLL_SHA256, "license_sha256": LICENSE_SHA256, "patch_sha256": "A".repeat(64), "source_manifest_sha256": "B".repeat(64), "dll_sha256": "C".repeat(64), "authenticode": "NotSigned", "cmake_version": "test", "generator": "test", "build_configuration": "Release"}) // 字节匹配由 inspect 的实际文件测试覆盖。
     } // valid_manifest 结束。
+
+    #[test]
+    fn source_build_defaults_to_cargo_output_and_rejects_relative_overrides() {
+        let root = create_test_root("source_output");
+        let out_dir = root.join("cargo-output");
+        assert_eq!(
+            source_build_root(&out_dir, None).expect("Cargo 输出应为绝对路径"),
+            out_dir.join("fsr3-source")
+        );
+        let existing_cache = root.join("existing-cache");
+        assert_eq!(
+            source_build_root(&out_dir, Some(&existing_cache)).expect("允许显式复用既有缓存"),
+            existing_cache
+        );
+        assert!(source_build_root(&out_dir, Some(Path::new("relative-cache"))).is_err());
+        fs::remove_dir_all(&root).expect("应清理测试独占根目录");
+    }
+
+    #[test]
+    fn unpacked_crate_uses_its_own_script_and_explicit_build_root() {
+        // 模拟 registry 独立包布局，复制实际随包脚本；没有 SDK/crates 祖先或主仓。
+        let root = create_test_root("unpacked_script");
+        let crate_root = root.join("registry cache/feathrise_fsr3_frame_generation-0.1.0");
+        let script = crate_root.join(RUNTIME_BUILD_SCRIPT);
+        fs::create_dir_all(script.parent().expect("脚本应有父目录")).expect("应创建独立包目录");
+        fs::write(&script, include_bytes!("scripts/构建FSR修订运行库.ps1"))
+            .expect("应写入实际随包脚本");
+        let output = root.join("cargo-output/fsr3-source");
+        let sdk = root.join("external/FidelityFX-SDK-v1.1.4");
+        let vulkan = root.join("external/Vulkan");
+        let patches = root.join("external/fidelityfx-sdk-patches");
+        let command = runtime_build_command(
+            Path::new("pwsh.exe"),
+            &crate_root,
+            &output,
+            &sdk,
+            &vulkan,
+            &patches,
+        )
+        .expect("独立包应能定位自己的脚本");
+        let arguments: Vec<_> = command.get_args().collect();
+        for (flag, value) in [
+            ("-File", script.as_os_str()),
+            ("-BuildRoot", output.as_os_str()),
+            ("-SdkRoot", sdk.as_os_str()),
+            ("-VulkanSdk", vulkan.as_os_str()),
+            ("-PatchRoot", patches.as_os_str()),
+        ] {
+            assert!(
+                arguments
+                    .windows(2)
+                    .any(|pair| { pair[0] == std::ffi::OsStr::new(flag) && pair[1] == value }),
+                "应将 {flag} 的空格及中文路径作为独立参数传递"
+            );
+        }
+        assert_eq!(command.get_current_dir(), Some(crate_root.as_path()));
+        assert!(!output.exists(), "构造命令不应向源码包或输出写入文件");
+
+        // 即使另有旧 SDK 布局脚本，也不能在当前包缺件后偷偷改用它。
+        let legacy = root
+            .join("crates/feathrise_fsr3_frame_generation")
+            .join(RUNTIME_BUILD_SCRIPT);
+        fs::create_dir_all(legacy.parent().expect("旧脚本应有父级")).expect("应创建旧目录夹具");
+        fs::rename(&script, &legacy).expect("应把脚本移到旧布局");
+        assert!(
+            runtime_build_command(
+                Path::new("pwsh.exe"),
+                &crate_root,
+                &output,
+                &sdk,
+                &vulkan,
+                &patches,
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(&root).expect("应清理测试独占根目录");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cargo_target_inside_unpacked_crate_reaches_external_input_preflight() {
+        // Cargo 对单独解包包默认使用 <crate>/target；这条真实 PS 回归不能误把它当源码写入。
+        let root = create_test_root("package_target");
+        let crate_root = root.join("package/feathrise_fsr3_frame_generation-0.1.0");
+        let script = crate_root.join(RUNTIME_BUILD_SCRIPT);
+        fs::create_dir_all(script.parent().expect("脚本应有父目录")).expect("应创建解包目录");
+        fs::write(&script, include_bytes!("scripts/构建FSR修订运行库.ps1"))
+            .expect("应复制真实脚本");
+        let powershell = resolve_powershell_7().expect("Windows 源码定位回归需要 PowerShell 7");
+        let sdk = root.join("external/FidelityFX-SDK-v1.1.4");
+        let vulkan = root.join("external/Vulkan");
+        let patches = root.join("external/fidelityfx-sdk-patches");
+        for (relative, matching_manifest, should_reach_inputs) in [
+            ("target/debug/build/feathrise-fsr3-test/out", true, true),
+            (
+                "custom-cache/debug/build/feathrise-fsr3-test/out",
+                true,
+                true,
+            ),
+            ("src/build/feathrise-fsr3-test/out", false, false),
+            ("target/non-cargo/out", false, false),
+        ] {
+            let out_dir = crate_root.join(relative);
+            fs::create_dir_all(&out_dir).expect("应建立模拟 Cargo 已创建的 OUT_DIR");
+            let build_root = out_dir.join("fsr3-source");
+            let mut command = runtime_build_command(
+                &powershell,
+                &crate_root,
+                &build_root,
+                &sdk,
+                &vulkan,
+                &patches,
+            )
+            .expect("应定位本包脚本");
+            let output = command
+                .env("OUT_DIR", &out_dir)
+                // 只有 Cargo 确认当前包的 OUT_DIR 才能例外；单独伪造输出路径不能授权源码写入。
+                .env(
+                    "CARGO_MANIFEST_DIR",
+                    if matching_manifest {
+                        &crate_root
+                    } else {
+                        &root
+                    },
+                )
+                .output()
+                .expect("应执行真实脚本的路径与外部材料预检");
+            let detail = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            assert!(!output.status.success(), "本回归没有提供外部 SDK 或补丁");
+            let expected = if should_reach_inputs {
+                "补丁目录缺少来源材料"
+            } else {
+                "BuildRoot 必须与包源码目录分离"
+            };
+            assert!(detail.contains(expected), "{relative}: {detail}");
+            assert!(!build_root.exists(), "预检失败不应产生源码副本或运行库");
+        }
+        // 即使两项 Cargo 环境匹配，也不能把包根或包含包根的祖先当作可重建输出根。
+        let ancestor_out = root.join("ancestor-cargo-output");
+        let protected_build_root = ancestor_out.join("fsr3-source");
+        for suffix in ["", "nested-package"] {
+            let protected_crate = protected_build_root.join(suffix);
+            let script = protected_crate.join(RUNTIME_BUILD_SCRIPT);
+            fs::create_dir_all(script.parent().expect("脚本应有父级")).expect("应创建受保护包");
+            fs::write(&script, include_bytes!("scripts/构建FSR修订运行库.ps1"))
+                .expect("应复制真实脚本");
+            let output = runtime_build_command(
+                &powershell,
+                &protected_crate,
+                &protected_build_root,
+                &sdk,
+                &vulkan,
+                &patches,
+            )
+            .expect("应定位受保护包的脚本")
+            .env("OUT_DIR", &ancestor_out)
+            .env("CARGO_MANIFEST_DIR", &protected_crate)
+            .output()
+            .expect("应执行真实包根保护检查");
+            let detail = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            assert!(!output.status.success());
+            assert!(detail.contains("不能等于或包含包源码目录"), "{detail}");
+        }
+        fs::remove_dir_all(&root).expect("应清理测试独占根目录");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shader_header_path_budget_rejects_long_roots_before_copy_or_compile() {
+        // 执行真实脚本的提前预检：少量 accessor 与四个补丁占位已足够，不安装或调用编译器。
+        let root = create_test_root("path");
+        let crate_root = root.join("crate");
+        let script = crate_root.join(RUNTIME_BUILD_SCRIPT);
+        fs::create_dir_all(script.parent().expect("脚本应有父级")).expect("应创建包目录");
+        fs::write(&script, include_bytes!("scripts/构建FSR修订运行库.ps1"))
+            .expect("应复制真实脚本");
+        let sdk = root.join("FidelityFX-SDK-v1.1.4");
+        let accessors = sdk.join("sdk/src/backends/shared/blob_accessors");
+        fs::create_dir_all(&accessors).expect("应创建最小 accessor 夹具");
+        let patches = root.join("patches");
+        fs::create_dir(&patches).expect("应创建补丁占位目录");
+        for name in [
+            "LICENSE.txt",
+            "README.md",
+            "v1.1.4-vulkan-lifetime.patch",
+            "source-manifest.json",
+        ] {
+            fs::write(patches.join(name), b"fixture").expect("应创建存在性预检占位");
+        }
+        let powershell = resolve_powershell_7().expect("Windows 路径预检需要 PowerShell 7");
+        let shader =
+            "ffx_frameinterpolation_compute_game_vector_field_inpainting_pyramid_pass_wave64_16bit";
+        let header = format!("{shader}_{}.h", "0".repeat(32));
+        let projected = |directory: &Path| {
+            directory
+                .join("build/sdk/src/backends/shaders/vk")
+                .join(&header)
+                .to_string_lossy()
+                .encode_utf16()
+                .count()
+        };
+        let base_length = projected(&root.join("b"));
+        assert!(
+            base_length < 259,
+            "测试独占临时目录过长，无法建立短路径对照"
+        );
+        for (open, close) in [("<", ">"), ("\"", "\"")] {
+            fs::write(
+                accessors.join("fixture.cpp"),
+                format!("#include {open}{shader}_permutations.h{close}\n"),
+            )
+            .expect("应覆盖尖括号和引号 include");
+            for length in [259, 260, 269] {
+                let build_root = root.join("b".repeat(length - base_length + 1));
+                assert_eq!(projected(&build_root), length);
+                let mut command = runtime_build_command(
+                    &powershell,
+                    &crate_root,
+                    &build_root,
+                    &sdk,
+                    &root.join("Vulkan"),
+                    &patches,
+                )
+                .expect("应定位真实包内脚本");
+                let output = command
+                    // 只解析现成可执行文件路径；缺失官方 DLL 会在任何 CMake 执行前停止短路径对照。
+                    .arg("-CmakePath")
+                    .arg(&powershell)
+                    .output()
+                    .expect("应执行真实路径预算预检");
+                let detail = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                assert!(
+                    !output.status.success(),
+                    "本回归不提供官方 DLL，不能执行编译"
+                );
+                if length >= 260 {
+                    assert!(detail.contains(&format!("{length} 个字符")), "{detail}");
+                    assert!(
+                        detail.contains("FEATHRISE_FSR3_SOURCE_BUILD_ROOT"),
+                        "{detail}"
+                    );
+                    assert!(detail.contains("ffx_frameinterpolation"), "{detail}");
+                } else {
+                    assert!(detail.contains("PrebuiltSignedDLL"), "{detail}");
+                    assert!(!detail.contains("FSR 源码构建路径过长"), "{detail}");
+                }
+                assert!(!build_root.exists(), "提前预检不得复制 SDK 或生成构建目录");
+            }
+        }
+        fs::remove_dir_all(&root).expect("应清理测试独占根目录");
+    }
 
     #[test] // 全新工作树必须只启动一次构建器并观察到成对结果。
     fn missing_runtime_builds_once() {
@@ -475,7 +791,7 @@ mod tests {
         for (label, file_name) in [("partial", FILE_NAMES[0]), ("unknown", "foreign.txt")] {
             // 分别覆盖孤立 DLL 与未知文件。
             let root = create_test_root(label); // 每个场景使用独立可删除根目录。
-            let runtime = root.join(RUNTIME_RELATIVE_DIRECTORY); // 使用生产固定运行目录。
+            let runtime = root.join("runtime"); // 使用生产显式输出下的运行目录。
             fs::create_dir_all(&runtime).expect("应创建不安全运行目录"); // 随后写入精确现场。
             fs::write(runtime.join(file_name), b"keep").expect("应写入现场文件"); // 自动入口不得修改该字节。
             let calls = Cell::new(0_u32); // 构建器必须保持未调用。

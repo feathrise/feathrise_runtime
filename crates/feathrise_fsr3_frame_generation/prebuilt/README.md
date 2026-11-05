@@ -44,16 +44,56 @@ ZIP只允许以下八个根目录文件，不接受路径穿越、子目录、�
 
 固定来源原文中的 `scripts/构建FSR修订运行库.ps1` 是当时的历史路径；当前入口为所属 crate 的 [scripts/构建FSR修订运行库.ps1](../scripts/构建FSR修订运行库.ps1)。保留原文字节以维持既有包身份，维护命令以本说明为准。
 
-## 维护者与CI重建
+## 显式源码准备与构建
 
-普通消费构建默认使用预编译包。只有维护者或CI显式设置`FEATHRISE_FSR3_BUILD_FROM_SOURCE=1`才进入源码模式，安装官方AMD SDK、Vulkan SDK、CMake及MSVC C++构建工具，并沿用[修订运行库构建脚本](../scripts/构建FSR修订运行库.ps1)的来源审计与本工作树原子发布规则。SDK 目录由 `-SdkRoot` 或 `FIDELITYFX_SDK` 明确提供。原生补丁材料目录由 `-PatchRoot` 或 `FEATHRISE_FSR3_PATCH_ROOT` 明确提供，指向独立补丁仓的 `fidelityfx-sdk-patches/` 绝对路径；不从 SDK 或私有父目录寻找副本。CMake 来自 `-CmakePath`、`BL5_FSR3_CMAKE` 或 PATH；不搜索维护者的私有工具缓存。环境变量只在所需命令范围设置，用完恢复，不能作为普通用户前提。
+当前锁只固定原生包身份，不配置下载 URL；构建不自动下载。已有匹配 ZIP 时使用前面的 `FEATHRISE_FSR3_PACKAGE`。没有该 ZIP 时，可以从官方 SDK 与公开补丁源码重建，不需要取得私有主仓，也不需要完整 Feathrise SDK 源码仓。
 
-源码模式示例（在 SDK 根目录运行，原生补丁需来自与当前原生包配套的补丁仓检出）：
+先从 [AMD FidelityFX SDK v1.1.4 官方发布页](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/tag/v1.1.4)取得 **Minimal package** 并解压。它须包含 `PrebuiltSignedDLL/amd_fidelityfx_vk.dll`、`sdk/` 与 `ffx-api/`；GitHub 自动生成的源码压缩包不能替代带签名原件的官方包。脚本会校验官方 DLL 的 SHA-256／AMD 签名，以及固定清单中的全部 902 项源码和工具。
+
+安装 PowerShell 7、Git、CMake >=3.23、Visual Studio 2022 C++ x64 工具链，以及 Vulkan SDK >=1.3.250。这些工具仅用于显式源码重建，普通 ZIP 消费不需要它们。随后准备公开补丁和构建输入：
 
 ```powershell
-$env:FEATHRISE_FSR3_PATCH_ROOT = (Resolve-Path '../feathrise_patches/fidelityfx-sdk-patches').Path
+git clone https://github.com/hwyrq/feathrise_patches.git
+git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
+$patchRepository = (Resolve-Path './feathrise_patches').Path
+$env:FIDELITYFX_SDK = (Resolve-Path 'C:/SDK/FidelityFX-SDK-v1.1.4').Path
+$env:VULKAN_SDK = (Resolve-Path 'C:/VulkanSDK/1.4.357.0').Path
+$env:FEATHRISE_FSR3_PATCH_ROOT = Join-Path $patchRepository 'fidelityfx-sdk-patches'
 $env:FEATHRISE_FSR3_BUILD_FROM_SOURCE = '1'
-cargo check --locked -p feathrise_runtime --features fsr
 ```
 
-主仓维护者组包同样传入 `-PatchRoot <材料绝对目录>`，并在 `-RebuildRuntime` 时将其传给同一源码重建入口。原生包消费、运行交付及许可校验均保留现有哈希锁定；本次目录迁移不修改 ZIP、DLL 或来源原文。
+示例中的两个官方 SDK 安装路径应改为自己的实际绝对路径。补丁目录必须来自上述配套提交，保留其中的许可、补丁、`source-manifest.json` 与来源说明原件；不从 SDK 包或私有父目录寻找副本。CMake 来自 `BL5_FSR3_CMAKE` 或 PATH，PowerShell 可用 `BL5_FSR3_PWSH` 指定；不搜索维护者的私有工具缓存。
+
+对已解包的本 crate 直接构建。首次检查允许 Cargo 按当前依赖和补丁来源更新锁文件，成功后再添加 `--locked` 复验：
+
+```powershell
+cargo --config (Join-Path $patchRepository '.cargo/config.toml') check --manifest-path 'C:/src/feathrise_fsr3_frame_generation-0.1.0/Cargo.toml'
+```
+
+包内构建脚本按 `CARGO_MANIFEST_DIR/scripts/构建FSR修订运行库.ps1` 定位。源码副本、CMake 缓存和修订运行库默认写入本次 Cargo 私有 `OUT_DIR/fsr3-source/`，不改写 registry 包的源码输入。直接检查解包包时，Cargo 默认的 `target/.../build/<包哈希>/out/fsr3-source/`，以及包内自定义 `--target-dir` 对应的输出都允许使用；脚本核对继承的绝对 `OUT_DIR` 与当前包 `CARGO_MANIFEST_DIR` 身份，不依赖目标目录名。需要复用已有缓存时，可显式将 `FEATHRISE_FSR3_SOURCE_BUILD_ROOT` 设为独立绝对目录，例如现有 `.local/fsr3-sdk-patched`；显式覆盖的目录应放在包源码外，并与官方 SDK 和补丁材料目录分离；包内只允许上述 Cargo 专用生成目录。已有完整 DLL／manifest 仍须通过同一来源校验；半包或未知内容保持拒绝覆盖。
+
+在完整 SDK 检出中也可运行 `cargo check --locked -p feathrise_runtime --features fsr`，使用相同环境变量。各变量仅为本次显式源码命令设置，用完恢复；源码失败不会静默改用预编译包。
+
+### Windows 源码路径长度
+
+默认 `OUT_DIR/fsr3-source` 继续可用；但首次构建会生成名称较长的 shader 头文件。当前 MSVC 可能对已经生成、但完整路径过长的文件报 `C1083`。脚本在复制 SDK、探测 CMake 和编译前，从官方 accessor 的 `_permutations.h` 引用推导 32 位摘要头文件名；最长预计路径达到 260 个字符时，直接报告具体长度和路径。
+
+遇到该诊断时，显式选择较短的绝对缓存目录后重试，例如：
+
+```powershell
+$env:FEATHRISE_FSR3_SOURCE_BUILD_ROOT = 'C:/cache/feathrise-fsr3'
+```
+
+手动脚本对应使用 `-BuildRoot 'C:/cache/feathrise-fsr3'`。目录仍须满足上面的源码与输入分离规则；构建不会自动改用其他缓存、修改系统长路径配置或映射驱动器。已有包、锁文件和 ABI 不因选择较短目录而改变。
+
+## 维护者手动重建
+
+也可直接调用随包脚本，并显式指定可写缓存：
+
+```powershell
+pwsh -NoProfile -File 'C:/src/feathrise_fsr3_frame_generation-0.1.0/scripts/构建FSR修订运行库.ps1' -SdkRoot $env:FIDELITYFX_SDK -PatchRoot $env:FEATHRISE_FSR3_PATCH_ROOT -VulkanSdk $env:VULKAN_SDK -BuildRoot 'C:/cache/feathrise-fsr3-source'
+```
+
+结果位于 `BuildRoot/runtime/`；该目录中的 DLL／manifest／许可与显式补丁目录共同组成来源链。此命令重建运行库，不宣称产生与可信锁逐字节相同的八文件预编译 ZIP。不同编译器重新链接可能改变 DLL 身份；不得修改锁来掩盖不匹配，制作新发行原生包仍需重新审核、生成桥接库及固定新身份。
+
+主仓维护者组包同样传入 `-PatchRoot <材料绝对目录>`，并在 `-RebuildRuntime` 时向同一脚本显式提供 `-BuildRoot`。普通原生包消费、运行交付、AMD 原许可和当前 ZIP／DLL 锁定身份均保持。

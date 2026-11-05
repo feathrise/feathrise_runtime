@@ -1,11 +1,12 @@
-# 用途：校验官方 FidelityFX SDK 1.1.4，在当前工作树 .local 中应用可审计补丁并自动构建 Vulkan DLL，不复制其他工作树运行包。
-# 用法：在 SDK 根运行 pwsh -File crates/feathrise_fsr3_frame_generation/scripts/构建FSR修订运行库.ps1 -SdkRoot <FidelityFX-SDK-v1.1.4绝对目录> -PatchRoot <feathrise_patches/fidelityfx-sdk-patches绝对目录>；可用 -CmakePath 显式指定 CMake。
+# 用途：校验官方 FidelityFX SDK 1.1.4，在显式 BuildRoot 中应用可审计补丁并构建 Vulkan DLL，不修改包源码或复制其他工作树运行包。
+# 用法：pwsh -File <本包>/scripts/构建FSR修订运行库.ps1 -SdkRoot <FidelityFX-SDK-v1.1.4绝对目录> -PatchRoot <补丁材料绝对目录> -BuildRoot <独立缓存绝对目录>；可用 -CmakePath 显式指定 CMake。
 # 依赖：PowerShell 7、Git、CMake >=3.23、Visual Studio 2022 C++ x64 工具链、Vulkan SDK >=1.3.250；原 SDK 自带 glslangValidator/FFX_SC。
-# 产物：.local/fsr3-sdk-patched/runtime/{amd_fidelityfx_vk.dll,manifest.json,LICENSE.txt}；独立于Cargo缓存，修订产物没有AMD签名，必须按源码/补丁/产物哈希校验。
+# 产物：BuildRoot/runtime/{amd_fidelityfx_vk.dll,manifest.json,LICENSE.txt}；不依赖完整SDK仓库层级，修订产物没有AMD签名，必须按源码/补丁/产物哈希校验。
 [CmdletBinding()] # 允许显式参数和一致的错误处理。
 param( # 所有构建操作均在离线复制的源码树中执行。
     [string]$SdkRoot = $env:FIDELITYFX_SDK, # 只读官方原件由显式参数或标准构建环境提供。
     [string]$PatchRoot = $env:FEATHRISE_FSR3_PATCH_ROOT, # 独立补丁仓材料由调用者显式选择，不读取私有父仓。
+    [string]$BuildRoot = $env:FEATHRISE_FSR3_SOURCE_BUILD_ROOT, # 显式可写缓存；Cargo 调用方传自己的 OUT_DIR 子目录。
     [string]$CmakePath = $env:BL5_FSR3_CMAKE, # 显式参数或环境变量优先于自动发现。
     [string]$VulkanSdk = $env:VULKAN_SDK, # 使用机器已安装的 Vulkan SDK。
     [ValidateRange(1,8)][int]$Jobs = 2 # 限制同时编译的工程数量，避免无界占用。
@@ -13,6 +14,8 @@ param( # 所有构建操作均在离线复制的源码树中执行。
 $ErrorActionPreference = 'Stop' # 输入不符时立即停止，不产出看似成功的身份记录。
 if ([string]::IsNullOrWhiteSpace($SdkRoot)) { throw '请传入 -SdkRoot 或设置 FIDELITYFX_SDK；普通预编译消费无需运行此脚本。' }
 if ([string]::IsNullOrWhiteSpace($PatchRoot)) { throw '请传入 -PatchRoot 或设置 FEATHRISE_FSR3_PATCH_ROOT，指向 feathrise_patches/fidelityfx-sdk-patches。' }
+if ([string]::IsNullOrWhiteSpace($BuildRoot)) { throw '请传入 -BuildRoot 或设置 FEATHRISE_FSR3_SOURCE_BUILD_ROOT；源码重建不推断工作区输出目录。' }
+if (-not [IO.Path]::IsPathFullyQualified($BuildRoot)) { throw 'BuildRoot 必须是绝对目录。' }
 $SdkRoot = [IO.Path]::GetFullPath($SdkRoot) # 固定外部 SDK 位置，不搜索维护者机器上的历史目录。
 $buildSearchPath = $env:Path # 某些宿主注入 Path/PATH 两个大小写条目，MSBuild 的大小写无关字典会拒绝它们。
 [Environment]::SetEnvironmentVariable('PATH', $null, 'Process') # 先清理大写变体，仅影响本构建进程。
@@ -30,12 +33,41 @@ function Invoke-SdkCmake([string[]]$Arguments) { # 为 MSBuild 创建去重后�
     if ($process.ExitCode -ne 0) { throw "CMake 失败，退出码 $($process.ExitCode)。" } # 任一构建错误阻止发布。
     $process.Dispose() # 回收已退出的构建进程句柄。
 } # 仅规范进程环境，不修改用户或系统环境变量。
-$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..')) # 脚本归所属 crate/scripts；写入仍限定 SDK 自有目录。
+$crateRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')) # 只定位所属包，不假定完整 SDK 检出层级。
 $patchRoot = [IO.Path]::GetFullPath($PatchRoot) # 外部补丁及来源材料只读；原文字节参与运行库身份链。
+$buildRoot = [IO.Path]::GetFullPath($BuildRoot) # 一切生成文件和目录替换都限定在这个显式绝对输出内。
+function Test-WithinDirectory([string]$Candidate,[string]$Directory) {
+    $prefix = $Directory.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    return $Candidate.Equals($Directory, [StringComparison]::OrdinalIgnoreCase) -or $Candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+}
+# Cargo 的默认 target/ 或显式 target-dir 都可能位于解包包内；按当前包身份和实际 OUT_DIR 核对，不猜目录名。
+$allowedCargoOutput = $false
+if (-not [string]::IsNullOrWhiteSpace($env:OUT_DIR) -and [IO.Path]::IsPathFullyQualified($env:OUT_DIR) -and
+    -not [string]::IsNullOrWhiteSpace($env:CARGO_MANIFEST_DIR) -and [IO.Path]::IsPathFullyQualified($env:CARGO_MANIFEST_DIR)) {
+    $cargoOutDir = [IO.Path]::GetFullPath($env:OUT_DIR)
+    $cargoManifestRoot = [IO.Path]::GetFullPath($env:CARGO_MANIFEST_DIR).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $packageIdentity = $crateRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $expectedCargoBuildRoot = [IO.Path]::GetFullPath((Join-Path $cargoOutDir 'fsr3-source'))
+    $allowedCargoOutput = $cargoManifestRoot.Equals($packageIdentity, [StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $cargoOutDir -PathType Container) -and
+        $buildRoot.Equals($expectedCargoBuildRoot, [StringComparison]::OrdinalIgnoreCase)
+}
+# 输出根绝不能等于或包含包源码；Cargo 身份只能放行包内真正独立的后代输出。
+if (Test-WithinDirectory $crateRoot $buildRoot) {
+    throw "BuildRoot 必须与包源码目录分离，不能等于或包含包源码目录：$buildRoot"
+}
+if ((Test-WithinDirectory $buildRoot $crateRoot) -and -not $allowedCargoOutput) {
+    throw "BuildRoot 必须与包源码目录分离；仅允许 Cargo OUT_DIR/fsr3-source 专用生成目录：$buildRoot"
+}
+foreach ($inputRoot in @($SdkRoot, $patchRoot)) {
+    # 官方原件和补丁材料不能与任何输出重叠，Cargo 专用目录也没有这项例外。
+    if ((Test-WithinDirectory $buildRoot $inputRoot) -or (Test-WithinDirectory $inputRoot $buildRoot)) {
+        throw "BuildRoot 必须与官方 SDK 和补丁材料目录分离：$buildRoot"
+    }
+}
 foreach ($name in @('LICENSE.txt','README.md','v1.1.4-vulkan-lifetime.patch','source-manifest.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $patchRoot $name) -PathType Leaf)) { throw "补丁目录缺少来源材料：$name（$patchRoot）" }
 }
-$buildRoot = Join-Path $repoRoot '.local/fsr3-sdk-patched' # 源码、构建缓存与运行库持久保留，不受cargo clean影响且由Git忽略。
 $sourceRoot = Join-Path $buildRoot 'source' # 外部 SDK 的独立副本。
 $runtimeRoot = Join-Path $buildRoot 'runtime' # 宿主构建与打包约定的固定产物位置。
 $patchPath = Join-Path $patchRoot 'v1.1.4-vulkan-lifetime.patch' # 固定且可审计的源码差异。
@@ -47,6 +79,25 @@ function Resolve-CmakeExecutable([string]$RequestedPath) { # 只接受显式参�
     $pathCommand = Get-Command -Name 'cmake' -CommandType Application -ErrorAction SilentlyContinue
     if ($pathCommand) { return $pathCommand.Source }
     throw '未找到 CMake >=3.23；请设置 BL5_FSR3_CMAKE、传入 -CmakePath，或把已安装的 CMake 加入 PATH。'
+}
+
+function Assert-MsvcShaderPathBudget([string]$OfficialSdkRoot,[string]$OutputRoot) {
+    # MSVC 可能无法读取已成功生成的长路径头文件；先从原始 accessor 推导 shader 摘要头的最长名称。
+    $accessorRoot = Join-Path $OfficialSdkRoot 'sdk/src/backends/shared/blob_accessors'
+    $shaderOutput = Join-Path $OutputRoot 'build/sdk/src/backends/shaders/vk'
+    $longestPath = ''
+    foreach ($accessor in Get-ChildItem -LiteralPath $accessorRoot -Filter '*.cpp' -File) {
+        $source = Get-Content -Encoding UTF8 -Raw -LiteralPath $accessor.FullName
+        foreach ($include in [regex]::Matches($source, '(?m)^\s*#\s*include\s*[<"](?<name>[A-Za-z0-9_]+)_permutations\.h[>"]')) {
+            # 每份实际 shader 头用 32 位十六进制摘要命名，零值只用于等长路径预估，不伪造产物。
+            $headerName = $include.Groups['name'].Value + '_' + ('0' * 32) + '.h'
+            $candidate = [IO.Path]::GetFullPath((Join-Path $shaderOutput $headerName))
+            if ($candidate.Length -gt $longestPath.Length) { $longestPath = $candidate }
+        }
+    }
+    if ($longestPath.Length -ge 260) {
+        throw "FSR 源码构建路径过长：预计 shader 头文件路径为 $($longestPath.Length) 个字符，必须少于 260：$longestPath。请显式设置较短的 FEATHRISE_FSR3_SOURCE_BUILD_ROOT（例如 C:/cache/feathrise-fsr3）或 -BuildRoot；不会自动更换缓存目录。"
+    }
 }
 
 function Assert-OwnedRuntimeDirectory([string]$Directory) { # 原子发布只允许替换脚本自己定义的三个运行文件。
@@ -89,6 +140,7 @@ function Publish-RuntimeDirectory([string]$StagingDirectory,[string]$Destination
     if ($hasBackup) { Remove-OwnedRuntimeDirectory $backupDirectory } # 成功发布后只清理已审计旧包。
 } # Publish-RuntimeDirectory 结束。
 
+Assert-MsvcShaderPathBudget $SdkRoot $buildRoot # 在 CMake 探测、SDK 复制和任何编译前拒绝已知 MSVC 长路径风险。
 $CmakePath = Resolve-CmakeExecutable $CmakePath # 后续版本记录和两个 CMake 进程使用同一明确工具身份。
 $officialDllHash = 'A1624CC4238FEF046F30C4D80CE3F47BE63FC5F5373F49E3EE9EDB9960F54C78' # AMD 官方已签名 Vulkan DLL 的来源锚点。
 $officialDll = Join-Path $SdkRoot 'PrebuiltSignedDLL/amd_fidelityfx_vk.dll' # 官方 DLL 仅用于来源核验，不用于修改。
@@ -107,7 +159,7 @@ New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null # 不删除已�
 foreach ($name in @('sdk','ffx-api')) { Copy-Item -LiteralPath (Join-Path $SdkRoot $name) -Destination $sourceRoot -Recurse -Force } # 每次还原原始输入，保证补丁只应用一次。
 & git apply --check --unsafe-paths --directory=$sourceRoot $patchPath # 在已还原的独立树验证补丁上下文。
 if ($LASTEXITCODE -ne 0) { throw 'SDK 补丁上下文检查失败。' } # 不继续使用半修订源码。
-& git apply --unsafe-paths --directory=$sourceRoot $patchPath # 仅写 .local 中的源码副本，外部SDK保持只读。
+& git apply --unsafe-paths --directory=$sourceRoot $patchPath # 仅写显式 BuildRoot 中的源码副本，外部SDK保持只读。
 if ($LASTEXITCODE -ne 0) { throw 'SDK 补丁应用失败。' } # 外部 SDK 始终保持原样。
 $shaderRoot = Join-Path $sourceRoot 'sdk/src/backends/vk/FrameInterpolationSwapchain' # UI shader 不属于 SDK 的自动 permutation 构建，需要显式再生成。
 $glslang = Join-Path $sourceRoot 'sdk/tools/binary_store/glslangValidator.exe' # 该二进制已经过 source-manifest 哈希核验。

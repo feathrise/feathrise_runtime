@@ -15,6 +15,7 @@ const RUNTIME_DIRECTORY_NAME: &str = "fsr3-frame-generation-runtime";
 fn main() {
     for name in native_package::INPUT_ENVS.into_iter().chain([
         "FEATHRISE_FSR3_BUILD_FROM_SOURCE",
+        "FEATHRISE_FSR3_SOURCE_BUILD_ROOT",
         "FEATHRISE_FSR3_PATCH_ROOT",
         "FIDELITYFX_SDK",
         "VULKAN_SDK",
@@ -53,7 +54,7 @@ fn main() {
             env::var_os("BL5_FSR3_EXPECTED_NATIVE_IDENTITY").is_none(),
             "源码模式不能匹配发行预检锁定的预编译包身份，请重新预检"
         );
-        source_package(&manifest_dir)
+        source_package(&manifest_dir, &out_dir)
     } else {
         assert!(
             !env::var("CARGO_CFG_TARGET_FEATURE")
@@ -118,7 +119,7 @@ fn main() {
 }
 
 /// 维护者保留原完整来源审计和重建路径；预编译获取失败不会隐式进入此分支。
-fn source_package(manifest_dir: &Path) -> runtime_package::RuntimePackage {
+fn source_package(manifest_dir: &Path, out_dir: &Path) -> runtime_package::RuntimePackage {
     // 只有显式源码模式读取独立补丁仓，普通 ZIP 消费不要求补丁材料在场。
     let patch_root = required_directory("FEATHRISE_FSR3_PATCH_ROOT");
     let sdk_root = required_directory("FIDELITYFX_SDK");
@@ -147,22 +148,29 @@ fn source_package(manifest_dir: &Path) -> runtime_package::RuntimePackage {
     let vulkan = required_directory("VULKAN_SDK");
     let include = vulkan.join("Include");
     require_file(&include.join("vulkan/vulkan.h"));
-    let workspace = manifest_dir
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace/crates/FSR");
-    // Cargo 跟踪与实际启动共用 scripts/ 路径，辅助脚本归位时不维护第二份字符串。
+    // 发布归档和 Git 检出共用包内脚本；源码副本写入 Cargo 私有输出，不改写归档内源码输入。
+    let configured_build_root = env::var_os("FEATHRISE_FSR3_SOURCE_BUILD_ROOT").map(PathBuf::from);
+    let build_root = runtime_package::source_build_root(out_dir, configured_build_root.as_deref())
+        .unwrap_or_else(|e| panic!("{e}"));
     println!(
         "cargo:rerun-if-changed={}",
-        workspace.join(runtime_package::RUNTIME_BUILD_SCRIPT).display()
+        manifest_dir
+            .join(runtime_package::RUNTIME_BUILD_SCRIPT)
+            .display()
     );
-    let built = runtime_package::ensure_runtime_built(workspace, &sdk_root, &vulkan, &patch_root)
-        .unwrap_or_else(|e| panic!("{e}"));
+    let built = runtime_package::ensure_runtime_built_at(
+        manifest_dir,
+        &build_root,
+        &sdk_root,
+        &vulkan,
+        &patch_root,
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
     if built {
-        println!("cargo:warning=维护者模式已重建当前 runtime 工作树的 FSR 修订运行库");
+        println!("cargo:warning=显式源码模式已重建当前包的 FSR 修订运行库");
     }
-    let package =
-        runtime_package::inspect(workspace, &patch_root).unwrap_or_else(|e| panic!("{e}"));
+    let package = runtime_package::inspect_runtime(&build_root.join("runtime"), &patch_root)
+        .unwrap_or_else(|e| panic!("{e}"));
     let cpp_dll_hash = format!("\"{}\"", package.files[0].1);
     cc::Build::new()
         .cpp(true)

@@ -46,12 +46,13 @@ RGBA字节对照CPU参考。布局处理中、Shader或资源等待、字节差�
 的总层数没有因此受限。`VegetationBladeValidationLayers`可在不创建可见窗口的情况
 下请求指定层走同一候选、Mip与逐字节采用门，便于工程切换前做后台对等。
 
+crates.io 版本发布后可使用下面的配置；发布前源码接入及配套补丁见
+[SDK 接入说明](../../docs/crates-io.md)。
+
 ```toml
-[dependencies]
-feathrise_vegetation = {
-    path = "../feathrise_vegetation",
-    features = ["blade", "mesh"],
-}
+[dependencies.feathrise_vegetation]
+version = "=0.1.0"
+features = ["blade", "mesh"]
 ```
 
 竞争示例：
@@ -100,4 +101,4 @@ cargo run -p feathrise_vegetation --example procedural_blades --features blade
 `VEGETATION_BLADE_PUBLIC_SMOKE_SECONDS` 可让隐藏窗口在指定秒数后自动成功退出。
 
 当前正式支持 Windows DX12/Vulkan；Linux 和 macOS 只保证编译并视为实验性，不支持
-WASM。仓内稳定期保持 `publish = false`。
+WASM。当前 Cargo 清单允许发布到 crates.io；本地源码和发布版本使用相同的功能边界。

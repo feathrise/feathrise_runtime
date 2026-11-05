@@ -10,6 +10,25 @@ SDK 当前先通过 [GitHub 源码仓](https://github.com/hwyrq/feathrise_runtim
 
 根包直接包含 `project` 工程启动模块和 `app` 运行装配模块。场景基础契约统一由 `feathrise_scene_core` 的 `constants`、`view`、`state`、`input`、`residency` 模块提供；这些模块按同一版本发布，不再分别维护小包。`feathrise_plugin_api`、作者工具合同、进程通信协议和原生运行库身份仍保持各自独立边界。
 
+## 发布前检查
+
+使用 Cargo 1.96 或更新版本，在 SDK 根目录对整个发布集合做 dry-run：
+
+```powershell
+cargo publish --workspace --registry crates-io --dry-run --no-verify --locked
+```
+
+该命令处理工作区内允许发布的 23 个包，测试专用的 `feathrise_sdk_workspace_tests` 保持 `publish = false`。它创建并检查真实归档及发布依赖，不上传；`--no-verify` 明确跳过解包后的编译，不能据此宣称所有功能已编译或 registry 消费已通过。尚有未提交改动时可追加 `--allow-dirty` 检查当前内容；需要复用指定缓存时追加 `--target-dir` 和已有目录。参数含义见 [Cargo 官方说明](https://doc.rust-lang.org/cargo/commands/cargo-publish.html)。
+
+源码编译另行检查，例如默认与验收组合：
+
+```powershell
+cargo check --locked -p feathrise_runtime
+cargo check --locked -p feathrise_runtime --features validation
+```
+
+发布前还需在独立目录检查真实归档的源码和测试输入完整性，并用候选归档及配套补丁做消费编译；不能用原工作区的相邻源码补齐缺件。未发布的版本尚不能用注册表下载来证明，上述检查与发布后的 registry 验收分别记录。
+
 ## 外部工程
 
 在工程根声明版本依赖及八项配套补丁。以下配置固定 SDK 0.1.0 配套的公开补丁提交。
@@ -30,6 +49,14 @@ wgpu-ffx = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c25
 ```
 
 所有补丁采用同一个实际公开 URL 和与 SDK 版本配套的完整提交。Cargo 自动取得源码，不要求手工维护本地 SDK。库内 `[patch]` 不会向上传递；使用 SDK 的工程应把它放在工作区根。
+
+版本发布后，在没有 SDK 源码路径覆盖的独立工程中使用上述版本与公开 Git 补丁，先执行 `cargo check` 生成锁文件，再以 `cargo check --locked` 复验。确认 SDK 自有包来自 registry，只有八项约定补丁来自固定 Git 修订；这才是发布后的消费验证。首次配置新工程时尚无锁文件，不直接要求 `--locked`。
+
+## 可选 Windows 原生能力
+
+默认 `raytracing`／`default_font` 不要求 DLSS 或 FSR 的厂商 SDK。启用 `rtx_rendering` 需要 DLSS SDK、Vulkan SDK、LLVM／Clang 和 MSVC；启用 `dlss`／`dlss_frame_generation` 还需要固定 Streamline 2.12.0。`DLSS_SDK`、`LIBCLANG_PATH`／`CLANG_PATH`、`STREAMLINE_SDK` 与 `VULKAN_SDK` 的完整要求和检查命令见 [DLSS 帧生成包](../crates/feathrise_frame_generation/README.md)。
+
+FSR 帧生成可以显式提供 `FEATHRISE_FSR3_PACKAGE` 指向已有固定原生 ZIP；没有预编译包时，也可使用公开单包内的脚本显式从源码准备，配置 `FEATHRISE_FSR3_BUILD_FROM_SOURCE=1`、`FIDELITYFX_SDK`、`VULKAN_SDK` 与 `FEATHRISE_FSR3_PATCH_ROOT`。Windows 源码构建示例还提供独立短目录 `FEATHRISE_FSR3_SOURCE_BUILD_ROOT`，避免 MSVC 生成头文件的长路径限制；具体步骤和固定补丁修订见 [FSR 原生包准备](../crates/feathrise_fsr3_frame_generation/prebuilt/README.md)。普通 Cargo 构建不自动下载原生包。
 
 ## 本地修改
 
