@@ -5,7 +5,7 @@ name = "feathrise_fps_display"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hwyrq/feathrise_runtime"
+repository = "https://github.com/feathrise/feathrise_runtime"
 
 [features] # 默认显示不引入候选SDK依赖。
 dlss_frame_generation = ["dep:feathrise_frame_generation"] # DLSS构建读取Streamline真实累计Present。

@@ -40,7 +40,7 @@ ZIP只允许以下八个根目录文件，不接受路径穿越、子目录、�
 
 运行机器需要支持目标GPU与Vulkan的显卡驱动，以及Microsoft Visual C++ 2015–2022 x64运行库；已经安装合适运行库时无需重复安装。这些运行前提与AMD SDK、Vulkan SDK、CMake等维护者构建工具分别处理，预编译分发不会将其移除。
 
-修订DLL不带AMD Authenticode签名，不能标成AMD官方签名DLL。官方SDK来源锚点、902项输入、MIT版权以及修订内容继续见[独立补丁仓](https://github.com/hwyrq/feathrise_patches)中的 `fidelityfx-sdk-patches/README.md`。该来源说明属于六文件身份输入，不能为了更新本分发说明随意修改。
+修订DLL不带AMD Authenticode签名，不能标成AMD官方签名DLL。官方SDK来源锚点、902项输入、MIT版权以及修订内容继续见[独立补丁仓](https://github.com/feathrise/feathrise_patches)中的 `fidelityfx-sdk-patches/README.md`。该来源说明属于六文件身份输入，不能为了更新本分发说明随意修改。
 
 固定来源原文中的 `scripts/构建FSR修订运行库.ps1` 是当时的历史路径；当前入口为所属 crate 的 [scripts/构建FSR修订运行库.ps1](../scripts/构建FSR修订运行库.ps1)。保留原文字节以维持既有包身份，维护命令以本说明为准。
 
@@ -53,7 +53,7 @@ ZIP只允许以下八个根目录文件，不接受路径穿越、子目录、�
 安装 PowerShell 7、Git、CMake >=3.23、Visual Studio 2022 C++ x64 工具链，以及 Vulkan SDK >=1.3.250。这些工具仅用于显式源码重建，普通 ZIP 消费不需要它们。随后准备公开补丁和构建输入：
 
 ```powershell
-git clone https://github.com/hwyrq/feathrise_patches.git
+git clone https://github.com/feathrise/feathrise_patches.git
 git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
 $patchRepository = (Resolve-Path './feathrise_patches').Path
 $env:FIDELITYFX_SDK = (Resolve-Path 'C:/SDK/FidelityFX-SDK-v1.1.4').Path

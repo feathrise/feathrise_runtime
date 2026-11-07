@@ -3,7 +3,7 @@ name = "feathrise_runtime"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hwyrq/feathrise_runtime"
+repository = "https://github.com/feathrise/feathrise_runtime"
 description = "Shared Bevy runtime and project entry for Feathrise"
 
 # 工程启动与公共装配直接归 SDK 的 project/app 模块，具体能力仍由子库提供。

@@ -3,7 +3,7 @@ name = "feathrise_editor_protocol"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hwyrq/feathrise_runtime"
+repository = "https://github.com/feathrise/feathrise_runtime"
 description = "Bounded process protocol for Feathrise resident project views"
 
 [dependencies]

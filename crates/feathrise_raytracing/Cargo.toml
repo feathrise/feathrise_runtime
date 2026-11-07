@@ -4,7 +4,7 @@ name = "feathrise_raytracing"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/hwyrq/feathrise_runtime"
+repository = "https://github.com/feathrise/feathrise_runtime"
 publish = ["crates-io"]
 
 [features]

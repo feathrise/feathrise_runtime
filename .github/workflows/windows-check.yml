@@ -23,7 +23,7 @@ jobs:
         variant: [default, validation]
     env:
       # 补丁修订随 SDK 源码版本锁定，升级时连同接入文档一起更新。
-      FEATHRISE_PATCH_REPOSITORY: hwyrq/feathrise_patches
+      FEATHRISE_PATCH_REPOSITORY: feathrise/feathrise_patches
       FEATHRISE_PATCH_REV: 3c251d3530980b66e49b4748769db36ae9c6bd5a
     steps:
       - name: Validate the pinned public patch source

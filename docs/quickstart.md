@@ -3,8 +3,8 @@
 先将 SDK 与补丁仓克隆到同一目录，并将补丁固定到当前 SDK 配套的提交：
 
 ```powershell
-git clone https://github.com/hwyrq/feathrise_runtime.git
-git clone https://github.com/hwyrq/feathrise_patches.git
+git clone https://github.com/feathrise/feathrise_runtime.git
+git clone https://github.com/feathrise/feathrise_patches.git
 git -C feathrise_patches checkout 3c251d3530980b66e49b4748769db36ae9c6bd5a
 cd feathrise_runtime
 ```
@@ -59,14 +59,14 @@ bevy = "=0.19.1"
 feathrise_runtime = { version = "=0.1.0", default-features = false, features = ["default_font"] }
 
 [patch.crates-io]
-avian3d = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_anti_alias = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_render = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_core_pipeline = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-hal = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-parley = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-dlss_wgpu = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-ffx = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+parley = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
 ```
 
 这只是已有工程清单中的依赖部分；工程仍须提供下面的入口和公共资产目录。Cargo 不会继承依赖包自己的 `[patch]`。首次 `cargo check` 生成工程自己的锁文件后，再用 `cargo check --locked` 复验。需要联调源码时见[本地修改](crates-io.md#本地修改)。

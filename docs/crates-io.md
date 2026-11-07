@@ -38,14 +38,14 @@ cargo check --locked -p feathrise_runtime --features validation
 feathrise_runtime = "=0.1.0"
 
 [patch.crates-io]
-avian3d = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_anti_alias = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_render = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-bevy_core_pipeline = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-hal = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-parley = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-dlss_wgpu = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
-wgpu-ffx = { git = "https://github.com/hwyrq/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+parley = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
+wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "3c251d3530980b66e49b4748769db36ae9c6bd5a" }
 ```
 
 所有补丁采用同一个实际公开 URL 和与 SDK 版本配套的完整提交。Cargo 自动取得源码，不要求手工维护本地 SDK。库内 `[patch]` 不会向上传递；使用 SDK 的工程应把它放在工作区根。
