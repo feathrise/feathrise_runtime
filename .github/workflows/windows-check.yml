@@ -22,9 +22,9 @@ jobs:
       matrix:
         variant: [default, validation]
     env:
-      # 仓库变量保存与 SDK 配套的公开补丁提交，以下步骤验证并固定检出。
+      # 默认采用已验证的公开补丁提交，仓库变量可覆盖，检出后核对实际身份。
       FEATHRISE_PATCH_REPOSITORY: feathrise/feathrise_patches
-      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV }}
+      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV || '019fd1fe13ed9107d17b360b8f5a3df61bfc139a' }}
     steps:
       - name: Validate the pinned public patch source
         shell: pwsh
