@@ -1,5 +1,6 @@
 //! 调用侧显式提供布局、颜色和阴影的通用按钮实体树。
 
+use crate::InteractionButton;
 use crate::{ButtonShellStyle, TextButtonStyle};
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
@@ -19,7 +20,7 @@ pub fn spawn_custom_text_button<C: Component>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -43,7 +44,7 @@ pub fn spawn_custom_text_button<C: Component>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -76,7 +77,7 @@ pub fn spawn_custom_button<B: Bundle>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -88,7 +89,7 @@ pub fn spawn_custom_button<B: Bundle>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -113,7 +114,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -137,7 +138,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -175,7 +176,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),
@@ -200,7 +201,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
         parent
             .spawn((
                 marker,
-                Button,
+                InteractionButton,
                 Interaction::default(),
                 style.node,
                 BackgroundColor(normal),

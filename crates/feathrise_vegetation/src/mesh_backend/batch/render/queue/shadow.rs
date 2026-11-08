@@ -13,7 +13,6 @@ use bevy::render::{
     mesh::allocator::MeshAllocator,
     render_phase::{BinnedRenderPhaseType, DrawFunctions, ViewBinnedRenderPhases},
     render_resource::PipelineCache,
-    sync_world::MainEntity,
     view::{
         ExtractedView, RenderShadowMapVisibleEntities, RenderVisibleEntities, RetainedViewEntity,
     },
@@ -69,7 +68,7 @@ fn visible_entities_for_light<'a>(
             *light_entity,
             RetainedViewEntity {
                 main_entity: view.retained_view_entity.main_entity,
-                auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                auxiliary_entity: None,
                 subview_index: *face_index as u32,
             },
         ),
@@ -77,7 +76,7 @@ fn visible_entities_for_light<'a>(
             *light_entity,
             RetainedViewEntity {
                 main_entity: view.retained_view_entity.main_entity,
-                auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                auxiliary_entity: None,
                 subview_index: 0,
             },
         ),
@@ -86,6 +85,7 @@ fn visible_entities_for_light<'a>(
         .get(light_entity)
         .ok()
         .and_then(|visible| visible.subviews.get(&retained_view))
+        .map(|(_, entities)| entities)
 }
 
 /// 先让官方阴影系统建立材质专用化，再把每个批次承接节点换成一次实例化阴影绘制。
@@ -123,7 +123,7 @@ pub(crate) fn queue_vegetation_mesh_batch_shadows(
                 continue; // 当前LOD为空时同样禁止官方单实例阴影残留。
             };
 
-            let Some(&(base_pipeline, base_draw)) = view_pipelines.get(main_entity) else {
+            let Some(&(base_pipeline, base_draw, _)) = view_pipelines.get(main_entity) else {
                 continue;
             };
             let Some(mesh_instance) = params.mesh_instances.render_mesh_queue_data(*main_entity)

@@ -23,6 +23,7 @@ use bevy::{
 ///
 /// 该组件只由画质插件拥有；存在即表示主场景先低分辨率绘制，再在原生 UI 之前放大。
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, ExtractComponent, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct RenderScaleView {
     pub(crate) render_size: UVec2, // 主通道、阴影接收和体积效果实际覆盖的低分辨率区域。
     pub(crate) output_size: UVec2, // 后处理、UI 与最终窗口输出使用的完整物理尺寸。

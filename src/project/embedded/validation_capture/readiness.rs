@@ -119,6 +119,7 @@ fn inventory(cache: &PipelineCache) -> Inventory {
         let label = match &pipeline.descriptor {
             PipelineDescriptor::RenderPipelineDescriptor(value) => value.label.as_deref(),
             PipelineDescriptor::ComputePipelineDescriptor(value) => value.label.as_deref(),
+            PipelineDescriptor::MeshPipelineDescriptor(value) => value.label.as_deref(),
         }.unwrap_or("unnamed");
         match &pipeline.state {
             CachedPipelineState::Queued => result.queued += 1,

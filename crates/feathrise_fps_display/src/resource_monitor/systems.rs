@@ -40,7 +40,7 @@ type ResourceMonitorGroupButtonData = (
     &'static mut BorderColor,
     &'static mut Node,
 );
-type ResourceMonitorGroupButtonFilter = (With<Button>, Without<ResourceMonitorTabButton>);
+type ResourceMonitorGroupButtonFilter = Without<ResourceMonitorTabButton>;
 type ResourceMonitorTabButtonData = (
     &'static ResourceMonitorTabButton,
     &'static Interaction,
@@ -48,7 +48,7 @@ type ResourceMonitorTabButtonData = (
     &'static mut BorderColor,
     &'static mut Node,
 );
-type ResourceMonitorTabButtonFilter = (With<Button>, Without<ResourceMonitorGroupButton>);
+type ResourceMonitorTabButtonFilter = Without<ResourceMonitorGroupButton>;
 type ResourceMonitorSubTabRowFilter = (
     With<ResourceMonitorSubTabRow>,
     Without<ResourceMonitorGroupButton>,
@@ -365,7 +365,7 @@ mod page_binding_tests {
         world.insert_resource(ResourceMonitorState { visible: true, group: ResourceMonitorGroup::Crops,
             page: ResourceMonitorPage::Wheat, ..Default::default() });
         for group in ResourceMonitorGroup::ALL {
-            world.spawn((ResourceMonitorGroupButton { group }, Button, Interaction::None,
+            world.spawn((ResourceMonitorGroupButton { group }, bevy::ui::FocusPolicy::Block, Interaction::None,
                 BackgroundColor::default(), BorderColor::default(), Node::default()));
         }
         world.run_system_once(select_resource_monitor_page).expect("动态页签查询不冲突");

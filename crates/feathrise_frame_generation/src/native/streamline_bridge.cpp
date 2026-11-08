@@ -297,7 +297,7 @@ extern "C" int32_t bl5_fg_bootstrap(const wchar_t* runtime_dir, const wchar_t* u
     preferences.numFeaturesToLoad = static_cast<uint32_t>(std::size(features)); // 固定功能数量。
     preferences.applicationId = application_id; // 有NVIDIA分配的数字ID时优先使用，否则为零并走Project ID。
     preferences.engine = sl::EngineType::eCustom; // Bevy/wgpu属于自定义引擎接入。
-    preferences.engineVersion = application_id == 0 ? "bevy-0.19.1-wgpu-29.0.4" : nullptr; // 数字ID路径必须清空版本，避免SDK优先选择Project ID。
+    preferences.engineVersion = application_id == 0 ? "bevy-0.20.1-wgpu-30.0.1" : nullptr; // 数字ID路径必须清空版本，避免SDK优先选择Project ID。
     preferences.projectId = application_id == 0 ? project_id : nullptr; // 缺省数字ID时使用已有唯一项目UUID；绝不借用样例身份。
     preferences.renderAPI = sl::RenderAPI::eVulkan; // 能力需求必须按Vulkan解析。
     const sl::Result result = g_sl_init(preferences, sl::kSDKVersion); // 初始化发生在ash加载任何Vulkan函数之前。

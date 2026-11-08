@@ -339,7 +339,7 @@ async fn load_fields(
                     Ok::<_, String>((snapshot, buffer))
                 })
                 .await?;
-            if buffer.data.as_ref().map_or(0, Vec::len)
+            if buffer.cast_slice::<u8>().map_or(0, <[u8]>::len)
                 <= crate::shared::large_map::MAX_TERRAIN_GPU_UPLOAD_BYTES_PER_FRAME
             {
                 return Ok((

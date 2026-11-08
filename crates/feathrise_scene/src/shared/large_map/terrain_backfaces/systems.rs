@@ -93,7 +93,7 @@ fn register<M: BackfaceMaterial>(
 }
 
 fn material_inserted<M: BackfaceMaterial>(
-    event: On<Insert, MeshMaterial3d<M>>,
+    event: On<Insert<MeshMaterial3d<M>>>,
     targets: Query<&MeshMaterial3d<M>, With<TerrainGridTarget>>,
     mut state: ResMut<MaterialTargets<M>>,
 ) {
@@ -103,7 +103,7 @@ fn material_inserted<M: BackfaceMaterial>(
 }
 
 fn target_inserted<M: BackfaceMaterial>(
-    event: On<Insert, TerrainGridTarget>,
+    event: On<Insert<TerrainGridTarget>>,
     materials: Query<&MeshMaterial3d<M>>,
     mut state: ResMut<MaterialTargets<M>>,
 ) {
@@ -113,14 +113,14 @@ fn target_inserted<M: BackfaceMaterial>(
 }
 
 fn material_removed<M: BackfaceMaterial>(
-    event: On<Remove, MeshMaterial3d<M>>,
+    event: On<Remove<MeshMaterial3d<M>>>,
     mut state: ResMut<MaterialTargets<M>>,
 ) {
     state.remove(event.entity);
 }
 
 fn target_removed<M: BackfaceMaterial>(
-    event: On<Remove, TerrainGridTarget>,
+    event: On<Remove<TerrainGridTarget>>,
     mut commands: Commands,
     mut state: ResMut<MaterialTargets<M>>,
     tags: Query<(&MeshTag, Option<&TerrainBackfacesTemporaryTag>)>,
@@ -131,7 +131,7 @@ fn target_removed<M: BackfaceMaterial>(
             .try_insert(MeshMaterial3d(target.source.clone()))
             .try_remove::<TerrainBackfacesRenderMaterial>();
         if let Ok((tag, Some(_))) = tags.get(event.entity) {
-            if tag.0 == 0 {
+            if tag.value == 0 {
                 commands.entity(event.entity).try_remove::<MeshTag>();
             }
             commands
@@ -293,7 +293,7 @@ fn sync<M: BackfaceMaterial>(
         // Mesh3d变更会让Bevy扫描全部顶点重算AABB；只通知等价的MeshTag以更新GPU材质绑定。
         // 已有非零Tag保持原值；临时零Tag在恢复时移除，其他系统后来写入的Tag保留。
         if !state.enabled && temporary_tag.is_some() {
-            if tag.as_ref().is_none_or(|tag| tag.0 == 0) {
+            if tag.as_ref().is_none_or(|tag| tag.value == 0) {
                 commands.entity(entity).remove::<MeshTag>();
             } else if let Some(mut tag) = tag {
                 tag.set_changed();
@@ -306,7 +306,7 @@ fn sync<M: BackfaceMaterial>(
         } else if state.enabled {
             commands
                 .entity(entity)
-                .insert((MeshTag(0), TerrainBackfacesTemporaryTag));
+                .insert((MeshTag::new(0), TerrainBackfacesTemporaryTag));
         }
     }
 }

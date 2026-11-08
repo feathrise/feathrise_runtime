@@ -37,8 +37,8 @@ impl Modifier for RainOcclusionModifier {
     fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
         Some(self)
     } // 标准对象转换。
-    fn attributes(&self) -> &[Attribute] {
-        &[]
+    fn attributes(&self) -> std::borrow::Cow<'_, [Attribute]> {
+        std::borrow::Cow::Borrowed(&[])
     } // 世界位置由片元深度恢复，不读取仅顶点可见粒子缓冲。
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
@@ -48,6 +48,7 @@ impl Modifier for RainOcclusionModifier {
         Err(ExprError::InvalidModifierContext(
             context.modifier_context(),
             ModifierContext::Render,
+            "rain_occlusion",
         )) // 明确拒绝错误阶段。
     } // 完成上下文验证。
 } // 完成正式修饰器接口。

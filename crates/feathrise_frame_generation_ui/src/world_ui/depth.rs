@@ -9,7 +9,7 @@ use bevy::{
             *,
         },
         renderer::{RenderDevice, RenderQueue},
-        view::ExtractedView,
+        view::{ExtractedView, ViewDepthStencilTexture},
     },
 }; // 使用引擎公开深度和全屏绘制接口。 // 固定大小GPU资源。
 pub(super) const SHADER: Handle<bevy::shader::Shader> =
@@ -80,7 +80,7 @@ pub(super) fn configure(
 pub(super) fn draw(
     view: bevy::render::renderer::ViewQuery<(
         &ExtractedView,
-        &bevy::render::view::ViewDepthTexture,
+        &ViewDepthStencilTexture,
         Option<&super::components::WorldUiLayer>,
         Option<&bevy::render::camera::TemporalJitter>,
     )>,
@@ -97,15 +97,16 @@ pub(super) fn draw(
     }) else {
         return;
     }; // 不操作过期或辅助相机。
-    if depth.texture.format() != CORE_3D_DEPTH_FORMAT
-        || depth.texture.sample_count() != 1
-        || !depth
-            .texture
-            .usage()
-            .contains(TextureUsages::TEXTURE_BINDING)
+    let depth_texture = depth.texture();
+    if depth_texture.format() != CORE_3D_DEPTH_FORMAT
+        || depth_texture.sample_count() != 1
+        || !depth_texture.usage().contains(TextureUsages::TEXTURE_BINDING)
     {
         return;
     } // 不兼容源由后续颜色系统回退。
+    let Some(depth_view) = depth.attachment.depth_stencil_views().depth_only_view() else {
+        return; // 采样使用深度专用视图，普通回退仍使用原深度/模板附件。
+    };
     let Some(pipeline) = cache.get_render_pipeline(mapping.pipeline) else {
         return;
     }; // 非阻塞读取异步编译结果。
@@ -120,15 +121,15 @@ pub(super) fn draw(
     if mapping
         .binding
         .as_ref()
-        .is_none_or(|(id, _)| *id != depth.view().id())
+        .is_none_or(|(id, _)| *id != depth_view.id())
     {
         // 仅深度源换代重建绑定。
         let group = context.render_device().create_bind_group(
             Some("world_ui_depth_source"),
             &cache.get_bind_group_layout(&mapping.layout),
-            &BindGroupEntries::sequential((depth.view(), mapping.parameters.binding().unwrap())),
+            &BindGroupEntries::sequential((depth_view, mapping.parameters.binding().unwrap())),
         ); // 初始化保证参数缓冲存在。
-        mapping.binding = Some((depth.view().id(), group)); // 保留当前唯一源附件。
+        mapping.binding = Some((depth_view.id(), group)); // 保留当前唯一源附件。
     } // 源绑定更新结束。
     {
         // 先完整填充输出深度，再让名牌使用硬件深度测试。

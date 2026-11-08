@@ -175,6 +175,7 @@ impl<P: ShadingItem> Draw<P> for ShadingDraw<P> {
                         shader_defs: defs,
                         entry_point: Some("fragment".into()),
                         targets: Vec::new(),
+                        constants: Vec::new(),
                     });
                 }
             }

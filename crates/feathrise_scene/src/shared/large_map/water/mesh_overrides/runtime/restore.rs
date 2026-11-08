@@ -85,7 +85,7 @@ pub(super) fn restore_applied_primitives(
 
 /// 公开覆盖根组件被显式移除时，完整恢复存活World实例。
 pub(in crate::shared::large_map::water) fn restore_removed_dynamic_water_mesh_overrides(
-    remove: On<Remove, DynamicWaterMeshOverrides>, // Remove在组件真正移除前触发，仍可查询根内部索引。
+    remove: On<Remove<DynamicWaterMeshOverrides>>, // Remove在组件真正移除前触发，仍可查询根内部索引。
     mut queue: ResMut<DynamicWaterMeshOverrideQueue>, // 无论清除还是despawn都O(1)撤销未处理队列项。
     mut work_state: ResMut<DynamicWaterMeshOverrideWorkState>, // 活动根只撤销修订，临时材质由处理系统分帧回收。
     applied_roots: Query<&DynamicWaterMeshOverrideApplied>,    // 只按有界实体表恢复。
@@ -115,7 +115,7 @@ pub(in crate::shared::large_map::water) fn restore_removed_dynamic_water_mesh_ov
 
 /// primitive恢复记录移除或实体despawn时，精确回收本轮独占动态材质。
 pub(in crate::shared::large_map::water) fn cleanup_removed_mesh_override_assets(
-    remove: On<Remove, DynamicWaterMeshOverridePrimitive>, // Remove发生时旧记录仍可查询。
+    remove: On<Remove<DynamicWaterMeshOverridePrimitive>>, // Remove发生时旧记录仍可查询。
     overridden: Query<&DynamicWaterMeshOverridePrimitive>, // 读取待回收的独占材质句柄。
     mut retired_materials: ResMut<RetiredMeshWaterMaterials>, // restore与despawn共享去重退役队列。
 ) {

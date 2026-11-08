@@ -6,7 +6,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 ## 使用与入口
 
-SDK 0.1.0 的全部 23 个包已发布到 [crates.io](https://crates.io/crates/feathrise_runtime)。外部工程使用精确版本与固定 Git 补丁，完整配置见[接入说明](docs/crates-io.md)；克隆源码并运行示例见[快速开始](docs/quickstart.md)。
+当前源码使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1，源码接入使用同级补丁仓。已发布的 Bevy 0.19.1 版 SDK 0.1.0 的 23 个包可在 [crates.io](https://crates.io/crates/feathrise_runtime)获取。发布版本的固定 Git 补丁见[接入说明](docs/crates-io.md)，源码示例见[快速开始](docs/quickstart.md)。
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
@@ -19,9 +19,9 @@ SDK 0.1.0 的全部 23 个包已发布到 [crates.io](https://crates.io/crates/f
 feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime" }
 ```
 
-外部工程使用 `feathrise_runtime = "=0.1.0"`，并按接入说明配置八项补丁。本仓内部子库同时声明 `version` 与 `path`，本地使用源码，发布归档中的依赖转为 registry 版本；路径失效不会自动回退到 registry。
+外部工程使用已发布的 `feathrise_runtime = "=0.1.0"` 时，按接入说明配置配套补丁。本仓内部子库同时声明 `version` 与 `path`，本地使用源码，发布归档中的依赖转为 registry 版本；路径失效不会自动回退到 registry。
 
-渲染补丁必须在消费工程的根 `Cargo.toml` 或显式 Cargo 配置中提供，库包自己的 `[patch]` 不会向上传递。当前八项为 `avian3d`、`bevy_anti_alias`、`bevy_render`、`bevy_core_pipeline`、`wgpu-hal`、`parley`、`dlss_wgpu`、`wgpu-ffx`。使用 crates.io SDK 时，它们都从独立补丁仓的同一个、与包版本配套的完整 Git 提交获取。
+渲染补丁必须在消费工程的根 `Cargo.toml` 或显式 Cargo 配置中提供，库包自己的 `[patch]` 不会向上传递。0.20.1 源码的补丁包括 `avian3d`、`bevy_anti_alias`、`bevy_render`、`bevy_core_pipeline`、`bevy_extract`、`wgpu-hal`、`dlss_wgpu` 和 `wgpu-ffx`。使用 crates.io SDK 时，从独立补丁仓的配套 Git 提交取得该发布版本的补丁。
 
 Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`。registry 来源的 `version` 是完整发布版本，`git`／`rev` 仅选择上述补丁；新工程使用精确 SDK 版本，不需要维护者的本地 SDK 目录。配置变化不升级已有工程。
 
@@ -61,7 +61,7 @@ Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`
 cargo check --locked -p feathrise_runtime
 ```
 
-当前 Windows 构建需要 Rust/MSVC 工具链。仓库的 Windows 默认和可选验收特性编译工作流见 [CI 说明](docs/ci.md)；测试素材使用库内中性输入，不依赖编辑器或外部工程源码。
+Windows 构建使用 Rust 1.97.1 或更新版本及 MSVC。公开 CI 通过仓库变量 `FEATHRISE_PATCH_REV` 选择配套补丁提交。默认和验收特性的编译工作流见 [CI 说明](docs/ci.md)；测试素材使用库内中性输入，不依赖编辑器或外部工程源码。
 
 FSR 帧生成使用 `FEATHRISE_FSR3_PACKAGE` 指定已有本地 ZIP 时，只校验、解包并链接修订 DLL 与桥接静态库，无需 AMD/Vulkan SDK、CMake 或为 FSR 编译 C++。没有原生包时，可按 [FSR 准备说明](crates/feathrise_fsr3_frame_generation/prebuilt/README.md)用公开包内脚本显式源码构建；这条路径需要对应 SDK 与原生构建工具。运行机器需要适用的 Vulkan 显卡驱动和 Microsoft Visual C++ 2015–2022 x64 运行库。当前 FSR 仍为候选能力，编译检查不代表完整 GPU 和画面验收。可选 DLSS 的 DLSS SDK、LLVM／Clang、Vulkan、MSVC 以及帧生成所需的 Streamline 前提见 [DLSS 构建说明](crates/feathrise_frame_generation/README.md)。
 

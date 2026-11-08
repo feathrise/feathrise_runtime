@@ -2,7 +2,7 @@
 
 自有源码及各子包采用 MIT OR Apache-2.0，第三方组件保留原许可。
 
-SDK 0.1.0 的 23 个包现已发布到 [crates.io](https://crates.io/crates/feathrise_runtime)。外部工程可直接使用下面的 registry 配置；需要修改 SDK 或运行仓内示例时，仍可按[最小工程示例](quickstart.md)克隆源码与配套补丁仓。
+Bevy 0.19.1 版 SDK 0.1.0 的 23 个包已发布到 [crates.io](https://crates.io/crates/feathrise_runtime)。外部工程可直接使用下面的 registry 配置；需要修改 SDK 或运行仓内示例时，仍可按[最小工程示例](quickstart.md)克隆源码与配套补丁仓。
 
 编辑器的原生运行库部署身份由无依赖的 `feathrise_runtime_manifest` 提供；帧生成包的构建与启动也消费同一清单。它需先于实际依赖它的包发布，单独使用清单不会编译 Bevy 或厂商桥。SDK 源码仓包含 23 个发布包：根包与 22 个独立子库，另有一个外部字体总包及其三个分片。发布顺序应从当前 Cargo 普通／构建依赖图生成。
 
@@ -12,7 +12,7 @@ SDK 0.1.0 的 23 个包现已发布到 [crates.io](https://crates.io/crates/feat
 
 ## 发布前检查
 
-使用 Cargo 1.96 或更新版本，在 SDK 根目录对整个发布集合做 dry-run：
+当前 Bevy 0.20.1 源码要求 Rust 和 Cargo 1.97.1 或更新版本。以下命令在 SDK 根目录检查整个待发布集合。
 
 ```powershell
 cargo publish --workspace --registry crates-io --dry-run --no-verify --locked
@@ -60,8 +60,8 @@ FSR 帧生成可以显式提供 `FEATHRISE_FSR3_PACKAGE` 指向已有固定原�
 
 ## 本地修改
 
-SDK 和 `feathrise_patches` 同级检出后，在 SDK 目录直接运行 Cargo。SDK 自己的 `.cargo/config.toml` 会加载同级补丁配置。补丁仓在其他位置时，用 `cargo --config <补丁配置路径>` 指定。
+将 SDK 和 Bevy 0.20.1 配套的 `feathrise_patches` 同级检出后，在 SDK 目录运行 Cargo。SDK 自己的 `.cargo/config.toml` 会加载同级补丁配置。补丁仓在其他位置时，用 `cargo --config <补丁配置路径>` 指定。
 
-自己的工程可使用 `feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime" }`，并配置同级 `feathrise_patches/.cargo/config.toml` 中的八项本地补丁。SDK 内部的子库也使用 `version + path`；打包时 Cargo 移除路径、采用 registry 版本。这不是路径失效后的自动回退。
+自己的工程可使用 `feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime" }`，同时锁定 Bevy 0.20.1 并加载同级 `feathrise_patches/.cargo/config.toml` 中的本地补丁。SDK 内部的子库也使用 `version + path`；打包时 Cargo 移除路径、采用 registry 版本。这不是路径失效后的自动回退。
 
 编辑器的 Cargo 清单声明 SDK 版本。联调本地源码时，将 SDK 自有包和独立补丁仓的八项补丁一并配置到本机 Cargo 的 `[patch.crates-io]`，再通过 `cargo --config .cargo/local-sdk.toml` 使用。公开 CI 分别检出固定版本的 SDK 与补丁仓，并生成本地路径覆盖。

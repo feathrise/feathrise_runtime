@@ -14,6 +14,7 @@ use bevy::{
 use bevy_solari::prelude::RaytracingMesh3d;
 
 #[derive(Resource, Clone, Default, PartialEq, Eq, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct TerrainGeometryTargets {
     generation: u64,
     meshes: Vec<AssetId<Mesh>>,

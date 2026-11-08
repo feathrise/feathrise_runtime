@@ -26,8 +26,8 @@ mod shaders {
         load_internal_asset!(
             app,                         // 向当前主世界 Shader 资产表登记源码。
             DYNAMIC_CLOUD_SHADER_HANDLE, // Material 返回同一固定句柄。
-            "shaders/cloud.wgsl",        // 源码相对当前模块编译期定位。
-            Shader::from_wgsl            // 保留 Bevy #import 与材质绑定组占位符。
+            "shaders/cloud.wesl",        // 源码相对当前模块编译期定位。
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_atmosphere/weather/effects/cloud/shaders/cloud.wesl")
         );
     }
 }
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn cloud_shader_reconstructs_world_ray_and_bounds_horizon_projection() {
-        let source = include_str!("shaders/cloud.wgsl"); // 检查与正式内置句柄相同的源码。
+        let source = include_str!("shaders/cloud.wesl"); // 检查与正式内置句柄相同的源码。
         assert!(source.contains("in.world_position.xyz - view.world_from_view[3].xyz")); // 视线必须来自世界位置与相机位置。
         assert!(source.contains("direction.xz / max(direction.y, params.projection.y)")); // 地平线投影分母必须有界。
         assert!(!source.contains("in.uv")); // 禁止回退到会产生极点和经线的球面 UV。
@@ -167,10 +167,10 @@ mod tests {
 
     #[test] // 内置Shader保留Bevy导入后，其完整片元正文仍须通过锁定WGPU版本的WGSL校验。
     fn cloud_fragment_passes_naga_validation() {
-        let source = include_str!("shaders/cloud.wgsl") // 校验实际注册的同一份WGSL源码。
-            .replace("#import bevy_pbr::forward_io::VertexOutput", "struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) world_position: vec4<f32>, };") // 仅为离屏测试补足Bevy提供的片元输入。
-            .replace("#import bevy_pbr::mesh_view_bindings::view", "struct View { world_from_view: mat4x4<f32>, }; @group(0) @binding(0) var<uniform> view: View;") // 保留正式相机世界矩阵访问。
-            .replace("#{MATERIAL_BIND_GROUP}", "2"); // 使用Bevy扩展材质的合法绑定组号。
+        let source = include_str!("shaders/cloud.wesl") // 校验实际注册的同一份WGSL源码。
+            .replace("import bevy_pbr::render::forward_io::VertexOutput;", "struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) world_position: vec4<f32>, };") // 仅为离屏测试补足Bevy提供的片元输入。
+            .replace("import bevy_pbr::render::mesh_view_bindings::view;", "struct View { world_from_view: mat4x4<f32>, }; @group(0) @binding(0) var<uniform> view: View;") // 保留正式相机世界矩阵访问。
+            .replace("constants::MATERIAL_BIND_GROUP", "2"); // 使用Bevy扩展材质的合法绑定组号。
         let module =
             wgpu::naga::front::wgsl::parse_str(&source).expect("动态云WGSL必须通过语法解析"); // 不允许运行时才发现材质坏Shader。
         wgpu::naga::valid::Validator::new(

@@ -57,7 +57,7 @@ pub(super) fn init_raster_shadow_composite_pipeline(
         fullscreen_shader: fullscreen_shader.clone(),
         fragment_shader: load_embedded_asset!(
             asset_server.as_ref(),
-            "raster_shadow_composite.wgsl"
+            "raster_shadow_composite.wesl"
         ),
     });
 }

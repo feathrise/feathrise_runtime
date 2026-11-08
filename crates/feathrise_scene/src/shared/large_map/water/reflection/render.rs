@@ -42,7 +42,9 @@ fn source_is_eligible(spec: ReflectionTextureSpec, usage: TextureUsages) -> bool
 
 fn is_water_material(asset: bevy::asset::UntypedAssetId) -> bool {
     // 只认项目真实动态水材质类型。
-    asset.type_id() == TypeId::of::<super::super::material::DynamicWaterMaterial>() // 不以名称、透明度或材质字段猜测水体。
+    let kind = asset.type_id();
+    kind == TypeId::of::<super::super::material::DynamicWaterMaterial>()
+        || kind == TypeId::of::<crate::ClipmapWaterMaterial>() // Clipmap 水使用嵌套材质扩展，类型身份独立。
 } // 结束现有材质索引类型检查。
 
 fn action(

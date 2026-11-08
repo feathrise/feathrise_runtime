@@ -31,7 +31,7 @@ pub(in crate::resource_monitor) struct LodControlButtonLabel {
 } // 完成按钮标签绑定。
 
 type LodControlInteractionData = (&'static LodControlButton, &'static Interaction);
-type ChangedLodControlInteractionFilter = (With<Button>, Changed<Interaction>);
+type ChangedLodControlInteractionFilter = Changed<Interaction>;
 type LodControlVisualData = (
     &'static LodControlButton,
     &'static Interaction,
@@ -136,7 +136,7 @@ fn spawn_action_button(
     }; // 完成按行为选择稳定按钮宽度。
     parent
         .spawn((
-            Button,                      // 注册Bevy UI鼠标交互。
+            Interaction::None, // 保留监视器的悬停与按压交互。
             LodControlButton { action }, // 保存当前按钮行为供输入系统读取。
             Node {
                 width: Val::Px(button_width), // 使用稳定宽度避免状态文字切换时抖动。
@@ -198,7 +198,7 @@ pub(in crate::resource_monitor) fn update_lod_control_ui(
     monitor_state: Res<ResourceMonitorState>, // 当前页决定控件是否显示及四档中文名称。
     lod_state: Res<LodControlState>,          // 当前页独立掩码决定开关文字和选中样式。
     mut root_q: Query<&mut Node, With<ResourceMonitorLodControls>>, // 总览页让完整控件退出布局。
-    mut button_q: Query<LodControlVisualData, With<Button>>, // 读取按钮操作、悬停及两类视觉颜色。
+    mut button_q: Query<LodControlVisualData>, // 读取按钮操作、悬停及两类视觉颜色。
     mut label_q: Query<LodControlLabelData>,  // 切页后更新四档名称与开关状态。
 ) {
     let content = content_for_page(monitor_state.page); // 总览页没有共享LOD内容。

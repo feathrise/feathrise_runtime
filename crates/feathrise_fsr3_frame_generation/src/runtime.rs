@@ -36,6 +36,8 @@ const REQUIRED_QUEUE_COUNT: u32 = 4; // 官方Vulkan代理交换链的硬要求�
 
 /// 提取到RenderApp的最终运行请求；资格阻断已在主世界解析。
 #[derive(Resource, Clone, Copy, Debug, Default, ExtractResource)]
+#[extract_app(RenderApp)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct RenderRequest {
     pub(crate) enabled: bool, // 只有设备、唯一窗口/相机和稳定交换链同时满足才为真。
     pub(crate) camera: Option<Entity>, // RenderApp必须精确匹配同一主世界玩法相机。

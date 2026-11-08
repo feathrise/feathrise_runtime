@@ -57,7 +57,7 @@ pub struct VegetationMeshRenderIdentity {
     pub billboard: bool,          // F3可独立核对最远公告板而不解析节点名称或材质类型。
 } // 完成只读RenderApp分箱身份；该组件本身不改变PBR排队或绘制命令。
 
-impl bevy::render::sync_component::SyncComponent for VegetationMeshRenderIdentity {
+impl bevy::render::sync_component::SyncComponent<bevy::render::RenderApp> for VegetationMeshRenderIdentity {
     type Target = Self; // 手动提取仍写入同名组件；主世界移除时同步插件据此清理渲染世界残留身份。
 }
 

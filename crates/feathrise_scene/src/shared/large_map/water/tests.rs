@@ -5,10 +5,10 @@ use super::*; // 复用父模块私有常量、组件和纯波纹 helper。
 
 // 跨包的水/雨/地表完整片元契约由 SDK 的 tests/workspace 验证，单包测试不读取其他包的源码。
 
-const WATER_SHADER_SOURCE: &str = include_str!("shaders/water.wgsl"); // 直接读取生产水面Shader，禁止测试维护第二份波形实现。
-const WATER_FRAGMENT_SHADER_SOURCE: &str = include_str!("shaders/fragment.wgsl"); // 直接锁定正式透明PBR片元流动实现。
-const WATER_VERTEX_SHADER_SOURCE: &str = include_str!("shaders/vertex.wgsl"); // 锁定前向顶点在无UV1时仍把UV0传入公共水采样。
-const WATER_PREPASS_SHADER_SOURCE: &str = include_str!("shaders/prepass.wgsl"); // 锁定预通道与主通道共用同一uniform哨兵分支。
+const WATER_SHADER_SOURCE: &str = include_str!("shaders/water.wesl"); // 直接读取生产水面Shader，禁止测试维护第二份波形实现。
+const WATER_FRAGMENT_SHADER_SOURCE: &str = include_str!("shaders/fragment.wesl"); // 直接锁定正式透明PBR片元流动实现。
+const WATER_VERTEX_SHADER_SOURCE: &str = include_str!("shaders/vertex.wesl"); // 锁定前向顶点在无UV1时仍把UV0传入公共水采样。
+const WATER_PREPASS_SHADER_SOURCE: &str = include_str!("shaders/prepass.wesl"); // 锁定预通道与主通道共用同一uniform哨兵分支。
 const WATER_MATERIAL_SOURCE: &str = include_str!("material.rs"); // 锁定扩展材质必须选择新片元入口。
 const WATER_SHADER_REGISTRY_SOURCE: &str = include_str!("shaders.rs"); // 锁定内置Shader资产必须随插件登记。
 const LEGACY_WATER_SYSTEMS_SOURCE: &str = include_str!("systems.rs"); // 锁定旧GLB动态水的方向光阴影接收策略。
@@ -16,10 +16,7 @@ const PAINTED_WATER_SPAWN_SOURCE: &str = include_str!("painted/spawn.rs"); // �
 
 #[test] // 水面生产WGSL必须通过当前Bevy所用同版本Naga的语法与语义校验。
 fn dynamic_water_shader_is_valid_wgsl() {
-    let validation_source = WATER_SHADER_SOURCE
-        .strip_prefix("#define_import_path feathrise_scene::shared::large_map::water::water")
-        .expect("水面Shader必须保留稳定的Bevy导入路径")
-        .replace("#{MATERIAL_BIND_GROUP}", "2"); // 仅把Bevy加载器负责的预处理占位符还原为合法测试绑定组，其他内容全部来自生产源码。
+    let validation_source = WATER_SHADER_SOURCE.replace("constants::MATERIAL_BIND_GROUP", "2"); // 仅把Bevy加载器负责的预处理占位符还原为合法测试绑定组，其他内容全部来自生产源码。
     let module = wgpu::naga::front::wgsl::parse_str(&validation_source)
         .unwrap_or_else(|error| panic!("动态水面WGSL语法错误：{error}")); // 解析失败时保留Naga精确行列信息。
     wgpu::naga::valid::Validator::new(

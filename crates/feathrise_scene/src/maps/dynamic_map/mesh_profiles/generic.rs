@@ -176,12 +176,12 @@ pub(super) fn generic_mesh_profile_finished(
 }
 
 fn mesh_aabb(meshes: &Assets<Mesh>, handle: &Handle<Mesh>, label: &str) -> Result<Aabb, String> {
-    use bevy::camera::primitives::MeshAabb; // `compute_aabb` 由 MeshAabb trait 提供。
+    use bevy::camera::primitives::MeshAabb; // `get_aabb` 由 MeshAabb trait 提供。
 
     meshes
         .get(handle)
         .ok_or_else(|| format!("{label} Mesh尚未进入Assets"))?
-        .compute_aabb()
+        .get_aabb()
         .ok_or_else(|| format!("{label} Mesh缺少可计算AABB的位置属性"))
 }
 

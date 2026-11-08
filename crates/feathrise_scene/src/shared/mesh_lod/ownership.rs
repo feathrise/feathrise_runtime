@@ -69,7 +69,7 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
 }
 
 pub(super) fn hierarchy_changed(
-    event: On<Insert, ChildOf>,
+    event: On<Insert<ChildOf>>,
     mut runtime: Option<ResMut<MeshLodRuntime>>,
 ) {
     if let Some(runtime) = runtime.as_mut() {
@@ -78,7 +78,7 @@ pub(super) fn hierarchy_changed(
 }
 
 pub(super) fn owner_inserted<T: Component>(
-    event: On<Insert, T>,
+    event: On<Insert<T>>,
     mut runtime: Option<ResMut<MeshLodRuntime>>,
 ) {
     if let Some(runtime) = runtime.as_mut() {

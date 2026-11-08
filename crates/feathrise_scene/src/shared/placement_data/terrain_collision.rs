@@ -45,7 +45,7 @@ const MAX_TRIANGLES: usize = 262_144;
 const MAX_MESHES: usize = 32;
 
 pub(super) fn install_ready_collider(
-    event: On<Insert, InstallTerrainPatchCollider>,
+    event: On<Insert<InstallTerrainPatchCollider>>,
     ready: Query<(&TerrainPatchColliderReady, &GlobalTransform)>,
     mut commands: Commands,
 ) {
@@ -165,7 +165,7 @@ pub(super) fn sync_preview_physics_pose(
 }
 
 pub(super) fn retire_physics_proxy(
-    event: On<Discard, TerrainColliderProxy>,
+    event: On<Discard<TerrainColliderProxy>>,
     roots: Query<&TerrainColliderProxy>,
     mut commands: Commands,
 ) {
@@ -201,7 +201,7 @@ pub(super) fn invalidate_world_ready(
 }
 
 pub(super) fn invalidate_world_root(
-    event: On<Insert, WorldAssetRoot>,
+    event: On<Insert<WorldAssetRoot>>,
     mut roots: Query<&mut TerrainPatchCollisionRequest>,
     mut commands: Commands,
 ) {
@@ -212,7 +212,7 @@ pub(super) fn invalidate_world_root(
 }
 
 pub(super) fn retire_ready_shape(
-    event: On<Discard, TerrainPatchColliderReady>,
+    event: On<Discard<TerrainPatchColliderReady>>,
     ready: Query<&TerrainPatchColliderReady>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
 ) {
@@ -224,7 +224,7 @@ pub(super) fn retire_ready_shape(
 
 /// Avian可能为非均匀缩放创建独立形状，正式Collider自身的最后引用也交后台释放。
 pub(super) fn retire_installed_shape(
-    event: On<Discard, Collider>,
+    event: On<Discard<Collider>>,
     installed: Query<&Collider, With<TerrainPhysicsProxy>>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
 ) {
@@ -243,7 +243,7 @@ pub(super) fn retire_formal_terrain(commands: &mut Commands, roots: &[Entity]) {
 }
 
 pub(super) fn register_request(
-    event: On<Add, TerrainPatchCollisionRequest>,
+    event: On<Add<TerrainPatchCollisionRequest>>,
     mut runtime: ResMut<TerrainCollisionRuntime>,
     mut commands: Commands,
 ) {
@@ -259,7 +259,7 @@ pub(super) fn register_request(
 }
 
 pub(super) fn unregister_request(
-    event: On<Remove, TerrainPatchCollisionRequest>,
+    event: On<Remove<TerrainPatchCollisionRequest>>,
     mut runtime: ResMut<TerrainCollisionRuntime>,
     mut commands: Commands,
 ) {

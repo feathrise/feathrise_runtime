@@ -87,7 +87,7 @@ pub(super) fn test_insert_terrain_collider(
         prelude::{CollisionLayers, Position, Rotation, SimpleCollider},
     };
     world.init_resource::<ColliderTrees>();
-    let aabb = collider.aabb(position, Quat::IDENTITY);
+    let aabb = collider.aabb(position, Quat::IDENTITY, 0.0);
     let entity = world.spawn((
         DynamicSparseTerrainCollider, Position(position), Rotation(Quat::IDENTITY), collider,
     )).id();

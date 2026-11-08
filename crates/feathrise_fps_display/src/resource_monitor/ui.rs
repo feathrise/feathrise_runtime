@@ -64,7 +64,7 @@ fn spawn_resource_monitor_panel_with_font(
                     for group in ResourceMonitorGroup::ALL {
                         let selected = group == ResourceMonitorGroup::Overview; // 默认总览组在首次显示前已经具有选中样式。
                         tabs.spawn((
-                            Button,                               // 注册Bevy UI交互状态。
+                            Interaction::None, // 保留监视器的悬停与按压交互。
                             ResourceMonitorGroupButton { group }, // 点击后切换顶层功能组。
                             resource_monitor_tab_node(),          // 五个按钮使用一致尺寸。
                             BackgroundColor(if selected {
@@ -98,7 +98,7 @@ fn spawn_resource_monitor_panel_with_font(
                 .with_children(|tabs| {
                     for page in ResourceMonitorPage::SUBTABS {
                         tabs.spawn((
-                            Button,                                                   // 注册 Bevy UI 交互状态。
+                            Interaction::None, // 保留监视器的悬停与按压交互。
                             ResourceMonitorTabButton { page }, // 点击后切换当前组内叶子页。
                             resource_monitor_subtab_node(false), // 默认总览组下全部二级按钮退出布局。
                             BackgroundColor(Color::srgba(0.055, 0.044, 0.035, 0.86)), // 未选中二级页使用暗墨木色。

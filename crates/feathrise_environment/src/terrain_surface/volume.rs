@@ -112,7 +112,7 @@ mod tests {
             (0..70_000).map(|x| ([x as f32 * 0.25, -4., 0.], [0., 1., 0.], paint.as_slice())),
         )
         .unwrap();
-        assert!(buffer.data.as_ref().unwrap().len() > 8 * 1024 * 1024);
+        assert!(buffer.cast_slice::<u8>().unwrap().len() > 8 * 1024 * 1024);
     }
     #[test]
     fn puddles_share_the_original_grid_buffer_without_allocating_material_ids() {
@@ -121,7 +121,7 @@ mod tests {
             std::iter::once(([1., -4., 1.], [0., 1., 0.], &[][..], 128)),
         )
         .unwrap();
-        let bytes = buffer.data.unwrap();
+        let bytes = buffer.cast_slice::<u8>().unwrap();
         let rows: Vec<[u32; 4]> = bytes
             .chunks_exact(16)
             .map(|b| {
@@ -143,7 +143,7 @@ mod tests {
             std::iter::once(([1., -4., 1.], [0., 1., 0.], paint.as_slice())),
         )
         .unwrap();
-        let bytes = buffer.data.unwrap();
+        let bytes = buffer.cast_slice::<u8>().unwrap();
         let rows: Vec<[u32; 4]> = bytes
             .chunks_exact(16)
             .map(|b| {

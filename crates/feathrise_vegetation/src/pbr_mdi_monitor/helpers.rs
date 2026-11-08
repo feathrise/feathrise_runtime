@@ -112,7 +112,7 @@ mod tests {
     fn retained_view(entity: u32) -> RetainedViewEntity {
         RetainedViewEntity {
             main_entity: MainEntity::from(Entity::from_raw_u32(entity).unwrap()),
-            auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+            auxiliary_entity: None,
             subview_index: 0,
         }
     }

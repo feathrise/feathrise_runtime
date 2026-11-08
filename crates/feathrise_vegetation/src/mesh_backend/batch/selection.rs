@@ -83,14 +83,14 @@ enum Worker {
 #[derive(Resource, Default)]
 pub(super) struct Workers { slots: [Option<Worker>; 2] }
 
-pub(super) fn inserted(add: On<Add, VegetationMeshBatchInstances>, mut state: ResMut<VegetationMeshBatchSelectionState>) {
+pub(super) fn inserted(add: On<Add<VegetationMeshBatchInstances>>, mut state: ResMut<VegetationMeshBatchSelectionState>) {
     let entity = add.entity;
     if state.lookup.contains_key(&entity) { return; }
     let slot = state.free.pop().unwrap_or(state.entities.len());
     if slot == state.entities.len() { state.entities.push(Some(entity)); } else { state.entities[slot] = Some(entity); }
     state.lookup.insert(entity, slot);
 }
-pub(super) fn removed(remove: On<Remove, VegetationMeshBatchInstances>, mut state: ResMut<VegetationMeshBatchSelectionState>) {
+pub(super) fn removed(remove: On<Remove<VegetationMeshBatchInstances>>, mut state: ResMut<VegetationMeshBatchSelectionState>) {
     if let Some(slot) = state.lookup.remove(&remove.entity) { state.entities[slot] = None; state.free.push(slot); }
     state.stamps.remove(&remove.entity);
 }

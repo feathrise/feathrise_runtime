@@ -114,8 +114,8 @@ impl Plugin for ClipmapVegetationOverlayPlugin {
         load_internal_asset!(
             app,
             OVERLAY_SHADER,
-            "shaders/vegetation_overlay.wgsl",
-            Shader::from_wgsl
+            "shaders/vegetation_overlay.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/vegetation_overlay.wesl")
         ); // 使用内置生产源码。
         app.configure_sets(PostUpdate, (ClipmapOverlaySet::Prepare, ClipmapOverlaySet::Publish).chain()
                 .after(super::stitches::StitchPublish).before(TransformSystems::Propagate));

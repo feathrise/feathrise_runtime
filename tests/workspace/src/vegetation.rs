@@ -60,9 +60,9 @@ struct Globals {time:f32,delta_time:f32,padding:vec2<f32>}
 fn position_world_to_clip(p:vec3<f32>)->vec4<f32>{return vec4<f32>(p,1.0);}
 fn get_world_from_local(index:u32)->mat4x4<f32>{return mat4x4<f32>(vec4<f32>(1,0,0,0),vec4<f32>(0,1,0,0),vec4<f32>(0,0,1,0),vec4<f32>(0,0,0,1));}
 "#;
-    let mesh = include_str!("../../../crates/feathrise_vegetation/src/mesh_backend/batch/shaders/mesh_batch.wgsl");
-    let wind = include_str!("../../../crates/feathrise_environment/src/mesh_wind/shaders/wind.wgsl");
-    let billboard = include_str!("../../../crates/feathrise_vegetation/src/mesh_backend/billboard/shaders/billboard.wgsl");
+    let mesh = include_str!("../../../crates/feathrise_vegetation/src/mesh_backend/batch/shaders/mesh_batch.wesl");
+    let wind = include_str!("../../../crates/feathrise_environment/src/mesh_wind/shaders/wind.wesl");
+    let billboard = include_str!("../../../crates/feathrise_vegetation/src/mesh_backend/billboard/shaders/billboard.wesl");
     for prepass in [false, true] {
         for extension in ["", "VEGETATION_BATCH_WIND", "VEGETATION_BATCH_BILLBOARD"] {
             let mut defs = HashSet::from([

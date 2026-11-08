@@ -19,7 +19,7 @@ fn cross_mesh_render_extraction_moves_source_coordinates_without_changing_grass_
         for pose in [Transform::from_xyz(70.,3.,-20.),Transform::from_xyz(-12.,5.,90.).with_rotation(Quat::from_rotation_y(1.2))
             .with_scale(Vec3::new(2.,1.5,0.5))] {
             let global=GlobalTransform::from(pose).mul_transform(local);
-            let extracted=<GpuBladePatch as ExtractComponent>::extract_component((&patch,false,Some(&local),Some(&global))).unwrap();
+            let extracted=<GpuBladePatch as ExtractComponent<bevy::render::RenderApp>>::extract_component((&patch,false,Some(&local),Some(&global))).unwrap();
             assert_eq!(extracted.grid,patch.grid);assert_eq!(extracted.density_world,patch.density_world);assert_eq!(extracted.height_world,patch.height_world);
             assert!(extracted.source_to_world.abs_diff_eq(pose.to_matrix(),0.0001));
             let source=Vec3::new(-2.,1.,3.);let world=extracted.source_to_world.transform_point3(source);
@@ -145,10 +145,10 @@ fn lod_debug_marker_removes_patch_from_extract_output() {
         GpuBladePatch::square(Vec3::ZERO, 64.0, 64, 2), // 第二窗使用相同合法参数。
         GpuBladeLodDebugDisabled,                       // F3关闭标记要求ExtractComponent返回None。
     )); // 完成关闭窗创建。
-    let mut query = world.query::<<GpuBladePatch as ExtractComponent>::QueryData>(); // 复用生产提取QueryData。
+    let mut query = world.query::<<GpuBladePatch as ExtractComponent<bevy::render::RenderApp>>::QueryData>(); // 复用生产提取QueryData。
     let outputs = query
         .iter(&world)
-        .map(<GpuBladePatch as ExtractComponent>::extract_component)
+        .map(<GpuBladePatch as ExtractComponent<bevy::render::RenderApp>>::extract_component)
         .collect::<Vec<_>>(); // 收集两窗的生产提取结果。
     assert_eq!(outputs.iter().filter(|output| output.is_some()).count(), 1); // 只有未关闭窗进入渲染世界。
     assert_eq!(outputs.iter().filter(|output| output.is_none()).count(), 1); // 关闭窗必须触发旧组件移除语义。

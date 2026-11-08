@@ -43,7 +43,7 @@ pub struct VegetationMeshBatch {
 #[derive(Clone, Copy, Debug, Component, Default, PartialEq, Eq)]
 pub struct VegetationMeshBatchView;
 
-impl ExtractComponent for VegetationMeshBatchView {
+impl ExtractComponent<bevy::render::RenderApp> for VegetationMeshBatchView {
     type QueryData = &'static VegetationMeshBatchView;
     type QueryFilter = ();
     type Out = Self;
@@ -53,7 +53,7 @@ impl ExtractComponent for VegetationMeshBatchView {
     }
 }
 
-impl SyncComponent for VegetationMeshBatchView {
+impl SyncComponent<bevy::render::RenderApp> for VegetationMeshBatchView {
     type Target = Self;
 }
 
@@ -71,7 +71,7 @@ pub struct VegetationMeshBatchNode {
     pub(super) distance_offset: Vec3,
     pub(super) vertex_mode: VegetationMeshBatchVertexMode,
 }
-impl ExtractComponent for VegetationMeshBatchNode {
+impl ExtractComponent<bevy::render::RenderApp> for VegetationMeshBatchNode {
     type QueryData = &'static Self;
     type QueryFilter = ();
     type Out = Self;
@@ -79,7 +79,7 @@ impl ExtractComponent for VegetationMeshBatchNode {
         Some(item.clone())
     }
 }
-impl SyncComponent for VegetationMeshBatchNode {
+impl SyncComponent<bevy::render::RenderApp> for VegetationMeshBatchNode {
     type Target = Self;
 }
 
@@ -160,7 +160,7 @@ impl VolumeMeshCells {
     }
 }
 
-impl ExtractComponent for VegetationMeshBatchInstances {
+impl ExtractComponent<bevy::render::RenderApp> for VegetationMeshBatchInstances {
     type QueryData = (&'static VegetationMeshBatchInstances, Option<&'static Transform>, Option<&'static GlobalTransform>);
     type QueryFilter = ();
     type Out = (Self, VegetationMeshBatchFrame);
@@ -175,6 +175,6 @@ impl ExtractComponent for VegetationMeshBatchInstances {
     }
 }
 
-impl SyncComponent for VegetationMeshBatchInstances {
+impl SyncComponent<bevy::render::RenderApp> for VegetationMeshBatchInstances {
     type Target = Self;
 }

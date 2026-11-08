@@ -37,6 +37,7 @@ pub use profiles::{GpuBladeProfile, GpuBladeProfileBank, GpuBladeProfileBanks, G
 /// 【功能设计】`None` 明确表示使用 Bevy 的一乘一白色回退纹理；`Some` 表示消费者要求
 /// 使用指定综合色图集，此时图片尚未上传 GPU 时安全跳过绘制，禁止先闪现错误纹理。
 #[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GpuBladeRenderAssets {
     pub blade_base_color: Option<Handle<Image>>, // 四个 profile 槽共享一张可由 atlas_uv 切片的综合色纹理。
 }

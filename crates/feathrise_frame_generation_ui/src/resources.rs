@@ -1,7 +1,8 @@
 //! 主世界请求与 RenderApp 同帧权限；失配和未决事务默认恢复普通真实帧。
 use crate::types::{FrameGenerationUiBackend, UiFrame};
-use bevy::{prelude::*, render::extract_resource::ExtractResource}; // 固定小型请求跨世界提取。 // SDK 无关身份和图像所有权。
+use bevy::{prelude::*, render::{RenderApp, extract_resource::ExtractResource}}; // 固定小型请求跨世界提取。 // SDK 无关身份和图像所有权。
 #[derive(Resource, Clone, Copy, Debug, Default, ExtractResource)] // 无资格时不改变场景/UI。
+#[extract_app(RenderApp)]
 pub struct FrameGenerationUiRequest {
     // 两后端独立发布，按所有者释放请求。
     pub enabled: bool,                         // 后端最终资格。

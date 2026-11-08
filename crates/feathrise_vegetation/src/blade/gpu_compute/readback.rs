@@ -268,7 +268,13 @@ fn begin_maps_and_publish_gpu_grass_stats(
             .map_async(MapMode::Read, move |result| {
                 if result.is_ok() {
                     // GPU已完成对该槽的所有拷贝后才会进入成功分支。
-                    let mapped = callback_buffer.slice(..).get_mapped_range(); // 取得CPU只读字节视图。
+                    let Ok(mapped) = callback_buffer.slice(..).get_mapped_range() else {
+                        // 映射回调成功后，WGPU 30 的范围借用仍可能失败。
+                        callback_buffer.unmap();
+                        callback_shared.map_errors.fetch_add(1, Ordering::Relaxed);
+                        callback_slot.state.store(SLOT_FREE, Ordering::Release);
+                        return;
+                    };
                     let mut stats = decode_gpu_grass_stats(
                         // 仅解析本帧有效的80字节前缀。
                         &mapped,           // 读取staging小缓冲的映射字节。

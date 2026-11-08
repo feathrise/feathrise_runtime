@@ -7,17 +7,17 @@ pub(super) fn verify(directory: &Path) -> Result<(), String> {
     verify_files(directory, &RUNTIME_FILES) // 构建与启动同一七项FG身份。
 } // FG目录验证入口结束。
 pub(super) fn verify_upscaling(directory: &Path) -> Result<(), String> {
-    // 与xtask DLSS 310.5.3生产发行锁一致。
+    // 与 xtask 的 DLSS 310.9.1 发行锁一致，避免 Streamline 先装载其它版本的 NGX 模块。
     verify_files(
         directory,
         &[
             (
                 "nvngx_dlss.dll",
-                "8707E53B26C68C606B98BF31C223485FF30D310A261B1A36D48B2EAABC1507EC",
+                "3975567B8943C53ACCE397F2B72380092F84F162D00B0D2C7D08A1025C563983",
             ), // 正式SR运行库。
             (
                 "nvngx_dlssd.dll",
-                "E1D1B8D8D07E7210B5FEAFC42F118FE3BF0144B9E7F2768E44C6F652FAA6D7B8",
+                "4BC7EA5FCB2F32CF86BC2CB072E8D2860914A0BE511CBDCB2FC206C1D9D83B80",
             ), // 正式RR运行库。
         ],
     ) // 不把FG加入超分后端自身目录。

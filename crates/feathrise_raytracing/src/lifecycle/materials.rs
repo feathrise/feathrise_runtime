@@ -152,13 +152,13 @@ pub(crate) fn drive_gpu_preparation_and_warmup(
             });
             return; // 至少两个完整Deferred光栅帧后才允许Solari读取GBuffer。
         }
-        commands.entity(camera).insert(SolariLighting::default()); // 作者快照已在上一帧PostUpdate完成，required组件不污染基线。
+        commands.entity(camera).insert(SolariLighting { restir: true, ..default() }); // 作者快照已在上一帧PostUpdate完成，required组件不污染基线。
         runtime.lease_settle_pending = false;
         runtime.solari_inserted = true;
         runtime.warmup_frames = 0;
         runtime.last_warmup_render_frame = runtime.render_telemetry.render_frame; // 只接受插入后产生的新完整帧。
         runtime.last_warmup_gpu_diagnostic_frame = runtime.gpu_diagnostic_frame; // 旧会话残留诊断即使仍新鲜也不能计入本次预热。
-        runtime.blocker = None; // 兼容材质和Solari入口均已提交，随后只等待四段GPU诊断。
+        runtime.blocker = None; // 兼容材质和Solari入口均已提交，随后等待完整GPU诊断。
         return;
     }
     if !runtime.solari_inserted {
@@ -172,12 +172,12 @@ pub(crate) fn drive_gpu_preparation_and_warmup(
         && crate::telemetry::geometry_ready(&runtime)
         && render.solari_camera_count == 1
         && runtime.gpu_timings.all_present()
-        && runtime.gpu_diagnostics_fresh; // 四段诊断必须来自当前半秒内的真实管线执行。
+        && runtime.gpu_diagnostics_fresh; // 各通道诊断必须来自当前半秒内的真实管线执行。
     if !complete_frame {
         return; // 不重复消费旧快照，也不提前切换可见材质。
     }
     runtime.last_warmup_render_frame = render.render_frame;
-    runtime.last_warmup_gpu_diagnostic_frame = runtime.gpu_diagnostic_frame; // 下一次必须等待四段诊断全部再次更新。
+    runtime.last_warmup_gpu_diagnostic_frame = runtime.gpu_diagnostic_frame; // 下一次等待各通道诊断全部再次更新。
     runtime.warmup_frames = runtime.warmup_frames.saturating_add(1);
     if runtime.warmup_frames < REQUIRED_WARMUP_RENDER_FRAMES {
         return; // 第一完整Solari诊断帧后仍保留标准阴影，兼容材质已经稳定Deferred。

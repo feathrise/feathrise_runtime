@@ -60,7 +60,7 @@ impl TerrainMeshQuery {
         let local_normal = self
             .shape
             .shape()
-            .feature_normal_at_point(hit.feature, ray.origin + ray.dir * hit.time_of_impact)
+            .feature_normal_at_point(hit.subshape, hit.feature, ray.point_at(hit.time_of_impact))
             .unwrap_or(hit.normal);
         let normal = self
             .inverse

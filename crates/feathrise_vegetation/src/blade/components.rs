@@ -16,13 +16,13 @@ use crate::types::{
 #[derive(Component, Clone, Copy, Debug)]
 pub struct GpuBladeSourceRevision(pub u64);
 
-impl ExtractComponent for GpuBladeSourceRevision {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeSourceRevision {
     type QueryData = &'static Self;
     type QueryFilter = ();
     type Out = Self;
     fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self> { Some(*item) }
 }
-impl SyncComponent for GpuBladeSourceRevision { type Target = Self; }
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeSourceRevision { type Target = Self; }
 
 /// 一个 Blade 窗口选择的运行时 profile 批次。
 ///
@@ -47,7 +47,7 @@ impl GpuBladeProfileBankId {
     }
 }
 
-impl ExtractComponent for GpuBladeProfileBankId {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeProfileBankId {
     type QueryData = &'static GpuBladeProfileBankId; // GpuBladePatch 的 require 契约保证每个窗口都已有明确批次。
     type QueryFilter = (); // 不附加场景语义过滤条件。
     type Out = Self; // RenderApp 只保存四字节会话身份。
@@ -57,7 +57,7 @@ impl ExtractComponent for GpuBladeProfileBankId {
     }
 }
 
-impl SyncComponent for GpuBladeProfileBankId {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeProfileBankId {
     type Target = Self; // 批次身份直接同步到渲染实体，不派生额外 Bundle。
 }
 
@@ -204,7 +204,7 @@ pub struct GpuBladeDensityMap {
 /// 上传的是有界作者格，不是CPU生成的逐株实例；候选与压缩仍由GPU完成。
 #[derive(Component, Clone)]
 pub struct GpuBladeVolumeSource(pub Handle<Image>);
-impl ExtractComponent for GpuBladeVolumeSource {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeVolumeSource {
     type QueryData = &'static Self;
     type QueryFilter = ();
     type Out = Self;
@@ -212,7 +212,7 @@ impl ExtractComponent for GpuBladeVolumeSource {
         Some(item.clone())
     }
 }
-impl SyncComponent for GpuBladeVolumeSource {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeVolumeSource {
     type Target = Self;
 }
 
@@ -223,7 +223,7 @@ impl GpuBladeDensityMap {
     }
 }
 
-impl ExtractComponent for GpuBladeDensityMap {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeDensityMap {
     type QueryData = &'static GpuBladeDensityMap; // 主世界只读密度纹理句柄。
     type QueryFilter = (); // 所有带该组件的草场窗口都需要提取。
     type Out = Self; // 渲染世界保存同一强句柄直到实体同步清理。
@@ -233,7 +233,7 @@ impl ExtractComponent for GpuBladeDensityMap {
     }
 }
 
-impl SyncComponent for GpuBladeDensityMap {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeDensityMap {
     type Target = Self; // 密度句柄直接同步到同一渲染组件，不派生额外Bundle。
 }
 
@@ -244,7 +244,7 @@ impl GpuBladeHeightMap {
     }
 }
 
-impl ExtractComponent for GpuBladeHeightMap {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeHeightMap {
     type QueryData = &'static GpuBladeHeightMap; // 主世界只读高度纹理句柄。
     type QueryFilter = (); // 所有带该组件的草场窗口都需要提取。
     type Out = Self; // 渲染世界保存同一强句柄直到实体同步清理。
@@ -254,11 +254,11 @@ impl ExtractComponent for GpuBladeHeightMap {
     }
 }
 
-impl SyncComponent for GpuBladeHeightMap {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeHeightMap {
     type Target = Self; // 高度句柄直接同步到同一渲染组件，不派生额外Bundle。
 }
 
-impl ExtractComponent for GpuBladePatch {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladePatch {
     type QueryData = (
         &'static GpuBladePatch,        // 读取主世界中不可变的批次描述。
         Has<GpuBladeLodDebugDisabled>, // 同时读取F3是否临时关闭当前内容档位。
@@ -281,7 +281,7 @@ impl ExtractComponent for GpuBladePatch {
     }
 }
 
-impl SyncComponent for GpuBladePatch {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladePatch {
     type Target = Self; // 调试禁用时Extract返回None，Bevy据此移除同一目标组件。
 }
 
@@ -474,7 +474,7 @@ impl Default for GpuBladeView {
     }
 }
 
-impl ExtractComponent for GpuBladeView {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeView {
     type QueryData = &'static GpuBladeView; // 读取主世界玩法相机标记及其三组Copy配置。
     type QueryFilter = (); // 不附加其他相机过滤条件。
     type Out = Self; // 渲染世界保留同一轻量配置供共享相机uniform准备。
@@ -484,7 +484,7 @@ impl ExtractComponent for GpuBladeView {
     }
 }
 
-impl SyncComponent for GpuBladeView {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeView {
     type Target = Self; // 玩法相机配置按值同步到同一渲染组件。
 }
 

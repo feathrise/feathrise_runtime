@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
-use bevy::shader::{ShaderRef, load_shader_library};
+use bevy::shader::ShaderRef;
 
 use crate::maps::dynamic_map::clipmap::{ClipmapHeightExtension, ClipmapHeightUniform};
 use crate::shared::large_map::{DynamicWaterMaterial, DynamicWaterUniform};
@@ -272,30 +272,35 @@ pub(crate) struct ClipmapWaterMaterialPlugin;
 
 impl Plugin for ClipmapWaterMaterialPlugin {
     fn build(&self, app: &mut App) {
-        load_shader_library!(app, "../shaders/clipmap_water.wgsl");
+        load_internal_asset!(
+            app,
+            uuid_handle!("0ae2723d-16b9-4dc8-b055-f8bde12f6616"),
+            "../shaders/clipmap_water.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/water/shaders/clipmap_water.wesl")
+        ); // 以规范模块路径注册，消除Rust文件相对路径中的父目录分量。
         load_internal_asset!(
             app,
             MAIN_VERTEX_SHADER,
-            "../shaders/clipmap_water_vertex.wgsl",
-            Shader::from_wgsl
+            "../shaders/clipmap_water_vertex.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/water/shaders/clipmap_water_vertex.wesl")
         );
         load_internal_asset!(
             app,
             PREPASS_VERTEX_SHADER,
-            "../shaders/clipmap_water_prepass.wgsl",
-            Shader::from_wgsl
+            "../shaders/clipmap_water_prepass.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/water/shaders/clipmap_water_prepass.wesl")
         );
         load_internal_asset!(
             app,
             PREPASS_FRAGMENT_SHADER,
-            "../shaders/clipmap_water_prepass_fragment.wgsl",
-            Shader::from_wgsl
+            "../shaders/clipmap_water_prepass_fragment.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/water/shaders/clipmap_water_prepass_fragment.wesl")
         );
         load_internal_asset!(
             app,
             RAIN_HEIGHT_SHADER,
-            "../shaders/clipmap_water_height.wgsl",
-            Shader::from_wgsl
+            "../shaders/clipmap_water_height.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/water/shaders/clipmap_water_height.wesl")
         );
         app.add_plugins((
             MaterialPlugin::<ClipmapWaterMaterial>::default(),
@@ -311,35 +316,12 @@ mod shoreline_tests;
 mod tests {
     use std::borrow::Cow;
 
-    fn flatten(source: &str) -> String {
-        let prefix = if source.contains("#define_import_path feathrise_scene::clipmap_height") {
-            feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false)
-        } else {
-            String::new()
-        }; // 与正式材质加载器使用相同的接缝声明和函数。
-        let source = format!("{prefix}\n{source}");
-        source
-            .lines()
-            .filter(|line| {
-                let line = line.trim();
-                !line.starts_with("#define_import_path") && !line.starts_with("#import ")
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            .replace("#{MATERIAL_BIND_GROUP}", "2")
-            .replace("clipmap_height::", "")
-            .replace("clipmap_water::", "")
-    }
-
     #[test]
     fn clipmap_water_coverage_and_rain_height_fragment_are_valid_wgsl() {
-        let height = flatten(include_str!("../../clipmap/shaders/height.wgsl"));
-        let water = flatten(include_str!("../shaders/clipmap_water.wgsl"));
-        let fragment = flatten(include_str!("../shaders/clipmap_water_height.wgsl"))
-            .replace("#ifdef VERTEX_UVS_A", "")
-            .replace("#ifdef VERTEX_UVS_B", "")
-            .replace("#else\n    discard;", "")
-            .replace("#endif", "");
+        let defines = ["VERTEX_UVS_A", "VERTEX_UVS_B"];
+        let height = preprocess_source(include_str!("../../clipmap/shaders/height.wesl"), &defines, 2);
+        let water = preprocess_source(include_str!("../shaders/clipmap_water.wesl"), &defines, 2);
+        let fragment = preprocess_source(include_str!("../shaders/clipmap_water_height.wesl"), &defines, 2);
         let source = format!(
             "struct VertexOutput {{ @builtin(position) position: vec4<f32>, @location(0) world_position: vec4<f32>, @location(1) uv: vec2<f32>, @location(3) uv_b: vec2<f32>, }}\n{height}\n{water}\n{fragment}"
         ); // 仅替代Bevy导入的IO类型，所有高度、缺页、R8、水深和编码正文均来自生产文件。
@@ -359,19 +341,19 @@ mod tests {
 
     #[test]
     fn clipmap_water_motion_uses_stable_world_position() {
-        let main = include_str!("../shaders/clipmap_water_vertex.wgsl");
-        let prepass = include_str!("../shaders/clipmap_water_prepass.wgsl");
+        let main = include_str!("../shaders/clipmap_water_vertex.wesl");
+        let prepass = include_str!("../shaders/clipmap_water_prepass.wesl");
         let normalized_prepass = prepass.replace("\r\n", "\n");
-        let shared = include_str!("../../../../shared/large_map/water/shaders/water.wgsl");
+        let shared = include_str!("../../../../shared/large_map/water/shaders/water.wesl");
         assert!(main.contains("stable_world_xz"));
         assert!(prepass.contains("stable_world_xz"));
         assert!(normalized_prepass.contains("sample_dynamic_water(\n        true,"));
         assert!(shared.contains("dynamic_water_uniform.previous.time_and_visual"));
         assert!(prepass.contains("previous.local_position"));
         assert!(!prepass.contains("get_previous_world_from_local"));
-        assert!(include_str!("../shaders/clipmap_water.wgsl").contains("endpoint_aligned_mask_uv"));
+        assert!(include_str!("../shaders/clipmap_water.wesl").contains("endpoint_aligned_mask_uv"));
         assert!(
-            include_str!("../../../../shared/large_map/water/shaders/fragment.wgsl")
+            include_str!("../../../../shared/large_map/water/shaders/fragment.wesl")
                 .contains("surface_coverage(in.uv, in.uv_b)")
         );
     }
@@ -399,6 +381,7 @@ mod tests {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             }))
             .expect("指定Clipmap静水GPU后端可用");
         assert_eq!(adapter.get_info().backend, expected);
@@ -471,11 +454,11 @@ mod tests {
                 module: &shader,
                 entry_point: Some("vertex"),
                 compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: 28,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes,
-                }],
+                })],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -503,11 +486,11 @@ mod tests {
             3,
         );
         for production in [
-            include_str!("../../../../shared/large_map/water/shaders/water.wgsl"),
-            include_str!("../../clipmap/shaders/height.wgsl"),
-            include_str!("../shaders/clipmap_water.wgsl"),
-            include_str!("../shaders/clipmap_water_vertex.wgsl"),
-            include_str!("../shaders/clipmap_water_height.wgsl"),
+            include_str!("../../../../shared/large_map/water/shaders/water.wesl"),
+            include_str!("../../clipmap/shaders/height.wesl"),
+            include_str!("../shaders/clipmap_water.wesl"),
+            include_str!("../shaders/clipmap_water_vertex.wesl"),
+            include_str!("../shaders/clipmap_water_height.wesl"),
         ] {
             source.push_str(&preprocess_gpu_source(
                 production,
@@ -532,11 +515,11 @@ mod tests {
             "MOTION_VECTOR_PREPASS",
         ];
         for production in [
-            include_str!("../../../../shared/large_map/water/shaders/water.wgsl"),
-            include_str!("../../clipmap/shaders/height.wgsl"),
-            include_str!("../shaders/clipmap_water.wgsl"),
-            include_str!("../shaders/clipmap_water_prepass.wgsl"),
-            include_str!("../shaders/clipmap_water_prepass_fragment.wgsl"),
+            include_str!("../../../../shared/large_map/water/shaders/water.wesl"),
+            include_str!("../../clipmap/shaders/height.wesl"),
+            include_str!("../shaders/clipmap_water.wesl"),
+            include_str!("../shaders/clipmap_water_prepass.wesl"),
+            include_str!("../shaders/clipmap_water_prepass_fragment.wesl"),
         ] {
             source.push_str(&preprocess_gpu_source(production, &definitions));
         }
@@ -545,60 +528,25 @@ mod tests {
 
     pub(super) fn common_gpu_fixture(vertex_output: &str, uv_a_location: u32, uv_b_location: u32) -> String {
         format!(
-            "struct Vertex {{ @builtin(instance_index) instance_index: u32, @location(0) position: vec3<f32>, @location({uv_a_location}) uv: vec2<f32>, @location({uv_b_location}) uv_b: vec2<f32>, }}\n{vertex_output}struct Globals {{ time: f32, delta_time: f32, padding: vec2<f32>, }}\n@group(0) @binding(119) var<uniform> globals: Globals;\nfn get_world_from_local(index: u32) -> mat4x4<f32> {{ return mat4x4<f32>(vec4<f32>(1.0,0.0,0.0,0.0),vec4<f32>(0.0,1.0,0.0,0.0),vec4<f32>(0.0,0.0,1.0,0.0),vec4<f32>(0.0,0.0,0.0,1.0)); }}\nfn mesh_position_local_to_world(transform: mat4x4<f32>, position: vec4<f32>) -> vec4<f32> {{ return transform * position; }}\nfn position_world_to_clip(position: vec3<f32>) -> vec4<f32> {{ return vec4<f32>(position, 1.0); }}\n"
+            "struct Vertex {{ @builtin(instance_index) instance_index: u32, @location(0) position: vec3<f32>, @location({uv_a_location}) uv: vec2<f32>, @location({uv_b_location}) uv_b: vec2<f32>, }}\n{vertex_output}struct Globals {{ time: f32, delta_time: f32, padding: vec2<f32>, }}\n@group(0) @binding(119) var<uniform> globals: Globals;\nfn decompress_vertex(vertex: Vertex, instance_index: u32) -> Vertex {{ return vertex; }}\nfn get_world_from_local(index: u32) -> mat4x4<f32> {{ return mat4x4<f32>(vec4<f32>(1.0,0.0,0.0,0.0),vec4<f32>(0.0,1.0,0.0,0.0),vec4<f32>(0.0,0.0,1.0,0.0),vec4<f32>(0.0,0.0,0.0,1.0)); }}\nfn mesh_position_local_to_world(transform: mat4x4<f32>, position: vec4<f32>) -> vec4<f32> {{ return transform * position; }}\nfn position_world_to_clip(position: vec3<f32>) -> vec4<f32> {{ return vec4<f32>(position, 1.0); }}\n"
         ) // 只替换Bevy宿主IO与变换接口，水波、高度页、R8和运动正文逐字来自生产文件。
     }
 
     pub(super) fn preprocess_gpu_source(source: &str, definitions: &[&str]) -> String {
-        let prefix = if source.contains("#define_import_path feathrise_scene::clipmap_height") {
+        preprocess_source(source, definitions, 0)
+    }
+
+    fn preprocess_source(source: &str, definitions: &[&str], material_group: u32) -> String {
+        let stitches = if source.contains("var clipmap_heights: texture_2d_array<f32>") {
             feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false)
+                .replace("#{MATERIAL_BIND_GROUP}", &material_group.to_string())
         } else {
             String::new()
         };
-        let source = format!("{prefix}\n{source}");
-        let mut output = String::new();
-        let mut active = vec![true];
-        let mut multiline_import = false;
-        for line in source.lines() {
-            let trimmed = line.trim();
-            if multiline_import {
-                if trimmed == "}" {
-                    multiline_import = false;
-                }
-                continue;
-            }
-            if trimmed.starts_with("#define_import_path") {
-                continue;
-            }
-            if trimmed.starts_with("#import ") {
-                multiline_import = trimmed.ends_with("{");
-                continue;
-            }
-            if let Some(symbol) = trimmed.strip_prefix("#ifdef ") {
-                active.push(*active.last().expect("条件栈非空") && definitions.contains(&symbol));
-                continue;
-            }
-            if trimmed == "#else" {
-                let previous = active.pop().expect("else必须有对应ifdef");
-                let parent = *active.last().expect("条件栈保留根");
-                active.push(parent && !previous);
-                continue;
-            }
-            if trimmed == "#endif" {
-                active.pop().expect("endif必须有对应ifdef");
-                continue;
-            }
-            if *active.last().expect("条件栈非空") {
-                output.push_str(line);
-                output.push('\n');
-            }
-        }
-        assert_eq!(active.len(), 1, "生产Shader条件必须完整闭合");
-        assert!(!multiline_import, "生产Shader多行import必须完整闭合");
-        output
-            .replace("#{MATERIAL_BIND_GROUP}", "0")
+        let source = crate::shader_test_support::preprocess(source, definitions, material_group)
             .replace("mesh_functions::", "")
             .replace("clipmap_height::", "")
-            .replace("clipmap_water::", "")
+            .replace("clipmap_water::", "");
+        format!("{stitches}\n{source}\n")
     }
 }

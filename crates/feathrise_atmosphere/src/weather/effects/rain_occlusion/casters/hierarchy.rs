@@ -26,12 +26,12 @@ pub(super) fn install(app: &mut App) {
     ); // 本帧定向变更先于深度捕获需求。
 } // 稳定帧只检查空队列。
 
-fn parent_inserted(event: On<Insert, ChildOf>, mut commands: Commands) {
+fn parent_inserted(event: On<Insert<ChildOf>>, mut commands: Commands) {
     // 源和任一祖先挂到新父节点都会影响规划归属。
     super::enqueue_family(event.entity, &mut commands); // 延迟读取已完成关系变更。
 } // 不读取完整Children列表。
 
-fn parent_removed(event: On<Remove, ChildOf>, mut commands: Commands) {
+fn parent_removed(event: On<Remove<ChildOf>>, mut commands: Commands) {
     // 脱离规划父级后需要重新登记世界层。
     super::enqueue_family(event.entity, &mut commands); // Remove完成后再读取当前祖先链。
 } // despawn时源清理同样幂等。

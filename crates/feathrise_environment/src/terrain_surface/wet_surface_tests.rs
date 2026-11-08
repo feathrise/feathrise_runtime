@@ -8,7 +8,7 @@ pub(super) fn native_forward_source() -> String {
     format!(
         "{}\n{}\n{}\n{}\n{}\n{}",
         preprocess(PBR_STUB, &defines),
-        include_str!("shaders/rain_shelter.wgsl"),
+        include_str!("shaders/rain_shelter.wesl"),
         preprocess(WEATHER, &defines),
         preprocess(RAIN, &defines),
         preprocess(WET, &defines),

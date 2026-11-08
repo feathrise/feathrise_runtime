@@ -13,20 +13,17 @@ fn app() -> App {
         ..default()
     }); // 第一份真实地图身份。
     app.init_resource::<RenderSettings>(); // 默认高特效。
-    app.init_resource::<GraphicsRuntimeLeaseRegistry>(); // 只检查本功能交出的最小声明。
-    app.init_resource::<WaterReflectionCameraState>(); // 初始没有租约。
-    app.add_systems(PostUpdate, maintain); // 实际生产生命周期。
+    install(&mut app); // 通过正式安装入口验证 Bevy 0.20 的相机透射默认配置。
     app // 返回无窗口夹具。
 } // 完成宿主。
 
 fn camera(app: &mut App) -> Entity {
-    // 测试显式安装PBR在正式插件中提供的传输附件。
+    // 玩法标记自动获得透射组件。
     app.world_mut()
         .spawn((
             Camera3d::default(),
             Camera::default(),
             Projection::Perspective(PerspectiveProjection::default()),
-            ScreenSpaceTransmission::default(),
             PrimarySceneView,
         ))
         .id() // 合法玩法透视相机。
@@ -99,7 +96,6 @@ fn reflection_camera_f12_perspective_and_transmission_switches_are_exclusive() {
             Camera3d::default(),
             Camera::default(),
             Projection::Perspective(PerspectiveProjection::default()),
-            ScreenSpaceTransmission::default(),
             WeatherPreviewCamera,
         ))
         .id(); // 明确F12作者相机。

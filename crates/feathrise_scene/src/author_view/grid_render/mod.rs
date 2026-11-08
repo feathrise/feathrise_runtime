@@ -31,7 +31,7 @@ use bevy::{
 pub struct GridRenderPlugin;
 impl Plugin for GridRenderPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "infinite.wgsl");
+        embedded_asset!(app, "infinite.wesl");
         app.add_plugins((
             ExtractComponentPlugin::<GridView>::default(),
             UniformComponentPlugin::<GridView>::default(),
@@ -55,7 +55,7 @@ fn init_pipeline(mut commands: Commands, assets: Res<AssetServer>, fullscreen: R
             (uniform_buffer::<ViewUniform>(true), uniform_buffer::<GridView>(true)),
         )),
         fullscreen: fullscreen.clone(),
-        shader: load_embedded_asset!(assets.as_ref(), "infinite.wgsl"),
+        shader: load_embedded_asset!(assets.as_ref(), "infinite.wesl"),
     });
 }
 

@@ -209,7 +209,7 @@ pub(in crate::shared::large_map::water) fn initialize_dynamic_water_mesh_overrid
 
 /// `WorldAssetRoot`替换或移除当下撤销旧水Ready，不再使用稳定帧全根变化过滤Query。
 pub(in crate::shared::large_map::water) fn invalidate_discarded_dynamic_water_mesh_world_asset(
-    discard: On<Discard, WorldAssetRoot>, // World spawner改写InstanceId之前先收到权威资产根生命周期事件。
+    discard: On<Discard<WorldAssetRoot>>, // World spawner改写InstanceId之前先收到权威资产根生命周期事件。
     roots: Query<&WorldInstance, (With<DynamicWaterMeshOverrides>, With<WorldAssetRoot>)>, // 只读取发生Discard的精确整网格水根。
     mut queue: ResMut<DynamicWaterMeshOverrideQueue>, // 旧实例等待项立即O(1)摘链。
     mut work_state: ResMut<DynamicWaterMeshOverrideWorkState>, // 活动旧游标失效并冻结旧InstanceId。
@@ -229,7 +229,7 @@ pub(in crate::shared::large_map::water) fn invalidate_discarded_dynamic_water_me
 
 /// `WorldAssetRoot`真实移除时清理阻断票据与待处理身份；Replace不会触发本observer。
 pub(in crate::shared::large_map::water) fn cancel_removed_dynamic_water_mesh_world_asset(
-    remove: On<Remove, WorldAssetRoot>, // Remove在旧覆盖组件仍可查询时提供精确根实体。
+    remove: On<Remove<WorldAssetRoot>>, // Remove在旧覆盖组件仍可查询时提供精确根实体。
     roots: Query<(), With<DynamicWaterMeshOverrides>>, // 普通World根不接触整网格水队列。
     mut queue: ResMut<DynamicWaterMeshOverrideQueue>, // 待处理根O(1)取消。
     mut work_state: ResMut<DynamicWaterMeshOverrideWorkState>, // 释放换代阻断并让活动游标进入有界Discard。
@@ -241,7 +241,7 @@ pub(in crate::shared::large_map::water) fn cancel_removed_dynamic_water_mesh_wor
 
 /// 覆盖整组件Add/替换时只合并该根最新请求，稳定帧不扫描全部World根原型。
 pub(in crate::shared::large_map::water) fn queue_inserted_dynamic_water_mesh_overrides(
-    insert: On<Insert, DynamicWaterMeshOverrides>, // Bevy 0.19 Insert同时覆盖首次Add与整组件替换。
+    insert: On<Insert<DynamicWaterMeshOverrides>>, // Bevy 0.19 Insert同时覆盖首次Add与整组件替换。
     roots: Query<
         (
             &DynamicWaterMeshOverrides,           // 处理时仍会重读该组件的最新值。
@@ -349,7 +349,7 @@ pub(in crate::shared::large_map::water) fn invalidate_dynamic_water_mesh_asset_e
 
 /// 一次性O(1)数值补丁只改冻结索引的一项，再沿与整组件Insert相同的Pending/重建链推进。
 pub(in crate::shared::large_map::water) fn apply_dynamic_water_mesh_numeric_patch(
-    insert: On<Insert, DynamicWaterMeshOverrideNumericPatch>,
+    insert: On<Insert<DynamicWaterMeshOverrideNumericPatch>>,
     mut roots: Query<(
         &DynamicWaterMeshOverrideNumericPatch,
         &mut DynamicWaterMeshOverrides,

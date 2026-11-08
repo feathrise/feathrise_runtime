@@ -3,7 +3,7 @@
 name = "feathrise_vegetation"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.97.1"
 publish = ["crates-io"]
 description = "Deterministic vegetation distribution and spatial competition for Bevy"
 license = "MIT OR Apache-2.0"
@@ -43,12 +43,12 @@ full = ["blade", "mesh", "diagnostics"]
 [dependencies]
 # 宿主可保留地图布局和后端会话，不引入RPG状态依赖。
 feathrise_scene_core = { workspace = true }
-bevy = { version = "=0.19.1", default-features = false, features = ["std"] }
+bevy = { version = "=0.20.1", default-features = false, features = ["std"] }
 bytemuck.workspace = true
 wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
-bevy = { version = "=0.19.1", default-features = true }
+bevy = { version = "=0.20.1", default-features = true }
 
 [[example]]
 name = "dense_forest"

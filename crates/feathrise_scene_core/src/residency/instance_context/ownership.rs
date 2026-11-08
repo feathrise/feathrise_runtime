@@ -42,14 +42,14 @@ impl EntityMapScope<'_, '_> {
     }
 }
 
-fn tag_transformed_entity(add: On<Add, Transform>, context: EntityMapScope, mut commands: Commands) {
+fn tag_transformed_entity(add: On<Add<Transform>>, context: EntityMapScope, mut commands: Commands) {
     tag(add.entity, &context, &mut commands);
 }
-fn tag_parented_entity(add: On<Insert, ChildOf>, context: EntityMapScope, mut commands: Commands) {
+fn tag_parented_entity(add: On<Insert<ChildOf>>, context: EntityMapScope, mut commands: Commands) {
     tag(add.entity, &context, &mut commands);
 }
 
-fn track_detached(add: On<Add, super::MapInstanceDetached>, context: EntityMapScope,
+fn track_detached(add: On<Add<super::MapInstanceDetached>>, context: EntityMapScope,
     mut roots: ResMut<super::InstanceResourceTable<super::MapDetachedRoots>>) {
     if let Some(instance) = context.instance(add.entity) {
         if let Some(roots) = roots.values.get_mut(&instance) { roots.0.push(add.entity); }
@@ -64,7 +64,7 @@ fn tag(entity: Entity, context: &EntityMapScope, commands: &mut Commands) {
     } // 域自己的根挂到子地图根，源图内部Transform保持原样。
 }
 
-fn index_owner(insert: On<Insert, MapInstanceOwner>, owners: Query<&MapInstanceOwner>,
+fn index_owner(insert: On<Insert<MapInstanceOwner>>, owners: Query<&MapInstanceOwner>,
     children: Query<&Children>, mut pending: ResMut<PendingInheritance>,
     mut index: ResMut<super::query::OwnershipIndex>) {
     if let Ok(owner) = owners.get(insert.entity) {
@@ -74,7 +74,7 @@ fn index_owner(insert: On<Insert, MapInstanceOwner>, owners: Query<&MapInstanceO
         }
     }
 }
-fn unindex_owner(remove: On<Remove, MapInstanceOwner>, mut index: ResMut<super::query::OwnershipIndex>) {
+fn unindex_owner(remove: On<Remove<MapInstanceOwner>>, mut index: ResMut<super::query::OwnershipIndex>) {
     index.remove(remove.entity);
 }
 #[derive(Resource)]

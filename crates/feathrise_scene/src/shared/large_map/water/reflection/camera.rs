@@ -21,7 +21,10 @@ use resources::WaterReflectionCameraState; // 唯一票据缓存。 // 渲染准
 
 pub(super) fn install(app: &mut App) {
     // 插件由水面反射入口安装一次。
-    app.init_resource::<WaterReflectionCameraState>() // 默认无目标和租约。
+    // Bevy 0.20 将透射从 Camera3d 默认字段改为显式组件。保留玩法与作者视图的原默认能力。
+    app.register_required_components::<PrimarySceneView, ScreenSpaceTransmission>()
+        .register_required_components::<WeatherPreviewCamera, ScreenSpaceTransmission>()
+        .init_resource::<WaterReflectionCameraState>() // 默认无目标和租约。
         .init_resource::<GraphicsRuntimeLeaseRegistry>() // 正式设置插件已初始化，独立测试也可安全使用。
         .add_plugins(ExtractComponentPlugin::<WaterReflectionView>::default()) // 仅提取显式资格，不复制相机配置。
         .add_systems(

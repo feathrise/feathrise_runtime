@@ -13,7 +13,7 @@ pub(super) const TERRAIN_SURFACE_SHADER_HANDLE: Handle<Shader> =
 pub(super) const TERRAIN_SURFACE_DEFERRED_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("812ca1ac-88d5-4a6a-bc71-ff87c4d1587e"); // 独立UUID防止前向管线继承PRIMITIVE_INDEX设备要求。
 
-/// WGSL扩展指令必须位于全部预处理与全局声明之前，因此只能在Deferred资产构造时置于源码首字节。
+/// Deferred 专用扩展指令放在 WESL 导入与全局声明之间。
 const DEFERRED_PRIMITIVE_INDEX_DIRECTIVE: &str = "enable primitive_index;\n"; // 普通地表源码保持无扩展，非光追路径不扩大设备能力边界。
 const DEFERRED_PRIMITIVE_INDEX_SHADER_DEF: &str = "TERRAIN_SURFACE_PRIMITIVE_INDEX"; // 资产级身份只随Deferred句柄进入组合，不能复用视图级define。
 
@@ -22,52 +22,60 @@ pub(super) fn register_terrain_surface_shader(app: &mut App) {
     load_internal_asset!(
         app,
         uuid_handle!("922885c8-de6f-44ab-8868-a2f4ddcaa1fe"),
-        "shaders/rain_shelter.wgsl",
-        |source, path| Shader::from_wgsl(
-            format!("#define_import_path feathrise_environment::rain_shelter\n{source}"),
-            path
-        )
+        "shaders/rain_shelter.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/terrain_surface/shaders/rain_shelter.wesl")
     ); // 纯盒相交正文也供Hanabi复用。
     load_internal_asset!(
         app,
         uuid_handle!("01cbac0b-d7ce-4bcd-8d75-c72586414d7e"),
-        "shaders/surface_weather.wgsl",
-        Shader::from_wgsl
+        "shaders/surface_weather.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/terrain_surface/shaders/surface_weather.wesl")
     ); // 地表和河湖共用固定天气布局。
     load_internal_asset!(
         app,
         uuid_handle!("07618896-9324-4646-9d83-8873c2f4d165"),
-        "shaders/rain.wgsl",
-        Shader::from_wgsl
+        "shaders/rain.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/terrain_surface/shaders/rain.wesl")
     ); // 共用固定九候选雨滴细纹，避免两套尺度和时钟。
     load_internal_asset!(
         app,
         uuid_handle!("b9e4e90b-20ec-45b6-9cb7-19b03620c7f4"),
-        "shaders/wet_surface.wgsl",
-        Shader::from_wgsl
+        "shaders/wet_surface.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/terrain_surface/shaders/wet_surface.wesl")
     ); // 湿润与浅积水PBR纯函数。
     // 只在TerrainSurfacePlugin启用时执行一次。
     load_internal_asset!(
         // 使用Bevy官方宏把源码编译进环境crate。
         app,                            // 向当前应用Shader资产表注册源码。
         TERRAIN_SURFACE_SHADER_HANDLE,  // 材质扩展引用的稳定句柄。
-        "shaders/terrain_surface.wgsl", // 相对当前模块定位通用地表Shader。
-        Shader::from_wgsl               // 保留Bevy的#import、条件编译和运行时管线缓存。
+        "shaders/terrain_surface.wesl", // 相对当前模块定位通用地表Shader。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/terrain_surface/shaders/terrain_surface.wesl")
     ); // 完成内置Shader注册。
     load_internal_asset!(
         app,                                    // 向同一Shader资产表注册Deferred专用入口。
         TERRAIN_SURFACE_DEFERRED_SHADER_HANDLE, // MaterialExtension只在Deferred管线返回该句柄。
-        "shaders/terrain_surface.wgsl", // 权重混合、PBR输入与Forward入口仍只有一份受测源码。
-        |source, path| Shader::from_wgsl_with_defs(
-            format!("{DEFERRED_PRIMITIVE_INDEX_DIRECTIVE}{source}"), // 扩展指令必须成为组合前root源码的首个token。
-            path,
-            vec![ShaderDefVal::Bool(
-                DEFERRED_PRIMITIVE_INDEX_SHADER_DEF.into(), // 只有该资产展开片元primitive_index参数与GBuffer写入。
-                true,
-            )],
-        )
+        "shaders/terrain_surface.wesl", // 权重混合、PBR输入与Forward入口共用正式源码。
+        deferred_terrain_surface_shader
     ); // 完成Deferred专用Shader注册。
 } // 完成Shader注册入口。
+
+fn deferred_terrain_surface_shader(source: &str, _: std::borrow::Cow<'_, str>) -> Shader {
+    let declaration = "struct TerrainSurfaceLayer";
+    let source = source.replacen(
+        declaration,
+        &format!("{DEFERRED_PRIMITIVE_INDEX_DIRECTIVE}{declaration}"),
+        1,
+    );
+    let mut shader = Shader::from_wesl(
+        source,
+        "embedded://feathrise_environment/terrain_surface/shaders/terrain_surface_deferred.wesl",
+    );
+    shader.shader_defs = vec![ShaderDefVal::Bool(
+        DEFERRED_PRIMITIVE_INDEX_SHADER_DEF.into(),
+        true,
+    )];
+    shader
+}
 
 #[cfg(test)] // Shader条件编译与大小地图兼容GBuffer元数据由源码契约锁定。
 mod tests {
@@ -97,7 +105,7 @@ mod tests {
     use super::{DEFERRED_PRIMITIVE_INDEX_DIRECTIVE, DEFERRED_PRIMITIVE_INDEX_SHADER_DEF}; // 验证生产注册入口真正注入的首行扩展与资产私有define。
 
     // 测试只读取随crate编译的同一份正式WGSL源码。
-    const TERRAIN_SURFACE_SHADER_SOURCE: &str = include_str!("shaders/terrain_surface.wgsl"); // 不复制第二份Shader文本。
+    const TERRAIN_SURFACE_SHADER_SOURCE: &str = include_str!("shaders/terrain_surface.wesl"); // 不复制第二份Shader文本。
 
     #[test] // 动态地形必须保留标准A/B槽，仅在指数安全的G槽发布三角身份。
     fn dynamic_terrain_metadata_preserves_auxiliary_deferred_pbr_fields() {
@@ -108,7 +116,7 @@ mod tests {
             .find("var out = deferred_output(in, pbr_input);") // 定位官方字段完整写入点。
             .expect("地表Shader必须先编码平滑Deferred输出"); // 自定义数据不得改变基础色、粗糙度、AO或清漆。
         let mode_position = TERRAIN_SURFACE_SHADER_SOURCE // 取得动态会话身份门位置。
-            .find("if terrain_surface.appearance.z > 0.5") // 定位只允许光追副本进入的分支。
+            .find("if write_raytracing_identity") // 定位只允许光追副本进入的分支。
             .expect("Deferred会话标记必须守卫动态地形元数据"); // HN-01和作者源默认不会进入。
         let normal_position = TERRAIN_SURFACE_SHADER_SOURCE // 取得当前地表法线重打包位置。
             .find("out.deferred.a = pack_24bit_normal_and_flags(octahedral_encode(surface_normal), deferred_flags);") // A槽保存平滑或F12平直模式的最终法线。
@@ -123,12 +131,12 @@ mod tests {
         assert_eq!(
             DEFERRED_PRIMITIVE_INDEX_DIRECTIVE,
             "enable primitive_index;\n"
-        ); // Deferred构造必须在任何#import前注入扩展指令。
+        ); // Deferred构造必须在导入后、全局声明前注入扩展指令。
         assert_eq!(
             DEFERRED_PRIMITIVE_INDEX_SHADER_DEF,
             "TERRAIN_SURFACE_PRIMITIVE_INDEX"
         ); // 不能退回会泄漏到同视图Forward变体的DEFERRED_PREPASS。
-        assert!(TERRAIN_SURFACE_SHADER_SOURCE.contains("#ifdef TERRAIN_SURFACE_PRIMITIVE_INDEX")); // 参数与GBuffer元数据只由Deferred资产私有define展开。
+        assert!(TERRAIN_SURFACE_SHADER_SOURCE.contains("@if(PREPASS_PIPELINE && TERRAIN_SURFACE_PRIMITIVE_INDEX)")); // 参数与GBuffer元数据只由Deferred资产私有define展开。
         assert!(
             TERRAIN_SURFACE_SHADER_SOURCE
                 .contains("const DEFERRED_DYNAMIC_TERRAIN_PRIMITIVE_MASK: u32 = 0x7FFFFu;")

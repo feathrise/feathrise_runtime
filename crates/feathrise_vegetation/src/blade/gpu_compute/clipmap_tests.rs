@@ -69,6 +69,7 @@ fn clipmap_gpu_matches_actual_topology_reference() {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
+        apply_limit_buckets: false,
     }))
     .expect("指定硬件后端可用"); // 不接受软件回退。
     let info = adapter.get_info(); // 报告实际硬件与后端。
@@ -467,7 +468,7 @@ fn run_query(
         .recv_timeout(Duration::from_secs(5))
         .expect("映射回调缺失")
         .expect("读回失败"); // 失败不得报告通过。
-    let bytes = readback.slice(..).get_mapped_range(); // 读取完整 GPU 结果。
+    let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效"); // 读取完整 GPU 结果。
     bytemuck::cast_slice(&bytes).to_vec() // 拷贝固定测试输出，映射随局部资源释放。
 } // 完成测试派发/读回。
 
@@ -695,7 +696,7 @@ fn validate_volume_source_in_frame(
         })
         .unwrap();
     rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
-    let data = read.slice(..).get_mapped_range();
+    let data = read.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
     let instances: Vec<[u32; 5]> = data
         .chunks_exact(20)
         .map(|v| {
@@ -761,7 +762,7 @@ fn validate_volume_source_in_frame(
         })
         .unwrap();
     rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
-    let data = read.slice(..).get_mapped_range();
+    let data = read.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
     let expected: std::collections::BTreeSet<_> = data
         .chunks_exact(20)
         .filter_map(|p| {

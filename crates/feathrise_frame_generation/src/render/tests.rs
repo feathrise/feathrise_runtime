@@ -15,7 +15,7 @@ fn apply_streamline(point: Vec4, matrix: Mat4) -> Vec4 {
 #[test] // 非对称透视和平移可检出错误的额外转置。
 fn streamline_preserves_projected_translated_points() {
     // 验证几何语义而非数组排列。
-    let projection = Mat4::perspective_infinite_reverse_rh(1.1, 16.0 / 9.0, 0.1); // Bevy反向Z透视。
+    let projection = bevy::math::proj::perspective_infinite_reverse(1.1, 16.0 / 9.0, 0.1); // Bevy反向Z透视。
     let world_from_view = Mat4::from_translation(Vec3::new(3.0, 2.0, 7.0)); // 非零相机位置。
     let clip_from_world = projection * world_from_view.inverse(); // Glam当前投影。
     let point = Vec4::new(4.0, 3.0, -5.0, 1.0); // 非轴对称测试点。
@@ -25,7 +25,7 @@ fn streamline_preserves_projected_translated_points() {
 #[test] // 跨帧复合矩阵必须保持变换方向与逆变换一致。
 fn streamline_preserves_clip_history_and_inverse() {
     // 模拟同时移动和转动的相机。
-    let projection = Mat4::perspective_infinite_reverse_rh(1.1, 16.0 / 9.0, 0.1); // 稳定反向Z投影。
+    let projection = bevy::math::proj::perspective_infinite_reverse(1.1, 16.0 / 9.0, 0.1); // 稳定反向Z投影。
     let current_pose =
         Mat4::from_translation(Vec3::new(3.0, 2.0, 7.0)) * Mat4::from_rotation_y(0.2); // 当前世界姿态。
     let previous_pose =

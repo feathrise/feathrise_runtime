@@ -2,6 +2,7 @@
 name = "feathrise_runtime"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"
 description = "Shared Bevy runtime and project entry for Feathrise"
@@ -10,10 +11,10 @@ description = "Shared Bevy runtime and project entry for Feathrise"
 [dependencies]
 feathrise_scene_core = { version = "0.1.0", path = "crates/feathrise_scene_core" } # 统一场景视图、状态、活动门和驻留契约。
 feathrise_vegetation = { version = "0.1.0", path = "crates/feathrise_vegetation", optional = true, features = ["blade", "diagnostics"] }
-bevy = { version = "=0.19.1", features = ["file_watcher", "bevy_ui_widgets", "jpeg", "pbr_specular_textures"] }
-avian3d = { version = "0.7.0", features = ["debug-plugin"] }
-bevy_framepace = "=0.22.0"
-bevy_hanabi = { version = "=0.19.0", default-features = false, features = ["3d"] }
+bevy = { version = "=0.20.1", features = ["file_watcher", "bevy_ui_widgets", "complex_script_segmentation", "jpeg", "pbr_specular_textures"] }
+avian3d = { version = "=0.8.0", features = ["debug-plugin"] }
+bevy_framepace = "=0.23.0"
+bevy_hanabi = { version = "=0.20.0", default-features = false, features = ["3d"] }
 async-channel = "=2.5.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
@@ -21,7 +22,7 @@ sha2 = { version = "=0.11.0" } # 嵌入握手独立核对当前真实EXE，不�
 subsecond = { version = "=0.7.9", optional = true } # 与已验证dx固定版本一致；旧补丁库保留到进程退出。
 feathrise_editor_protocol = { version = "0.1.0", path = "crates/feathrise_editor_protocol" }
 raw-window-handle = "=0.6.2"
-wgpu-hal = { version = "=29.0.4", features = ["vulkan"] }
+wgpu-hal = { version = "=30.0.1", features = ["vulkan"] }
 feathrise_scene = { version = "0.1.0", path = "crates/feathrise_scene", features = ["author_view"] }
 feathrise_map_content = { version = "0.1.0", path = "crates/feathrise_map_content" }
 feathrise_portal = { version = "0.1.0", path = "crates/feathrise_portal" }
@@ -78,24 +79,25 @@ feathrise_plugin_api = { version = "=0.1.0", path = "crates/feathrise_plugin_api
 feathrise_author_tools = { version = "0.1.0", path = "crates/feathrise_author_tools" } # 无Bevy依赖的笔刷、手柄与选择框语义合同。
 feathrise_editor_protocol = { version = "0.1.0", path = "crates/feathrise_editor_protocol" } # 无 Bevy 依赖的有界常驻视口进程合同。
 
-bevy = { version = "=0.19.1", default-features = true, features = [
+bevy = { version = "=0.20.1", default-features = true, features = [
     # SDK库可被独立DLL/SO使用；开发动态链接只在实际应用的依赖处开启。
     "file_watcher",
     "bevy_ui_widgets",
+    "complex_script_segmentation",
     # 场景 GLB 可能嵌入 JPEG 贴图；Bevy 未启用该 feature 时会拒绝 image/jpeg。
     "jpeg",
     # 工程 GLB 使用 KHR_materials_specular；开启后 Bevy 才会应用 specularTexture。
     "pbr_specular_textures",
 ] }
-bevy_app = { version = "=0.19.1", default-features = false } # GI覆盖与Deferred flags依赖精确0.19 ABI，升级时必须整体复审。
-wgpu = "=29.0.4" # GPU草地诊断直接复用Bevy 0.19.1锁定的QuerySet、时间戳和管线统计类型。
-wgpu-ffx = "=0.1.0" # FSR 3候选固定到已审计的WGPU 29移植，并由本地patch移除帧路径同步等待。
+bevy_app = { version = "=0.20.1", default-features = false } # GI覆盖与Deferred flags依赖精确 0.20 ABI，升级时必须整体复审。
+wgpu = "=30.0.1" # GPU草地诊断直接复用Bevy 0.20.1 锁定的QuerySet、时间戳和管线统计类型。
+wgpu-ffx = "=0.1.0" # FSR 3候选固定到已审计的 wgpu 30 移植，并由本地patch移除帧路径同步等待。
 bytemuck = { version = "1.25.0", features = ["derive"] } # 分块Mesh植被把只读世界矩阵直接上传为实例顶点流。
-bevy_solari = "=0.19.1" # Bevy官方第一方实验性实时直接光、间接光与反射实现；不启用独立路径追踪插件。
+bevy_solari = "=0.20.1" # Bevy官方第一方实验性实时直接光、间接光与反射实现；不启用独立路径追踪插件。
 
-avian3d = { version = "0.7.0", features = ["debug-plugin"] }
+avian3d = { version = "=0.8.0", features = ["debug-plugin"] }
 
-bevy-tnua = "0.32.0"
+bevy-tnua = "=0.33.2"
 
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -103,7 +105,7 @@ meshopt = "=0.6.2" # 分块体积网格在后台按固定误差简化；版本�
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 地图编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
 half = "2.7.1" # 天空漫反射Cube保持RGBA16F，在小型有界CPU副本中独立缩放补光通道。
 # 通用 GPU 粒子渲染能力，由消费工程决定具体效果。
-bevy_hanabi = { version = "0.19.0", default-features = false, features = ["3d"] }
+bevy_hanabi = { version = "=0.20.0", default-features = false, features = ["3d"] }
 
 sha2 = "0.11.0"
 # FSR 固定预编译原生包只需读取 Deflate ZIP。
@@ -134,10 +136,6 @@ strip = false
 
 # Cargo 的通配符不覆盖工作区成员，SDK 新增公共 crate 无需逐包维护。
 [profile.dev.package."*"]
-opt-level = 3
-
-# Parley 兼容薄层从补丁仓接入，保留既有优化配置。
-[profile.dev.package."parley:0.9.0"]
 opt-level = 3
 
 # 保留现有渲染开发命令和缓存名称，优化规则统一继承 dev。

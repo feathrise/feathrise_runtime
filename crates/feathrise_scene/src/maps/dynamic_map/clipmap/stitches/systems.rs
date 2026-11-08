@@ -1,7 +1,7 @@
 //! 归属观察器与提取前原子发布；后台结果由既有实例事务采用。
 use super::*;
 pub(super) fn track(
-    insert: On<Insert, GpuBladeClipmapHeight>,
+    insert: On<Insert<GpuBladeClipmapHeight>>,
     owners: Query<&MapInstanceOwner>,
     mut index: ResMut<Followers>,
 ) {
@@ -10,7 +10,7 @@ pub(super) fn track(
     }
 }
 pub(super) fn track_owner(
-    insert: On<Insert, MapInstanceOwner>,
+    insert: On<Insert<MapInstanceOwner>>,
     heights: Query<(), With<GpuBladeClipmapHeight>>,
     owners: Query<&MapInstanceOwner>,
     mut index: ResMut<Followers>,
@@ -21,10 +21,10 @@ pub(super) fn track_owner(
         index.assign(insert.entity, owner.0);
     }
 }
-pub(super) fn untrack(remove: On<Remove, GpuBladeClipmapHeight>, mut index: ResMut<Followers>) {
+pub(super) fn untrack(remove: On<Remove<GpuBladeClipmapHeight>>, mut index: ResMut<Followers>) {
     index.remove(remove.entity);
 }
-pub(super) fn untrack_owner(remove: On<Remove, MapInstanceOwner>, mut index: ResMut<Followers>) {
+pub(super) fn untrack_owner(remove: On<Remove<MapInstanceOwner>>, mut index: ResMut<Followers>) {
     index.remove(remove.entity);
 }
 

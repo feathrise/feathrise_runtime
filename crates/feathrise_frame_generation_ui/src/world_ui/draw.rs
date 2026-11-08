@@ -11,7 +11,7 @@ use bevy::{
             LoadOp, Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp,
         },
         renderer::{RenderContext, ViewQuery},
-        view::{ExtractedView, ViewDepthTexture, ViewTarget},
+        view::{ExtractedView, ViewDepthStencilTexture, ViewTarget},
     },
 }; // 公开 DrawMaterial phase 保持材质、实例、深度与相机绑定不变。
 use std::sync::atomic::Ordering; // 同队列完成事实只有固定原子写入，无线程等待。 // 名牌颜色使用已映射输出深度。
@@ -22,7 +22,7 @@ pub(super) fn draw_world_ui(
     view: ViewQuery<(
         &ExtractedView,
         &ViewTarget,
-        &ViewDepthTexture,
+        &ViewDepthStencilTexture,
         Option<&WorldUiLayer>,
     )>, // 主深度用于失败回退，独立颜色使用本帧映射深度。
     phases: Res<ViewSortedRenderPhases<WorldUi3d>>, // 已完成独立排序和 GPU batching 的 UI 项。
@@ -44,10 +44,11 @@ pub(super) fn draw_world_ui(
     if phase.items.is_empty() {
         return;
     } // 不提交空透明 pass。
-    let depth_compatible = depth.texture.format() == CORE_3D_DEPTH_FORMAT
-        && depth.texture.sample_count() == 1
-        && depth.texture.width() == layer.output_size.x
-        && depth.texture.height() == layer.output_size.y; // attachment 必须与原始单采样 HDR 主 pass 完全兼容。
+    let depth_texture = depth.texture();
+    let depth_compatible = depth_texture.format() == CORE_3D_DEPTH_FORMAT
+        && depth_texture.sample_count() == 1
+        && depth_texture.width() == layer.output_size.x
+        && depth_texture.height() == layer.output_size.y; // attachment 必须与原始单采样 HDR 主 pass 完全兼容。
     let mut complete = false; // 没有完整独立绘制证据时不得交给 UI 合成。
     if depth_compatible && layer.depth_drawn.load(Ordering::Acquire) {
         // 仅消费本帧完整重映射深度，失败仍回绘普通场景。

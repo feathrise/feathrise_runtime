@@ -10,48 +10,23 @@ fn production_source() -> String {
 struct Vertex { @builtin(instance_index) instance_index: u32, @location(0) position: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) uv_b: vec2<f32>, }
 struct VertexOutput { @builtin(position) position: vec4<f32>, @location(0) world_position: vec4<f32>, @location(1) world_normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) uv_b: vec2<f32>, }
 struct FragmentOutput { @location(0) color: vec4<f32>, }
+fn decompress_vertex(vertex: Vertex, instance_index: u32) -> Vertex { return vertex; }
 fn get_world_from_local(index: u32) -> mat4x4<f32> { return mat4x4<f32>(vec4<f32>(1.0,0.0,0.0,0.0),vec4<f32>(0.0,1.0,0.0,0.0),vec4<f32>(0.0,0.0,1.0,0.0),vec4<f32>(0.0,0.0,0.0,1.0)); }
 fn mesh_position_local_to_world(transform: mat4x4<f32>, p: vec4<f32>) -> vec4<f32> { return transform*p; }
 fn position_world_to_clip(p: vec3<f32>) -> vec4<f32> { return vec4<f32>(p,1.0); }
 "#,
     ); // 只替换宿主接口，生产算法逐字保留。
-    let shared=feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false);
+    let shared = feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false);
+    output.push_str(&shared.replace("#{MATERIAL_BIND_GROUP}", "0"));
     for source in [
-        shared.as_str(),
-        include_str!("shaders/height.wgsl"),
-        include_str!("shaders/vegetation_overlay.wgsl"),
+        include_str!("shaders/height.wesl"),
+        include_str!("shaders/vegetation_overlay.wesl"),
     ] {
-        // 正式顶点和片元共用高度函数。
-        let mut enabled = vec![true]; // 处理单层/嵌套条件。
-        for line in source.lines() {
-            // 测试夹具可同步处理固定源码。
-            let trimmed = line.trim(); // 不依赖 Windows 换行。
-            if let Some(symbol) = trimmed.strip_prefix("#ifdef ") {
-                enabled.push(
-                    *enabled.last().unwrap() && matches!(symbol, "VERTEX_UVS_A" | "VERTEX_UVS_B"),
-                );
-                continue;
-            } // 正式Clipmap同时具有UV0与UV1，验证真实构造字段顺序。
-            if trimmed == "#else" {
-                let old = enabled.pop().unwrap();
-                enabled.push(*enabled.last().unwrap() && !old);
-                continue;
-            } // 保留选择分支。
-            if trimmed == "#endif" {
-                enabled.pop();
-                continue;
-            } // 恢复父分支。
-            if trimmed.starts_with('#') || !*enabled.last().unwrap() {
-                continue;
-            } // Bevy import由上述接口替换。
-            output.push_str(
-                &line
-                    .replace("#{MATERIAL_BIND_GROUP}", "0")
-                    .replace("clipmap_height::", "")
-                    .replace("mesh_functions::", ""),
-            ); // 保持所有正式算法正文。
-            output.push('\n'); // 保持诊断行边界。
-        }
+        let source = crate::shader_test_support::preprocess(source, &["VERTEX_UVS_A", "VERTEX_UVS_B"], 0)
+            .replace("clipmap_height::", "")
+            .replace("mesh_functions::", "");
+        output.push_str(&source);
+        output.push('\n');
     }
     output // 可供Naga和真实后端共用。
 }
@@ -117,6 +92,7 @@ fn clipmap_overlay_gpu_pipeline_compiles() {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
+        apply_limit_buckets: false,
     }))
     .expect("指定GPU可用"); // 不允许软件回退。
     assert_eq!(adapter.get_info().backend, expected); // 明确实际后端证据。
@@ -135,11 +111,11 @@ fn clipmap_overlay_gpu_pipeline_compiles() {
             module: &shader,
             entry_point: Some("vertex"),
             compilation_options: Default::default(),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: 28,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &attributes,
-            }],
+            })],
         }, // 实际高度位移入口和双UV字段。
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -262,7 +238,7 @@ fn verify_blank_atlas_parent_page_mask(device: &wgpu::Device, queue: &wgpu::Queu
         .recv_timeout(std::time::Duration::from_secs(30))
         .expect("覆盖读回回调超时")
         .expect("覆盖读回成功"); // 映射失败必须报错。
-    let bytes = readback.slice(..).get_mapped_range(); // 读取8字节实际计算结果。
+    let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效"); // 读取8字节实际计算结果。
     assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 0.0); // 父页缺失必须隐藏，不能错误读取平地。
     assert_eq!(f32::from_le_bytes(bytes[4..8].try_into().unwrap()), 1.0); // 未缺页区域仍保留显示。
     drop(bytes);

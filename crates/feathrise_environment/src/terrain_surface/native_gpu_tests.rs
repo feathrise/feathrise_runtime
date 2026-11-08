@@ -169,6 +169,7 @@ fn native_surface_gpu_pipeline_and_field_queries() {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
         compatible_surface: None,
+        apply_limit_buckets: false,
     }))
     .expect("指定真实GPU必须可用");
     assert_eq!(adapter.get_info().backend, expected);
@@ -231,12 +232,11 @@ fn native_surface_gpu_pipeline_and_field_queries() {
         0.25,
         std::iter::once(([-1., 0.5, 2.], [0., 1., 0.], paint.as_slice(), 191)),
     )
-    .unwrap()
-    .data
     .unwrap();
+    let bytes = bytes.cast_slice::<u8>().unwrap();
     let fields = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("real_native_field_table"),
-        contents: &bytes,
+        contents: bytes,
         usage: wgpu::BufferUsages::STORAGE,
     });
     let origin_bytes: Vec<_> = [0f32, 0., 0., 0.25]
@@ -359,7 +359,7 @@ fn native_surface_gpu_pipeline_and_field_queries() {
         .recv_timeout(std::time::Duration::from_secs(30))
         .expect("原生字段GPU回读超时")
         .expect("原生字段回读");
-    let bytes = readback.slice(..).get_mapped_range();
+    let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
     let values: Vec<_> = bytes
         .chunks_exact(4)
         .map(|value| f32::from_le_bytes(value.try_into().unwrap()))

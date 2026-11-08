@@ -2,7 +2,7 @@
 use super::{components::RainMaskCamera, resources::RainMaskCache};
 use bevy::asset::RenderAssetUsages; // 数值图只在GPU保存，不分配CPU像素。
 use bevy::camera::{Hdr, RenderTarget, ScalingMode, visibility::RenderLayers}; // 独立顶视目标和渲染层。
-use bevy::core_pipeline::tonemapping::Tonemapping; // 数值高度绝不能色调映射。
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping}; // 高度是数值数据。
 use bevy::image::ImageSampler; // 最近采样不把岸外零覆盖插成水。
 use bevy::prelude::*; // 相机、图片、变换与ECS接口。
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages}; // 固定RGBA16F目标。
@@ -62,6 +62,7 @@ pub(super) fn initialize(
         Hdr,                                // 保留负高度与分段高位，不能压到0至1。
         Msaa::Off,                          // 一像素一份真实最高水面，不对数值图做MSAA混合。
         Tonemapping::None,                  // 不改变高度编码数值。
+        DebandDither::Disabled,             // 关闭颜色抖动，Bevy 0.20 不再对数值目标逐帧告警。
         RenderLayers::layer(RAIN_WATER_MASK_LAYER), // 只画水体代理，不画天空、建筑或普通地形。
     )); // 相机不安装天空、Bloom、天气跟随或UI标记。
 } // 完成固定目标初始化。

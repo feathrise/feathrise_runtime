@@ -6,6 +6,7 @@ mod numeric_progress; // 专业属性框当前值进度填充自动同步。
 mod numeric_scrub; // 可选数字框左右键相对拖动与单击抑制。
 mod set_value; // 业务消息到数字输入内部状态的外部赋值桥。
 
+use crate::InteractionButton;
 use numeric_scrub::process_numeric_input_scrub; // 数字输入主循环先仲裁单击与左右键拖动。
 
 pub use button::{MissingButtonColors, button_color_system, ensure_button_colors_system};
@@ -209,7 +210,7 @@ fn sync_numeric_input_field_visuals(
             &mut BorderColor,
             Option<&NumericInputPalette>,
         ),
-        With<Button>,
+        With<InteractionButton>,
     >,
 ) {
     for (field, interaction, mut colors, mut background, mut border, palette) in

@@ -283,7 +283,7 @@ impl Harness {
             .recv_timeout(Duration::from_secs(5))
             .unwrap()
             .unwrap();
-        let bytes = readback.slice(..).get_mapped_range();
+        let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
         let state: &[u32] = bytemuck::cast_slice(&bytes[..80]);
         assert_eq!(state[6], 0, "不能把容量溢出误判为密度一致");
         let mut output = bytemuck::cast_slice::<u8, [u32; 5]>(&bytes[80..])

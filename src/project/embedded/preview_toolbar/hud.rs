@@ -3,7 +3,7 @@
 use super::{components::*, resources::ToolbarPointerInput, ui};
 use crate::project::embedded::EmbeddedProjectState;
 use bevy::{
-    picking::{events::{Drag, DragEnd, DragStart, Pointer}, pointer::{PointerButton, PointerId}},
+    picking::{events::{PointerDrag, PointerDragEnd, PointerDragStart}, pointer::{PointerButton, PointerId}},
     prelude::*, window::PrimaryWindow,
 };
 use feathrise_editor_protocol::Mode;
@@ -26,7 +26,7 @@ pub(super) fn install(app: &mut App) {
 }
 
 pub(super) fn drag_start(
-    event: On<Pointer<DragStart>>,
+    event: On<PointerDragStart>,
     project: Res<EmbeddedProjectState>,
     handles: Query<(), With<ToolbarDragHandle>>,
     mut hud: ResMut<ToolbarHudState>,
@@ -34,27 +34,27 @@ pub(super) fn drag_start(
     if project.mode == Mode::Playing && event.button == PointerButton::Primary
         && handles.contains(event.entity) {
         hud.manually_positioned = true;
-        hud.dragging = Some((event.pointer_id, hud.position));
+        hud.dragging = Some((event.pointer.id, hud.position));
     }
 }
 
 pub(super) fn drag(
-    event: On<Pointer<Drag>>,
+    event: On<PointerDrag>,
     project: Res<EmbeddedProjectState>,
     scale: Option<Res<UiScale>>,
     mut hud: ResMut<ToolbarHudState>,
 ) {
     if project.mode != Mode::Playing || event.button != PointerButton::Primary || !event.distance.is_finite() { return; }
-    if let Some((_, origin)) = hud.dragging.filter(|(pointer, _)| *pointer == event.pointer_id) {
+    if let Some((_, origin)) = hud.dragging.filter(|(pointer, _)| *pointer == event.pointer.id) {
         // Pointer位置来自Window.cursor_position，已是窗口逻辑像素；仅除UI缩放，不能再次除显示器DPI。
         let scale = scale.as_deref().map_or(1.0, |scale| scale.0).max(0.01);
         hud.position = origin + event.distance / scale;
     }
 }
 
-pub(super) fn drag_end(event: On<Pointer<DragEnd>>, mut hud: ResMut<ToolbarHudState>) {
+pub(super) fn drag_end(event: On<PointerDragEnd>, mut hud: ResMut<ToolbarHudState>) {
     if event.button == PointerButton::Primary
-        && hud.dragging.is_some_and(|(pointer, _)| pointer == event.pointer_id) {
+        && hud.dragging.is_some_and(|(pointer, _)| pointer == event.pointer.id) {
         hud.dragging = None;
     }
 }

@@ -34,5 +34,6 @@ feathrise_map_content = { workspace = true } # 正式地图传送门与后续动
 feathrise_map_terrain = { workspace = true } # GLB地形捕获后共享后台栅格化、法线和高度单元编码。
 
 [dev-dependencies]
+wesl = { version = "=0.6.0", features = ["naga-ext"] } # 现有生产着色器回归使用与 Bevy 相同的条件编译。
 image = { workspace = true } # 回归直接解码三张正式密度PNG，逐项对比既有冻结实例清单。
 wgpu = { workspace = true } # 水面回归使用与Bevy运行时一致的Naga解析并验证生产WGSL，避免错误延迟到进图建管线时才暴露。

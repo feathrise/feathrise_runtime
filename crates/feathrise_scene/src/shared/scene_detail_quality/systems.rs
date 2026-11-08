@@ -60,7 +60,7 @@ fn unregister_scene_detail_node(state: &mut SceneDetailQualityState, entity: Ent
 /// 新增任意 `VisibilityRange` 时，仅接管同时具有固定景观 LOD 身份的节点。
 #[allow(clippy::type_complexity)] // 三条互斥 LOD 身份路径与作者备份必须在同一观察器快照中判定。
 pub(super) fn capture_scene_detail_visibility_range(
-    add: On<Add, VisibilityRange>, // 观察每个新范围，避免后续场景或热重载需要全量轮询。
+    add: On<Add<VisibilityRange>>, // 观察每个新范围，避免后续场景或热重载需要全量轮询。
     settings: Res<RenderSettings>,   // 新节点直接继承 UI 当前档位而非等待下一次切档。
     mut commands: Commands,        // 延迟插入不可变作者备份，不干扰生成系统的实体借用。
     mut nodes: Query<(
@@ -106,7 +106,7 @@ pub(super) fn capture_scene_detail_visibility_range(
 
 /// 作者备份真实落地后才把节点加入批处理索引。
 pub(super) fn register_scene_detail_visibility_range(
-    add: On<Add, SceneDetailAuthoredVisibilityRange>, // 只登记已完成作者范围备份的节点。
+    add: On<Add<SceneDetailAuthoredVisibilityRange>>, // 只登记已完成作者范围备份的节点。
     mut state: ResMut<SceneDetailQualityState>,       // 增量维护实体向量与 O(1) 反向索引。
 ) {
     register_scene_detail_node(&mut state, add.entity); // 瞬时生成后未落地备份的实体不会污染索引。
@@ -114,7 +114,7 @@ pub(super) fn register_scene_detail_visibility_range(
 
 /// 作者备份移除或实体销毁时同步回收批处理索引。
 pub(super) fn unregister_scene_detail_visibility_range(
-    remove: On<Remove, SceneDetailAuthoredVisibilityRange>, // 只观察本系统实际接管过的节点。
+    remove: On<Remove<SceneDetailAuthoredVisibilityRange>>, // 只观察本系统实际接管过的节点。
     mut state: ResMut<SceneDetailQualityState>,             // O(1) 更新实体向量与反向索引。
 ) {
     unregister_scene_detail_node(&mut state, remove.entity); // 实体已不可查询也能凭事件身份安全移除。
@@ -147,7 +147,10 @@ pub(super) fn apply_scene_detail_quality(
     {
         let entities = &state.entities[state.cursor..batch_end]; // 借用连续实体切片，不产生每帧临时分配。
         let mut batch = nodes.iter_many_mut(entities); // 直接定位本批节点，跳过期间已失效实体。
-        while let Some((backup, mut current)) = batch.fetch_next() {
+        while let Some(item) = batch.fetch_next() {
+            let Ok((backup, mut current)) = item else {
+                continue;
+            };
             let target =
                 visibility_range_for_quality(&backup.authored, backup.farthest_lod, quality); // 每次都从作者值重算，避免多次切档累计误差。
             if *current != target {

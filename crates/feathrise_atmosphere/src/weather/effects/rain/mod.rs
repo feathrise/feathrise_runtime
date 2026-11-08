@@ -345,8 +345,8 @@ fn build_rain_effect() -> EffectAsset {
     size_gradient.add_key(1.0, Vec3::new(RAIN_STREAK_END_LENGTH, 0.018, 1.0)); // 生命周期末端缩短到三十五厘米，宽度仍按原曲线变细。
     let spawner = rain_spawner_settings(0.40, EffectsQuality::High); // 资产默认保持高档小雨基线，实体首帧按当前设置覆盖。
     let mut module = writer.finish(); // 完成已有粒子表达式构建。
-    module.add_texture_slot("rain_water_height"); // Hanabi按登记顺序生成material_texture_0片元绑定。
-    module.add_texture_slot("rain_roof_depth"); // material_texture_1独立保存屋顶深度及原子投影元数据。
+    module.add_texture_slot("rain_water_height", bevy_hanabi::SlotDimension::D2); // Hanabi按登记顺序生成material_texture_0片元绑定。
+    module.add_texture_slot("rain_roof_depth", bevy_hanabi::SlotDimension::D2); // material_texture_1独立保存屋顶深度及原子投影元数据。
     EffectAsset::new(RAIN_EFFECT_CAPACITY, spawner, module) // 扩大后的满雨量稳态粒子保留超过两倍容量预算。
         .with_name("weather_rain") // GPU调试和资产检查使用稳定ASCII名称。
         .with_simulation_space(SimulationSpace::Global) // 已生成雨丝不随移动中的相机发射体平移。

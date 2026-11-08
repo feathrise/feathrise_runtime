@@ -30,7 +30,7 @@ fn clear_headless_changes(mut changes: ResMut<RenderPauseChanges>) {
 }
 
 fn pause_render_entity(
-    event: On<Insert, Disabled>,
+    event: On<Insert<Disabled>>,
     entities: Query<&RenderEntity, (With<ResidentMapEntity>, Allow<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {
@@ -40,7 +40,7 @@ fn pause_render_entity(
 }
 
 fn resume_render_entity(
-    event: On<Remove, Disabled>,
+    event: On<Remove<Disabled>>,
     entities: Query<&RenderEntity, (With<ResidentMapEntity>, Allow<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {
@@ -51,7 +51,7 @@ fn resume_render_entity(
 }
 
 fn pause_new_render_entity(
-    event: On<Insert, RenderEntity>,
+    event: On<Insert<RenderEntity>>,
     entities: Query<&RenderEntity, (With<ResidentMapEntity>, With<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {

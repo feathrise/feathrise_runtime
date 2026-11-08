@@ -116,14 +116,14 @@ pub(super) fn intercept_scene_transition(world: &mut World) {
         return;
     }
     let requested_scene = match world.get_resource::<NextState<ScenePhase>>() {
-        Some(NextState::PendingIfNeq(scene))
+        Some(NextState::PendingIfDifferent(scene))
             if world
                 .get_resource::<State<ScenePhase>>()
                 .is_some_and(|state| state.get() == scene) =>
         {
             return;
         }
-        Some(NextState::Pending(scene) | NextState::PendingIfNeq(scene)) => *scene,
+        Some(NextState::Pending(scene) | NextState::PendingIfDifferent(scene)) => *scene,
         _ => return,
     };
     let mut scenes = world.remove_resource::<ResidentScenes>().unwrap();

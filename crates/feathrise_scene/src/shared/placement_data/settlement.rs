@@ -71,7 +71,7 @@ pub(crate) fn on_placement_progress(
 
 /// `WorldAssetRoot`被替换或移除时同步撤销旧实例Ready，不等待下一帧扫描`WorldInstance`。
 pub(super) fn invalidate_discarded_candidate_world_asset(
-    discard: On<Discard, WorldAssetRoot>, // Discard在旧根值仍可查询时触发，覆盖替换与真实移除都会到达。
+    discard: On<Discard<WorldAssetRoot>>, // Discard在旧根值仍可查询时触发，覆盖替换与真实移除都会到达。
     context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<(&PlacementPendingRevision, &WorldInstance), With<PlacementPendingInstance>>, // 只直接读取触发事件的一个隐藏候选根。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 旧InstanceId阻断同帧迟到Ready。
@@ -101,7 +101,7 @@ pub(super) fn invalidate_discarded_candidate_world_asset(
 
 /// `WorldAssetRoot`真正移除时取消换代阻断和待结算席位，并拒绝仍活动的残缺候选。
 pub(super) fn cancel_removed_candidate_world_asset(
-    remove: On<Remove, WorldAssetRoot>, // Replace不会触发Remove，因此不会误清新实例前的阻断票据。
+    remove: On<Remove<WorldAssetRoot>>, // Replace不会触发Remove，因此不会误清新实例前的阻断票据。
     context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // Remove前仍可读取旧候选修订。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 实体不再等待任何新World实例。
@@ -294,7 +294,7 @@ pub(super) fn on_placement_building_collision_ready(
 
 /// 建筑碰撞门落地后，Scene0进入联合结算，直接primitive立即取得完整信用。
 pub(super) fn queue_inserted_placement_collision_ready(
-    insert: On<Insert, PlacementBuildingCollisionReady>,
+    insert: On<Insert<PlacementBuildingCollisionReady>>,
     context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<
         (
@@ -386,7 +386,7 @@ pub(super) fn invalidate_candidate_world_asset_epoch(
 
 /// World完成门落地时只定向唤醒该根，不立即读取可能尚未落地的水体状态命令。
 pub(super) fn queue_inserted_placement_world_ready(
-    insert: On<Insert, PlacementWorldInstanceReady>, // 首次Add和同根重写都统一触发Insert。
+    insert: On<Insert<PlacementWorldInstanceReady>>, // 首次Add和同根重写都统一触发Insert。
     context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // 只读取事件实体。
     mut settlements: InstanceResMut<PlacementSettlementQueue>, // 固定容量、按Entity去重。
@@ -411,7 +411,7 @@ pub(super) fn queue_inserted_placement_world_ready(
 
 /// 水体Pending/Ready/Failed整组件写入时只唤醒已经取得World完成门的候选根。
 pub(super) fn queue_inserted_placement_water_status(
-    insert: On<Insert, DynamicWaterMeshOverrideStatus>, // runtime每次状态发布都使用整组件insert。
+    insert: On<Insert<DynamicWaterMeshOverrideStatus>>, // runtime每次状态发布都使用整组件insert。
     context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<
         &PlacementPendingRevision,

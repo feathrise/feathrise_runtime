@@ -116,7 +116,8 @@ struct TerrainSurfaceLayerUniform {
 } // 完成单层GPU布局。
 
 /// 动态地图存储表的单层 GPU 镜像；三个 vec4 保持固定四十八字节步长。
-#[derive(Clone, Copy, Debug, ShaderType)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, ShaderType, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TerrainSurfaceIndexedLayer {
     pub base_color: Vec4, // 线性 RGBA 乘色。
     /// x=粗糙度、y=金属度、z=平铺米数、w=全局数组切片。
@@ -427,7 +428,7 @@ mod tests {
     // 测试与生产类型同文件以访问私有uniform字段。
     use super::*; // 复用当前模块全部固定类型和构造器。
 
-    const TERRAIN_SURFACE_SHADER_SOURCE: &str = include_str!("shaders/terrain_surface.wgsl"); // 测试直接读取生产Shader，不维护第二份索引采样算法。
+    const TERRAIN_SURFACE_SHADER_SOURCE: &str = include_str!("shaders/terrain_surface.wesl"); // 测试直接读取生产Shader，不维护第二份索引采样算法。
 
     #[test] // 原生Blender地形必须跳过地表作者层，不能被中性回退覆盖成白色。
     fn passthrough_keeps_original_material_and_disables_layer_sampling() {

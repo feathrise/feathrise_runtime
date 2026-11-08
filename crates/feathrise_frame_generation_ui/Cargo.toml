@@ -14,3 +14,6 @@ feathrise_billboard_text = { workspace = true }
 feathrise_settings = { workspace = true }
 indexmap = "2.14.0"
 wgpu = { workspace = true }
+
+[dev-dependencies]
+wesl = "0.6.0" # CPU 测试使用 Bevy 同版编译器验证世界 UI 的两条路径。

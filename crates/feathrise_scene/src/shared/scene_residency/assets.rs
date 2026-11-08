@@ -290,11 +290,11 @@ pub(super) fn register_owned_assets(world: &mut World, entity: Entity) {
     }
 }
 
-fn register_root_asset(event: On<Insert, WorldAssetRoot>, mut commands: Commands) {
+fn register_root_asset(event: On<Insert<WorldAssetRoot>>, mut commands: Commands) {
     let entity = event.entity;
     commands.queue(move |world: &mut World| register_owned_assets(world, entity));
 }
-fn register_mesh_asset(event: On<Insert, Mesh3d>, mut commands: Commands) {
+fn register_mesh_asset(event: On<Insert<Mesh3d>>, mut commands: Commands) {
     let entity = event.entity;
     commands.queue(move |world: &mut World| register_owned_assets(world, entity));
 }

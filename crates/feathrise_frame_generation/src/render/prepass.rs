@@ -39,7 +39,7 @@ pub(super) struct PrepassCapture {
 
 pub(crate) fn load_shader(app: &mut App) {
     // 主 App 的资产已初始化。
-    bevy::asset::load_internal_asset!(app, SHADER, "prepass.wgsl", bevy::shader::Shader::from_wgsl); // 正式包内嵌源码。
+    bevy::asset::load_internal_asset!(app, SHADER, "prepass.wesl", |source, _| bevy::shader::Shader::from_wesl(source, "embedded://feathrise_frame_generation/render/prepass.wesl")); // 正式包内嵌源码。
 } // Shader 注册结束。
 
 pub(super) fn install(app: &mut SubApp) {
@@ -96,7 +96,8 @@ pub(super) fn encode(
     capture: &mut PrepassCapture,
 ) -> Option<PrepassImages> {
     // 内部尺寸必须由 MainPassResolutionOverride 的真实值提供。
-    let depth = &source.depth.as_ref()?.texture; // 原始深度保持只读采样。
+    let depth = &source.depth.as_ref()?.texture;
+    let depth_view = source.depth_only_view()?; // 不把组合深度/模板视图作为着色器绑定。
     let motion = &source.motion_vectors.as_ref()?.texture; // 不从无法合法复制的原纹理直接 vkCmdCopyImage。
     let size = Extent3d {
         width: render_size.x,
@@ -152,7 +153,7 @@ pub(super) fn encode(
         }); // 替换唯一输出组。
         capture.bindings = [None, None]; // 规格换代释放旧输入绑定。
     } // 图像缓存更新结束。
-    let key = (depth.default_view.id(), motion.default_view.id()); // 双源身份都参与缓存键。
+    let key = (depth_view.id(), motion.default_view.id()); // 双源身份都参与缓存键。
     let group =
         if let Some((_, group)) = capture.bindings.iter().flatten().find(|(id, _)| *id == key) {
             // 稳定帧或深度双缓冲复用。
@@ -162,7 +163,7 @@ pub(super) fn encode(
             let group = context.render_device().create_bind_group(
                 Some("dlss_prepass_sources"),
                 &cache.get_bind_group_layout(&pipelines.layout),
-                &BindGroupEntries::sequential((&depth.default_view, &motion.default_view)),
+                &BindGroupEntries::sequential((depth_view, &motion.default_view)),
             ); // 两原始纹理仅采样。
             capture.bindings.rotate_left(1); // 固定两槽替换。
             capture.bindings[1] = Some((key, group.clone())); // 保留最近输入组。

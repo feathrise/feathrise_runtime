@@ -15,8 +15,8 @@ pub(crate) fn load_shader(app: &mut App) {
     bevy::asset::load_internal_asset!(
         app,
         resources::UI_SHADER,
-        "composite.wgsl",
-        bevy::shader::Shader::from_wgsl
+        "composite.wesl",
+        |source, _| bevy::shader::Shader::from_wesl(source, "embedded://feathrise_frame_generation_ui/ui/composite.wesl")
     ); // 编译期内嵌，正式运行不依赖作者文件路径。
 } // 内嵌着色器注册结束。
 

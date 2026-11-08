@@ -10,7 +10,7 @@ use bevy::render::render_resource::{
 }; // 固定深度及矩阵绑定。
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery}; // 非阻塞 GPU 编码。
 use bevy::render::texture::GpuImage; // 已准备的目标纹理。
-use bevy::render::view::ViewDepthTexture; // 独立雨向相机预通道深度。
+use bevy::render::view::ViewDepthStencilTexture; // 独立雨向相机预通道深度。
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems}; // 只安装 RenderApp 调度。
 
 use super::components::RainOcclusionCamera; // 仅处理专用深度相机。
@@ -43,8 +43,8 @@ pub(super) fn install(app: &mut App) {
     load_internal_asset!(
         app,
         CONVERT_SHADER,
-        "render/convert.wgsl",
-        Shader::from_wgsl
+        "render/convert.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_atmosphere/weather/effects/rain_occlusion/render/convert.wesl")
     ); // 编译期嵌入转换 Shader。
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
@@ -128,7 +128,7 @@ fn prepare_capture(
 
 fn publish_depth(
     // 每个深度相机完成后执行一个固定全屏转换。
-    view: ViewQuery<(&RainOcclusionCamera, &ViewDepthTexture)>, // 主相机不匹配，不产生额外 pass。
+    view: ViewQuery<(&RainOcclusionCamera, &ViewDepthStencilTexture)>, // 主相机不匹配，不产生额外 pass。
     map: Option<Res<RainOcclusionMap>>,                         // 同次提取的目标纹理及投影。
     pipeline: Option<Res<CapturePipeline>>,                     // 异步管线可暂时缺失。
     pipelines: Res<PipelineCache>,                              // 查询就绪状态，不阻塞编译。
@@ -153,7 +153,10 @@ fn publish_depth(
         return;
     }; // 固定缓冲初始化前安全退出。
     let (_, depth) = view.into_inner(); // 专用相机的本帧深度。
-    let source_id = depth.view().id(); // 缓存必须跟踪 Bevy 深度池纹理换代。
+    let Some(depth_view) = depth.attachment.depth_stencil_views().depth_only_view() else {
+        return;
+    };
+    let source_id = depth_view.id(); // 缓存必须跟踪 Bevy 深度池纹理换代。
     let target_id = target.texture_view.id(); // 目标换代同样使缓存失效。
     let bind_group = match &mut bindings.cached {
         // 最多保持一个局部视图的绑定组。
@@ -165,7 +168,7 @@ fn publish_depth(
             let group = context.render_device().create_bind_group(
                 "rain_depth_capture_bindings",
                 &pipelines.get_bind_group_layout(&pipeline.layout),
-                &BindGroupEntries::sequential((depth.view(), uniform)),
+                &BindGroupEntries::sequential((depth_view, uniform)),
             ); // 只绑定GPU深度和固定矩阵。
             &mut slot.insert((source_id, target_id, group)).2 // 保存新身份，避免每帧分配。
         } // 缓存更新结束。

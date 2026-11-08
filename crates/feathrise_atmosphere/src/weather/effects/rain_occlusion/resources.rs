@@ -4,6 +4,7 @@ use bevy::render::extract_resource::ExtractResource; // 固定快照提取，无
 use feathrise_map_content::MapId; // 同场景枚举中的不同地图必须分开。
 use feathrise_scene_core::state::ScenePhase; // 菜单和加载阶段撤销旧图。
 #[derive(Resource, Clone, ExtractResource)] // 主世界需求和GPU输出通过唯一句柄对应。
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct RainOcclusionMap {
     // 消费者只需要图像，矩阵给本帧生产端。
     pub image: Handle<Image>, // 空闲时绑定Bevy默认1像素图，由消费端尺寸守卫禁用。

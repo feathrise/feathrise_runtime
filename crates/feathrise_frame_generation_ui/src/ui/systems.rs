@@ -8,7 +8,6 @@ use crate::{
     FrameGenerationUiRequest as RenderRequest, UiCaptureResult, UiFrame, UiFramePermission,
 }; // SDK无关的请求和完整捕获结果。
 use bevy::{
-    camera::CompositingSpace,
     core_pipeline::FullscreenShader,
     diagnostic::FrameCount,
     prelude::*,
@@ -17,7 +16,7 @@ use bevy::{
         render_resource::{binding_types::texture_2d, *},
         renderer::{RenderContext, ViewQuery},
         texture::TextureCache,
-        view::{ExtractedView, ViewTarget},
+        view::{ExtractedView, ResolvedCompositingSpace, ViewTarget},
     },
 }; // Bevy既有视图与GPU管线接口。 // 有限资源与无等待GPU辅助。
 
@@ -70,7 +69,12 @@ pub(super) fn prepare_pipelines(
 #[allow(clippy::too_many_arguments)] // 每项资源对应一个需要显式审计的帧内所有权。
 pub(super) fn begin_ui(
     // 在成功Prepare后和所有2D UI绘制前开始原子分离。
-    view: ViewQuery<(&ViewTarget, &ExtractedView, &ExtractedCamera)>, // 当前Core3d视图的输出与相机身份。
+    view: ViewQuery<(
+        &ViewTarget,
+        &ExtractedView,
+        &ExtractedCamera,
+        Option<&ResolvedCompositingSpace>,
+    )>, // 当前Core3d视图的输出、相机身份和实际合成空间。
     cameras: Query<&ExtractedCamera>, // 拒绝同窗口多相机输出，避免共享主纹理被其他相机改写。
     request: Res<RenderRequest>,      // 主世界唯一玩法主相机资格。
     frame: Res<FrameCount>,           // 同帧Prepare和UI事务身份。
@@ -82,7 +86,7 @@ pub(super) fn begin_ui(
     mut context: RenderContext,       // 普通wgpu命令保持完整资源使用跟踪。
 ) {
     // 分离入口。
-    let (target, extracted, camera) = view.into_inner(); // 读取当前视图而非猜第一个相机。
+    let (target, extracted, camera, compositing_space) = view.into_inner(); // 读取当前视图而非猜第一个相机。
     let owner = extracted.retained_view_entity.main_entity.id(); // 与主世界请求使用同一实体身份。
     if !request.enabled
         || request.camera != Some(owner)
@@ -96,7 +100,7 @@ pub(super) fn begin_ui(
         .out_texture_view_format()
         .map(|format| format.add_srgb_suffix()); // 独立UI固定sRGB编码；UNORM窗口由最终pass显式编码相同字节。
     let valid = size.x > 0 && size.y > 0 && camera.physical_viewport_size == Some(size) && camera.viewport.as_ref().is_none_or(|viewport| viewport.physical_position == UVec2::ZERO && viewport.physical_size == size) // 只接受完整窗口视口。
-        && target.main_texture_format() == TextureFormat::Rgba16Float && matches!(target.compositing_space, None | Some(CompositingSpace::Linear)) // 真实透明UI必须在线性RGBA16F中累积。
+        && target.main_texture_format() == TextureFormat::Rgba16Float && ResolvedCompositingSpace::space(compositing_space).is_none_or(|space| space.is_linear()) // 真实透明UI必须在线性RGBA16F中累积。
         && target.main_texture().size().width == size.x && target.main_texture().size().height == size.y && target.main_texture().sample_count() == 1 // 不把低分辨率载体或MSAA当作最终覆盖层。
         && matches!(output_format, Some(TextureFormat::Bgra8UnormSrgb | TextureFormat::Rgba8UnormSrgb)) // 首期SDR路径不隐式处理HDR交换链。
         && camera.target.is_some() && cameras.iter().filter(|candidate| candidate.target == camera.target).take(2).count() == 1 // 同窗口多输出视图无法原子共享捕获，安全退回普通完整UI。

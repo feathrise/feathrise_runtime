@@ -41,7 +41,7 @@ pub(super) fn init_render_scale_pipeline(
     commands.insert_resource(RenderScalePipeline {
         layout,
         fullscreen_shader: fullscreen_shader.clone(),
-        fragment_shader: load_embedded_asset!(asset_server.as_ref(), "render_scale.wgsl"),
+        fragment_shader: load_embedded_asset!(asset_server.as_ref(), "render_scale.wesl"),
     });
 }
 
@@ -72,8 +72,8 @@ mod tests {
     /// 把 Bevy 预处理导入替换为真实接口声明后，使用当前 wgpu 同版本 Naga 验证生产 WGSL。
     #[test]
     fn spatial_upscale_shader_is_valid_wgsl() {
-        let shader = include_str!("render_scale.wgsl").replacen(
-            "#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput",
+        let shader = include_str!("render_scale.wesl").replacen(
+            "import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;",
             r#"struct FullscreenVertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,

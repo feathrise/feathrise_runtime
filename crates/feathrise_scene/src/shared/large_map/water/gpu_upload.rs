@@ -41,6 +41,7 @@ struct WaterGpuUploadRequest {
 
 /// 主世界唯一登记额度与全部完整候选批次；共享Arc身份表每帧提取，不复制完整ID数组或Mesh数据。
 #[derive(Resource, Clone, Debug, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct WaterGpuUploadQueue {
     next_ticket: u64,
     registration_available: bool,

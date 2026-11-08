@@ -43,9 +43,9 @@ pub(super) fn begin_maps_and_publish_vegetation_gpu_mips(
             .map_async(MapMode::Read, move |result| {
                 let outcome = match result {
                     Ok(()) => {
-                        let mapped = callback_buffer.slice(..).get_mapped_range(); // GPU完成复制后取得CPU只读视图。
-                        let decoded = callback_job.readback_plan.decode(&mapped); // 去除全部Mip行填充并恢复紧凑顺序。
-                        drop(mapped); // WebGPU要求unmap前释放所有映射视图。
+                        let decoded = callback_buffer.slice(..).get_mapped_range()
+                            .map_err(|error| format!("get_mapped_range failed: {error:?}"))
+                            .and_then(|mapped| callback_job.readback_plan.decode(&mapped)); // 范围视图先释放，才可解除映射。
                         callback_buffer.unmap(); // 解除映射后GPU缓冲生命周期可正常结束。
                         match decoded {
                             Ok(bytes) => VegetationGpuMipOutcome::Complete(Arc::from(bytes)), // 主世界稍后执行无容差比较。

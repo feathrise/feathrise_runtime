@@ -59,8 +59,8 @@ impl Modifier for RainPropertyIndexModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
     } // 两个模拟模板均提供真实properties_array_index。
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::F32_0]
+    fn attributes(&self) -> std::borrow::Cow<'_, [Attribute]> {
+        std::borrow::Cow::Borrowed(&[Attribute::F32_0])
     } // 雨效果独占此槽，按位保存u32不做浮点数值转换。
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
@@ -71,6 +71,7 @@ impl Modifier for RainPropertyIndexModifier {
             return Err(ExprError::InvalidModifierContext(
                 context.modifier_context(),
                 self.context(),
+                "rain_shelter",
             ));
         } // 不向渲染入口错误注入模拟变量。
         context
@@ -97,8 +98,8 @@ impl Modifier for RainShelterModifier {
     fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
         Some(self)
     } // 保持渲染trait对象转换。
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::F32_0]
+    fn attributes(&self) -> std::borrow::Cow<'_, [Attribute]> {
+        std::borrow::Cow::Borrowed(&[Attribute::POSITION, Attribute::F32_0])
     } // 读取粒子位置和模拟阶段保存的真实属性行号。
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
@@ -108,6 +109,7 @@ impl Modifier for RainShelterModifier {
         Err(ExprError::InvalidModifierContext(
             context.modifier_context(),
             ModifierContext::Render,
+            "rain_shelter",
         )) // 防止暂停零delta屏蔽遮雨更新。
     } // 结束模拟上下文拒绝。
 } // 结束通用修饰器接口。

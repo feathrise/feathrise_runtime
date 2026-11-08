@@ -18,7 +18,7 @@ pub(crate) fn install_rain_shelter(app: &mut App) {
         .resource_mut::<Assets<ShaderBuffer>>()
         .insert(
             rain_shelter_buffer_handle().id(),
-            ShaderBuffer::from(RainShelterGpu::default()),
+            ShaderBuffer::from(vec![RainShelterGpu::default()]),
         )
         .expect("遮雨UUID缓冲必须可以安装"); // 固定3088字节资产。
     app.add_systems(PostUpdate, upload.in_set(RainShelterUpload)); // 宿主完整发布后上传。
@@ -30,6 +30,8 @@ fn upload(state: Res<RainShelterState>, mut buffers: ResMut<Assets<ShaderBuffer>
         return;
     } // 暂停与稳定帧零编码。
     if let Some(mut buffer) = buffers.get_mut(rain_shelter_buffer_handle().id()) {
-        buffer.set_data(state.gpu);
+        if let Some([gpu]) = buffer.cast_slice_mut::<RainShelterGpu>() {
+            *gpu = state.gpu;
+        }
     } // 同大小缓冲原位更新。
 } // 完成固定上传。

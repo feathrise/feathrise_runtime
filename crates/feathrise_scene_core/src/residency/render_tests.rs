@@ -2,13 +2,20 @@
 
 use super::*;
 use bevy::{
-    ecs::schedule::ScheduleLabel,
-    render::{Render, extract_plugin::ExtractPlugin, sync_world::SyncToRenderWorld},
+    ecs::schedule::{ScheduleLabel, SystemSet},
+    render::{Render, RenderSystems, extract_plugin::ExtractPlugin, sync_world::SyncToRenderWorld},
 };
 
 fn fixture() -> App {
     let mut app = App::new();
-    app.add_plugins(ExtractPlugin::default());
+    // 复用正式渲染提取调度，测试夹具不安装设备错误处理。
+    app.add_plugins(ExtractPlugin::<RenderApp>::new(
+        |_, _| {},
+        Render::base_schedule,
+        Render.intern(),
+        RenderSystems::ExtractCommands.intern(),
+        RenderSystems::PostCleanup.intern(),
+    ));
     install(&mut app);
     app.sub_app_mut(RenderApp).update_schedule = Some(Render.intern());
     app
@@ -19,7 +26,7 @@ fn resident(app: &mut App, disabled: bool) -> Entity {
         .world_mut()
         .spawn((
             ResidentMapEntity(crate::residency::ResidentMapToken(1)),
-            SyncToRenderWorld,
+            SyncToRenderWorld::default(),
         ))
         .id();
     if disabled {

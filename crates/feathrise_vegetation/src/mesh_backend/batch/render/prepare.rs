@@ -6,7 +6,7 @@ use bevy::pbr::{
 };
 use bevy::prelude::*;
 use bevy::render::erased_render_asset::ErasedRenderAssets;
-use bevy::render::mesh::{RenderMesh, allocator::MeshAllocator};
+use bevy::render::mesh::{MeshMetadataFallbackBuffer, RenderMesh, allocator::MeshAllocator};
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
     BindGroup, Buffer, BufferInitDescriptor, BufferUsages, GpuArrayBuffer, PipelineCache,
@@ -100,6 +100,7 @@ pub(super) fn prepare_vegetation_mesh_batches(
     render_materials: Res<ErasedRenderAssets<PreparedMaterial>>,
     meshes: Res<RenderAssets<RenderMesh>>,
     mesh_allocator: Res<MeshAllocator>,
+    metadata_fallback: Res<MeshMetadataFallbackBuffer>,
     mut uniforms: ResMut<VegetationMeshBatchUniforms>,
     mut volume_uploads: Local<VolumeUploads>,
     batches: Query<(
@@ -158,6 +159,7 @@ pub(super) fn prepare_vegetation_mesh_batches(
             None,
             None,
             None,
+            None, // 批次模型表使用固定的空 MeshMetadata。
         );
         let mut uniform_index = uniforms.values.push(mesh_uniform.clone());
         let mut part_uniform_index = 0;
@@ -175,6 +177,7 @@ pub(super) fn prepare_vegetation_mesh_batches(
                 None,
                 None,
                 None,
+                None, // 批次模型表使用固定的空 MeshMetadata。
             );
             let part_index = uniforms.values.push(part_uniform);
             part_uniform_index = part_index.index;
@@ -340,6 +343,6 @@ pub(super) fn prepare_vegetation_mesh_batches(
     uniforms.bind_group = uniforms.values.binding().map(|binding| {
         mesh_pipeline
             .mesh_layouts
-            .model_only(&render_device, &pipeline_cache, &binding)
+            .model_only(&render_device, &pipeline_cache, &binding, &metadata_fallback.buffer)
     });
 }

@@ -236,7 +236,7 @@ fn capture_and_prepare(
         );
         return;
     };
-    let Some(depth_attachment) = prepass.depth.as_ref() else {
+    let Some((depth_attachment, depth_view)) = prepass.depth.as_ref().zip(prepass.depth_only_view()) else {
         fail_frame(
             frame.0,
             Fsr3FrameGenerationInputFailure::DepthTexture,
@@ -271,7 +271,7 @@ fn capture_and_prepare(
 
     let Some(depth) = native_image(
         &depth_attachment.texture.texture,
-        &depth_attachment.texture.default_view,
+        depth_view, // 保证与传给桥接层的 DEPTH aspect 一致。
         vk::ImageAspectFlags::DEPTH,
     ) else {
         fail_frame(
@@ -374,7 +374,7 @@ fn capture_and_prepare(
         context
             .render_device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                // wgpu29禁止在同一个编码器混用普通API与原生API。
+                // 保留普通编码器的资源跟踪，独立录制原生 SDK 命令。
                 label: Some("fsr3_frame_generation_prepare"), // 独立原生命令缓冲便于GPU抓帧定位。
             }); // 只增加一个有界命令缓冲，仍由Bevy统一提交。
     let result = unsafe {
@@ -494,7 +494,7 @@ pub(super) fn native_image(
     let format = unsafe {
         view.as_hal::<wgpu_hal::vulkan::Api>()
             .map(|raw| raw.raw_format().as_raw() as u32)?
-    }; // Texture锁已释放后再取View格式，避免wgpu 29对同资源递归加锁panic。
+    }; // Texture锁已释放后再取View格式，避免在同一资源上嵌套 HAL 锁。
     let size = texture.size();
     Some(NativeImage {
         image,  // 只读VkImage句柄位模式。

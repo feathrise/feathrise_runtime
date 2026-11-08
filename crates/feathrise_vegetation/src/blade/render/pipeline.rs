@@ -192,6 +192,8 @@ impl SpecializedMeshPipeline for GpuBladeShadowPipeline {
             shader_defs.push("GPU_GRASS_SHADOW_UNCLIPPED_DEPTH_EMULATION".into()); // 用片元深度保存方向光正交视锥外的合法投影。
         } // 完成硬件深度裁剪能力分支。
         let fragment = emulate_unclipped_depth.then(|| FragmentState {
+
+            constants: Vec::new(),
             shader: self.shader.clone(), // 回退片元入口仍位于同一热加载WGSL资产。
             shader_defs: shader_defs.clone(), // 片元和顶点必须共享深度回退宏。
             entry_point: Some("shadow_fragment".into()), // 只输出未裁剪方向光深度，不采样草色。
@@ -206,6 +208,8 @@ impl SpecializedMeshPipeline for GpuBladeShadowPipeline {
                 self.interaction_layout.clone(), // group3绑定风场、足迹、综合色图和内容profile。
             ], // 完成与阴影绘制命令严格一致的四组布局。
             vertex: VertexState {
+
+                constants: Vec::new(),
                 shader: self.shader.clone(),               // 复用主画面同一草叶形变源码。
                 shader_defs,                               // 选择阴影入口所需的预处理分支。
                 entry_point: Some("shadow_vertex".into()), // 只输出方向光裁剪位置和可选回退深度。

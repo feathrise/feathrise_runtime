@@ -18,7 +18,7 @@ use bevy::{
 use feathrise_map_content::MeshCollisionLodSettings;
 use std::sync::Arc;
 pub(super) fn body_inserted(
-    event: On<Insert, RigidBody>,
+    event: On<Insert<RigidBody>>,
     bodies: Query<&RigidBody>,
     mut commands: Commands,
 ) {
@@ -32,7 +32,7 @@ pub(super) fn body_inserted(
     }
 }
 
-pub(super) fn collider_inserted(event: On<Insert, Collider>, mut runtime: Option<ResMut<Runtime>>) {
+pub(super) fn collider_inserted(event: On<Insert<Collider>>, mut runtime: Option<ResMut<Runtime>>) {
     if let Some(runtime) = runtime.as_mut()
         && runtime.queued.insert(event.entity)
     {
@@ -41,7 +41,7 @@ pub(super) fn collider_inserted(event: On<Insert, Collider>, mut runtime: Option
 }
 
 pub(super) fn source_inserted<T: Component>(
-    event: On<Insert, T>,
+    event: On<Insert<T>>,
     mut runtime: Option<ResMut<Runtime>>,
 ) {
     if let Some(runtime) = runtime.as_mut() {

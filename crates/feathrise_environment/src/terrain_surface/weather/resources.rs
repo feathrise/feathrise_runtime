@@ -4,7 +4,8 @@ use bevy::prelude::{Handle, Image, Resource, SystemSet, Vec4}; // 固定资源�
 use bevy::render::render_resource::ShaderType; // 按WGSL四向量布局编码。
 
 /// 由宿主解析天气和当前积水遮罩后一次性发布的64字节参数。
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, ShaderType)] // 零值是无天气、无积水的安全回退。
+#[repr(C)]
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, ShaderType, bytemuck::Pod, bytemuck::Zeroable)] // 零值是无天气、无积水的安全回退。
 pub struct SurfaceWeatherGpu {
     // 独立于项目数据层，便于环境crate复用。
     pub weather: Vec4,      // 湿润度、积水量、连续降雨量、暂停感知视觉秒。

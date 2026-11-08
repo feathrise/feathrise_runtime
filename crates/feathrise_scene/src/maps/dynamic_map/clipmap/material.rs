@@ -1,4 +1,4 @@
-//! Bevy 0.19 Geometry Clipmap 的 GPU 顶点高度页与现有地表材质桥。
+//! Bevy 0.20 Geometry Clipmap 的 GPU 顶点高度页与现有地表材质桥。
 //!
 //! 主视图、Deferred、深度/法线/运动预通道和阴影均读取同一稀疏页表与地图
 //! 边界。正式新图以外层 ExtendedMaterial 包装现有 TerrainSurfaceMaterial，
@@ -450,8 +450,13 @@ impl FromWorld for ClipmapFlatHeightPage {
 /// 注册五份内置 WGSL、基础高度兜底材质和正式组合材质，不在帧关键路径读取磁盘源码。
 pub(crate) struct ClipmapHeightMaterialPlugin; // 由动态地图插件显式安装一次。
 
-fn load_height_shader(source:impl Into<String>,path:impl Into<String>)->Shader {
-    Shader::from_wgsl(format!("{}\n{}",feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false),source.into()),path)
+fn load_height_shader(source: &str, _: std::borrow::Cow<'_, str>) -> Shader {
+    let stitches = feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false)
+        .replace("#{MATERIAL_BIND_GROUP}", "constants::MATERIAL_BIND_GROUP");
+    Shader::from_wesl(
+        format!("{stitches}\n{source}"),
+        "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/height.wesl",
+    )
 }
 
 impl Plugin for ClipmapHeightMaterialPlugin {
@@ -459,32 +464,32 @@ impl Plugin for ClipmapHeightMaterialPlugin {
         load_internal_asset!(
             app,
             HEIGHT_FUNCTIONS_SHADER,
-            "shaders/height.wgsl",
+            "shaders/height.wesl",
             load_height_shader
         ); // 共用纹理页函数。
         load_internal_asset!(
             app,
             MAIN_VERTEX_SHADER,
-            "shaders/main_vertex.wgsl",
-            Shader::from_wgsl
+            "shaders/main_vertex.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/main_vertex.wesl")
         ); // 主视图位移入口。
         load_internal_asset!(
             app,
             PREPASS_VERTEX_SHADER,
-            "shaders/prepass_vertex.wgsl",
-            Shader::from_wgsl
+            "shaders/prepass_vertex.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/prepass_vertex.wesl")
         ); // 阴影与预通道位移入口。
         load_internal_asset!(
             app,
             MAIN_FRAGMENT_SHADER,
-            "shaders/main_fragment.wgsl",
-            Shader::from_wgsl
+            "shaders/main_fragment.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/main_fragment.wesl")
         ); // Forward 与 Deferred 片元。
         load_internal_asset!(
             app,
             PREPASS_FRAGMENT_SHADER,
-            "shaders/prepass_fragment.wgsl",
-            Shader::from_wgsl
+            "shaders/prepass_fragment.wesl",
+            |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/maps/dynamic_map/clipmap/shaders/prepass_fragment.wesl")
         ); // 深度/阴影片元裁切。
         app.init_resource::<ClipmapFlatHeightPage>() // 无页时 Y=0 且绑定始终合法。
             .add_plugins((
@@ -545,11 +550,11 @@ mod tests {
 
     #[test]
     fn all_shader_passes_share_height_and_bounds_contract() {
-        let common = format!("{}\n{}",feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false),include_str!("shaders/height.wgsl")); // 与正式加载器装配相同的共享源码。
-        let main_vertex = include_str!("shaders/main_vertex.wgsl"); // Forward 顶点。
-        let prepass_vertex = include_str!("shaders/prepass_vertex.wgsl"); // 阴影、深度、运动顶点。
-        let main_fragment = include_str!("shaders/main_fragment.wgsl"); // Forward/Deferred 地表片元。
-        let prepass_fragment = include_str!("shaders/prepass_fragment.wgsl"); // 阴影、深度裁切片元。
+        let common = format!("{}\n{}",feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false),include_str!("shaders/height.wesl")); // 与正式加载器装配相同的共享源码。
+        let main_vertex = include_str!("shaders/main_vertex.wesl"); // Forward 顶点。
+        let prepass_vertex = include_str!("shaders/prepass_vertex.wesl"); // 阴影、深度、运动顶点。
+        let main_fragment = include_str!("shaders/main_fragment.wesl"); // Forward/Deferred 地表片元。
+        let prepass_fragment = include_str!("shaders/prepass_fragment.wesl"); // 阴影、深度裁切片元。
         assert!(common.contains("@binding(120)")); // 参数与 Rust AsBindGroup 同槽。
         assert!(common.contains("@binding(121)")); // 高度页数组与 Rust AsBindGroup 同槽。
         assert!(common.contains("@binding(122)")); // 采样器与 Rust AsBindGroup 同槽。
@@ -566,12 +571,10 @@ mod tests {
 
     #[test]
     fn shared_height_shader_is_valid_wgsl() {
-        let validation_source = include_str!("shaders/height.wgsl")
-            .replace("\r\n", "\n") // Windows检出换行不能改变Bevy导入路径契约。
-            .strip_prefix("// Geometry Clipmap 的世界坐标稀疏高度页采样；所有渲染 pass 引用同一正文。\n#define_import_path feathrise_scene::clipmap_height")
-            .expect("高度页 Shader 必须保留稳定的 Bevy 导入路径")
-            .replace("#{MATERIAL_BIND_GROUP}", "2"); // 只替换 Bevy 预处理器提供的材质组号，正文仍是生产源码。
-        let validation_source=format!("{}\n{}",feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false),validation_source).replace("#{MATERIAL_BIND_GROUP}","2");
+        let height = include_str!("shaders/height.wesl").replace("constants::MATERIAL_BIND_GROUP", "2");
+        let stitches = feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false)
+            .replace("#{MATERIAL_BIND_GROUP}", "2");
+        let validation_source = format!("{stitches}\n{height}");
         let module = wgpu::naga::front::wgsl::parse_str(&validation_source)
             .unwrap_or_else(|error| panic!("Clipmap 高度页 WGSL 语法错误：{error}")); // 输出 Naga 的准确行列。
         wgpu::naga::valid::Validator::new(

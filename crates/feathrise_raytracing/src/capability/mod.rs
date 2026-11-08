@@ -17,7 +17,7 @@ use crate::{
 /// 返回本项目实时光追完整管线实际使用的设备能力集合。
 fn required_raytracing_features() -> wgpu::Features {
     SolariPlugins::required_wgpu_features() // 先继承第一方TLAS、绑定数组和非一致索引能力。
-        | wgpu::Features::TIMESTAMP_QUERY // 四段GPU时间仍是原子激活硬门。
+        | wgpu::Features::TIMESTAMP_QUERY // Solari通道的GPU回执是原子激活的前提。
         | wgpu::Features::PRIMITIVE_INDEX // 动态地形Deferred片元需要发布与唯一TLAS代理同序的三角编号。
 } // 完成项目附加能力集合。
 

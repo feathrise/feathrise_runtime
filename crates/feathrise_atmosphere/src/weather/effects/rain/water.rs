@@ -75,8 +75,8 @@ impl Modifier for RainWaterModifier {
     fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
         Some(self)
     } // 标准trait转换。
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::F32_0]
+    fn attributes(&self) -> std::borrow::Cow<'_, [Attribute]> {
+        std::borrow::Cow::Borrowed(&[Attribute::F32_0])
     } // 沿用已修复的真实属性行号桥。
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
@@ -85,6 +85,7 @@ impl Modifier for RainWaterModifier {
         Err(ExprError::InvalidModifierContext(
             context.modifier_context(),
             ModifierContext::Render,
+            "rain_water",
         ))
     } // 禁止向模拟阶段注入材质纹理读取。
 } // 完成通用修饰器接口。

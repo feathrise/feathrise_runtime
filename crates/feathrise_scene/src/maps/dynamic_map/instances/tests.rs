@@ -145,7 +145,8 @@ fn moved_disabled_source_resumes_with_one_contact_island_registration() {
                 || ![pair.collider1, pair.collider2].contains(&actor) { continue; }
             contact_seen = true;
             assert!(pair.generates_constraints(), "恢复后必须真正求解来源碰撞");
-            assert!(graph.get_edge_by_id(pair.contact_id).unwrap().island.is_some());
+            let constraints = app.world().resource::<avian3d::dynamics::solver::constraint_graph::ConstraintGraph>();
+            assert!(!constraints.contact_handles(pair.contact_id).is_empty());
             // 首次接触已经加入物理岛，开始生成标记不能残留到下一步再次加入。
             assert!(!pair.flags.contains(ContactPairFlags::STARTED_GENERATING_CONSTRAINTS));
         }

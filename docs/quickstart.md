@@ -1,11 +1,10 @@
 # 运行第一个 SDK 示例
 
-先将 SDK 与补丁仓克隆到同一目录，并将补丁固定到当前 SDK 配套的提交：
+将 SDK 与补丁仓放在同一目录，并检出与 SDK 的 Bevy 0.20.1 配套的补丁源码。
 
 ```powershell
 git clone https://github.com/feathrise/feathrise_runtime.git
 git clone https://github.com/feathrise/feathrise_patches.git
-git -C feathrise_patches checkout 3c251d3530980b66e49b4748769db36ae9c6bd5a
 cd feathrise_runtime
 ```
 
@@ -15,7 +14,7 @@ SDK 自己的 `.cargo/config.toml` 会加载同级补丁配置，不需要维护
 cargo run --locked --example minimal_project
 ```
 
-窗口显示地面、旋转方块和中文提示。按空格暂停／继续旋转，按 Esc 或关闭窗口退出。示例只依赖本 SDK 和 Bevy，使用程序生成的几何。首次构建需要现有 Rust/MSVC 工具链及 Cargo 依赖；图形运行需要适用驱动。
+窗口显示地面、旋转方块和中文提示。按空格暂停／继续旋转，按 Esc 或关闭窗口退出。示例只依赖本 SDK 和 Bevy，使用程序生成的几何。首次构建需要 Rust 1.97.1 或更新版本、MSVC 工具链及 Cargo 依赖；图形运行需要适用驱动。
 
 入口位于 [examples/minimal_project.rs](../examples/minimal_project.rs)。它做两件事：明确提供工程身份与资产根的 `ProjectContext`，然后调用 `feathrise_runtime::run(project, MinimalProjectPlugin { ... })`。`run` 安装 Bevy、场景、资源与渲染运行时；工程的 `Plugin` 注册自己的启动、旋转和输入系统。此例的空地图目录不会创建主相机，所以示例自行创建一个 `PrimarySceneView`；加载已保存地图的工程应初始化地图已有的主相机，避免叠加第二台窗口相机。
 
@@ -51,7 +50,15 @@ cargo run --locked --example minimal_project -- --capture "$env:TEMP/feathrise-m
 
 推荐由 Feathrise 新建工程：它会生成根依赖、补丁、空资产目录及工程描述，工程只编译 SDK 和自身代码。编辑器通过 `sdk-source.toml` 选择 registry 版本、本地路径或固定 Git 提交。
 
-手动接入已发布版本时，在**工程根** `Cargo.toml` 配置精确 SDK 版本与公开 Git 补丁：
+联调当前 Bevy 0.20.1 源码时，在工程根的 `Cargo.toml` 使用路径依赖，并按[本地修改](crates-io.md#本地修改)载入同级补丁配置。
+
+```toml
+[dependencies]
+bevy = "=0.20.1"
+feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
+```
+
+下面的配置适用于已发布的 Bevy 0.19.1 版 SDK 0.1.0。将配套 Git 补丁添加到工程根的 `Cargo.toml`。
 
 ```toml
 [dependencies]

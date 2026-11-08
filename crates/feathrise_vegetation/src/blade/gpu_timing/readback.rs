@@ -312,7 +312,13 @@ fn begin_maps_and_publish_gpu_grass_timing(
             .slice(0..resolved_bytes)
             .map_async(MapMode::Read, move |result| {
                 if result.is_ok() {
-                    let mapped = callback_buffer.slice(0..resolved_bytes).get_mapped_range(); // GPU完成稀疏解析与前缀拷贝后取得CPU只读字节视图。
+                    let Ok(mapped) = callback_buffer.slice(0..resolved_bytes).get_mapped_range() else {
+                        // 映射回调成功后，WGPU 30 的范围借用仍可能失败。
+                        callback_buffer.unmap();
+                        callback_shared.map_errors.fetch_add(1, Ordering::Relaxed);
+                        callback_slot.state.store(SLOT_FREE, Ordering::Release);
+                        return;
+                    };
                     let stats = decode_gpu_grass_timing(
                         &mapped,                       // 当前样本确定性稀疏查询布局。
                         write_mask,                    // 未写槽即使残留旧字节也绝不解析。

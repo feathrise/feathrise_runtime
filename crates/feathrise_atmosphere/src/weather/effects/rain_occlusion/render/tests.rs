@@ -35,8 +35,8 @@ fn half_float_channels_preserve_every_depth_and_matrix_bit() {
 #[test] // 检测转换 Shader 的真实 WGSL 类型、纹理读取及动态矩阵下标。
 fn depth_capture_fragment_passes_naga_validation() {
     // 外部边界仅提供 Bevy FullscreenVertexOutput 类型。
-    let shader = include_str!("convert.wgsl"); // 使用真正生产源码，不复制片元实现。
-    let source = shader.replace("#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput", "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }; "); // 与官方 fullscreen_vertex_shader 精确匹配接口。
+    let shader = include_str!("convert.wesl"); // 使用真正生产源码，不复制片元实现。
+    let source = shader.replace("import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;", "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }; "); // 与官方 fullscreen_vertex_shader 精确匹配接口。
     let module = wgpu::naga::front::wgsl::parse_str(&source)
         .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source))); // 保留可定位源码的诊断。
     wgpu::naga::valid::Validator::new(

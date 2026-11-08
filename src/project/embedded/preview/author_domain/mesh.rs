@@ -78,7 +78,7 @@ pub(super) fn prepare(
 }
 #[derive(Component)]
 struct OwnedVisibility(u64);
-fn external_visibility(event: On<Insert, Visibility>, mut commands: Commands) {
+fn external_visibility(event: On<Insert<Visibility>>, mut commands: Commands) {
     // 临时显隐直接改组件值；外部显式插入哪怕同值也撤销旧手势归还权。
     commands.entity(event.entity).remove::<OwnedVisibility>();
 }

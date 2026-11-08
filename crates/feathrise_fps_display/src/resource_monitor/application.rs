@@ -188,7 +188,8 @@ mod tests {
 
         // 使用真实页签交互切出再切回；总时间只有3ms，不能依赖半秒自然到期。
         let button = app.world_mut().spawn((
-            Button,
+
+            bevy::ui::FocusPolicy::Block,
             ResourceMonitorGroupButton { group: ResourceMonitorGroup::OrdinaryGrass },
             Interaction::Pressed,
             BackgroundColor::default(),

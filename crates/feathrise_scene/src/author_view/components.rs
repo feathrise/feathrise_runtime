@@ -5,6 +5,7 @@ use bevy::{
 };
 
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct ShadingView {
     pub options: Vec4, // 线框/实体/材质/渲染、轮廓增强、法线颜色、显示背景。
     pub wire: Vec4,    // 穿透、工作室光源、强制显示模型三角拓扑；末字段保留16字节对齐。
@@ -18,6 +19,7 @@ impl ShadingView {
 }
 
 #[derive(Component, Clone, Copy, PartialEq, ExtractComponent, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GridView {
     pub origin_stride: Vec4,
     pub plane: Vec4,

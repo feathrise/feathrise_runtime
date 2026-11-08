@@ -15,14 +15,14 @@ pub(crate) fn register_batch_shaders(app: &mut App) -> Option<Handle<Shader>> {
     load_internal_asset!(
         app,
         VEGETATION_MESH_BATCH_SHADER_HANDLE,
-        "../shaders/mesh_batch.wgsl",
-        Shader::from_wgsl
+        "../shaders/mesh_batch.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_vegetation/mesh_backend/batch/shaders/mesh_batch.wesl")
     );
     load_internal_asset!(
         app,
         VEGETATION_MESH_BATCH_DEPTH_SHADER_HANDLE,
-        "../shaders/mesh_batch_depth.wgsl",
-        Shader::from_wgsl
+        "../shaders/mesh_batch_depth.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_vegetation/mesh_backend/batch/shaders/mesh_batch_depth.wesl")
     );
     // 按官方ShaderRef取得身份，兼容继承StandardMaterial的风/公告板扩展；不能覆盖任意材质的自定义片元逻辑。
     match StandardMaterial::prepass_fragment_shader() {

@@ -3,7 +3,7 @@
 use super::*;
 use bevy::{
     camera::{ComputedCameraValues, RenderTarget, RenderTargetInfo},
-    picking::{backend::HitData, pointer::Location},
+    picking::{backend::HitData, events::Pointer, pointer::Location},
 };
 
 fn fixture(dpi: f32, scale: f32) -> (App, Entity, Entity, Entity, Entity) {
@@ -23,7 +23,7 @@ fn fixture(dpi: f32, scale: f32) -> (App, Entity, Entity, Entity, Entity) {
         Node { position_type: PositionType::Absolute, left: px(12), top: px(12), ..default() },
         ComputedNode { size: Vec2::new(300., 34.) * dpi * scale,
             inverse_scale_factor: 1.0 / (dpi * scale), ..default() })).id();
-    let handle = app.world_mut().spawn((ToolbarDragHandle, ToolbarPointer, Button,
+    let handle = app.world_mut().spawn((ToolbarDragHandle, ToolbarPointer, Interaction::None, bevy::ui::FocusPolicy::Block,
         Node::default(), BackgroundColor(Color::NONE), ChildOf(root)))
         .observe(drag_start).observe(drag).observe(drag_end).id();
     (app, window, camera, root, handle)
@@ -35,13 +35,19 @@ fn location(window: Entity) -> Location {
 
 fn begin(app: &mut App, window: Entity, camera: Entity, handle: Entity) {
     app.update();
-    app.world_mut().trigger(Pointer::new(PointerId::Mouse, location(window),
-        DragStart { button: PointerButton::Primary, hit: HitData::new(camera, 0., None, None) }, handle));
+    app.world_mut().trigger(PointerDragStart {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location(window)),
+        button: PointerButton::Primary, hit: HitData::new(camera, 0., None, None),
+    });
 }
 
 fn move_by(app: &mut App, window: Entity, handle: Entity, distance: Vec2) {
-    app.world_mut().trigger(Pointer::new(PointerId::Mouse, location(window),
-        Drag { button: PointerButton::Primary, distance, delta: distance }, handle));
+    app.world_mut().trigger(PointerDrag {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location(window)),
+        button: PointerButton::Primary, distance, delta: distance,
+    });
     app.update();
 }
 
@@ -63,8 +69,11 @@ fn hud_pointer_drag_uses_window_logical_pixels_and_preserves_camera_viewport() {
             assert_eq!(node.top, px(expected.y));
             assert_eq!(app.world().get::<Camera>(camera).unwrap().logical_viewport_size(), viewport,
                 "HUD移动只能改变自己的绝对位置，不能占据或缩小游戏区域");
-            app.world_mut().trigger(Pointer::new(PointerId::Mouse, location(window),
-                DragEnd { button: PointerButton::Primary, distance: Vec2::new(120., 80.) }, handle));
+            app.world_mut().trigger(PointerDragEnd {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location(window)),
+        button: PointerButton::Primary, distance: Vec2::new(120., 80.),
+    });
             let position = app.world().resource::<ToolbarHudState>().position;
             move_by(&mut app, window, handle, Vec2::splat(300.));
             assert_eq!(app.world().resource::<ToolbarHudState>().position, position,

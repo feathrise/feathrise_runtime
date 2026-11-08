@@ -9,7 +9,7 @@ build = "build.rs"
 
 [dependencies]
 feathrise_runtime_manifest = { workspace = true }
-dlss_wgpu = "4.0.0" # 复用已审计SR/RR运行库目录，让Streamline首次NGX初始化看到完整组合模块。
+dlss_wgpu = "=6.0.0" # 复用已审计SR/RR运行库目录，让Streamline首次NGX初始化看到完整组合模块。
 sha2 = { workspace = true } # 启动前重新验证固定生产DLL，防止发布后被其他已签名版本替换。
 ash = "0.38.0" # 只读取wgpu Vulkan后端公开的原生句柄位模式，不创建第二套Vulkan对象。
 bevy = { workspace = true, features = ["raw_vulkan_init"] } # 本crate直接使用设备创建回调，独立检查和测试也必须显式声明，不能依赖根程序DLSS特性碰巧启用。
@@ -18,7 +18,7 @@ feathrise_scene_core = { workspace = true }
 feathrise_frame_generation_ui = { workspace = true } # 共享SDK无关的二维/世界UI捕获，不依赖AMD原生运行库。
 feathrise_settings = { workspace = true } # 复用唯一持久画质请求与图形附件租约，不建立第二份设置。
 wgpu = { workspace = true }
-wgpu-hal = { version = "=29.0.4", features = ["vulkan"] }
+wgpu-hal = { version = "=30.0.1", features = ["vulkan"] }
 
 [build-dependencies]
 feathrise_runtime_manifest = { workspace = true }

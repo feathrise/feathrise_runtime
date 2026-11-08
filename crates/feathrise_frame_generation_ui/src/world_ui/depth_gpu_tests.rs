@@ -39,9 +39,9 @@ fn gpu_depth_mapping_reads_internal_viewport() {
         let source_view = source.create_view(&Default::default()); // 单层深度视图。
         let output_view = output.create_view(&Default::default()); // 输出深度视图。
         let vertex = "struct FullscreenVertexOutput { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, } @vertex fn vertex(@builtin(vertex_index) i: u32) -> FullscreenVertexOutput { var p = array<vec2<f32>, 3>(vec2<f32>(-1.0,-1.0), vec2<f32>(3.0,-1.0), vec2<f32>(-1.0,3.0)); var o: FullscreenVertexOutput; o.position = vec4<f32>(p[i],0.0,1.0); o.uv = vec2<f32>(0.0); return o; }"; // 全屏顶点夹具与Bevy接口一致。
-        let body = include_str!("depth.wgsl")
+        let body = include_str!("depth.wesl")
             .lines()
-            .filter(|line| !line.starts_with("#import"))
+            .filter(|line| !line.starts_with("import "))
             .collect::<Vec<_>>()
             .join("\n"); // 实际生产片元代码。
         let shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -173,7 +173,7 @@ fn gpu_depth_mapping_reads_internal_viewport() {
             .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap()
             .unwrap(); // 明确失败，不忽略设备错误。
-        let bytes = buffer.slice(..).get_mapped_range(); // 检查全输出而不只检查内部区域。
+        let bytes = buffer.slice(..).get_mapped_range().unwrap(); // 检查全输出而不只检查内部区域。
         for y in 0..12 {
             for x in 0..12 {
                 let start = y * 256 + x * 4;

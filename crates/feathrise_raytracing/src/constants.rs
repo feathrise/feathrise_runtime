@@ -41,12 +41,10 @@ pub(crate) const CELESTIAL_LIGHT_DIRECTION_JUMP_RADIANS: f32 = std::f32::consts:
 
 pub(crate) const MAX_INCREMENTAL_VRAM_MIB: u32 = 1024; // P1实测增量显存停止线。
 
-pub(crate) static DIRECT_LIGHTING_DIAGNOSTIC: DiagnosticPath =
-    DiagnosticPath::const_new("render/solari_lighting/direct_lighting/elapsed_gpu"); // ReSTIR直接光GPU毫秒。
-pub(crate) static DIFFUSE_INDIRECT_DIAGNOSTIC: DiagnosticPath =
-    DiagnosticPath::const_new("render/solari_lighting/diffuse_indirect_lighting/elapsed_gpu"); // 漫反射间接光GPU毫秒。
-pub(crate) static SPECULAR_INDIRECT_DIAGNOSTIC: DiagnosticPath =
-    DiagnosticPath::const_new("render/solari_lighting/specular_indirect_lighting/elapsed_gpu"); // 镜面间接光GPU毫秒。
+pub(crate) static PRESAMPLE_LIGHT_TILES_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/solari_lighting/presample_light_tiles/elapsed_gpu"); // 光源瓦片预采样GPU毫秒。
+pub(crate) static SOLARI_LIGHTING_DIAGNOSTIC: DiagnosticPath =
+    DiagnosticPath::const_new("render/solari_lighting/lighting/elapsed_gpu"); // Bevy 0.20合并后的直接光、间接光与反射。
 pub(crate) static WORLD_CACHE_DIAGNOSTIC: DiagnosticPath =
     DiagnosticPath::const_new("render/solari_lighting/world_cache/elapsed_gpu"); // 世界缓存维护GPU毫秒。
 pub(crate) static WORLD_CACHE_ACTIVE_CELLS_DIAGNOSTIC: DiagnosticPath =

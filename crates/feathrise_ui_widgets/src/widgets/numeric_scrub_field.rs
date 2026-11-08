@@ -3,6 +3,7 @@
 //! 【功能设计】业务只提供稳定marker、初值、数值规格和拖动规格；公共控件统一拥有
 //! 左键拖实际值、右键拖独立灵敏度、中键进入精确输入的视觉与命中结构。
 
+use crate::InteractionButton;
 use bevy::prelude::*; // 构建公共UI实体、文本、颜色和字体组件。
 use bevy::ui::{FocusPolicy, OverrideClip, RelativeCursorPosition}; // 提示越过窄框裁切，子视觉仍穿透命中。
 
@@ -106,7 +107,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
         NumericInputEditState::new(value, options.input.replace_on_first_key), // 初始化字符编辑事务状态。
         palette.input,                     // 焦点刷新沿用字段自身的主题。
         options.scrub,                     // 启用左值、右灵敏度和中键精确输入专业手势。
-        Button,                            // 复用公共字段交互与视觉系统。
+        InteractionButton,                            // 复用公共字段交互与视觉系统。
         Interaction::default(),            // 首帧从无交互状态开始。
         RelativeCursorPosition::default(), // 水平相对坐标驱动与帧率无关的总位移拖动。
         FocusPolicy::Block,                // 整个属性框消费鼠标，不能点透至游戏视口。

@@ -59,18 +59,20 @@ fn fixed_buffer_uploads_complete_batch_only_on_change() {
     let mut app = App::new(); // 最小生产主世界。
     systems::install_rain_shelter(&mut app); // 真正安装固定UUID缓冲。
     app.update(); // 消费初始资源变更。
-    app.world_mut()
+    <bevy::render::storage::GpuShaderBuffer as bevy::render::render_asset::RenderAsset>::take_gpu_data(
+        &mut app.world_mut()
         .resource_mut::<Assets<ShaderBuffer>>()
         .get_mut(rain_shelter_buffer_handle().id())
-        .unwrap()
-        .data = None; // 模拟RenderApp已提取CPU包。
+        .unwrap(),
+        None,
+    ).unwrap();
     app.update(); // 暂停稳定帧不重新生成包。
     assert!(
         app.world()
             .resource::<Assets<ShaderBuffer>>()
             .get(rain_shelter_buffer_handle().id())
             .unwrap()
-            .data
+            .cast_slice::<u8>()
             .is_none()
     ); // 正式上传系统保持空闲。
     let roof = volume(Transform::from_xyz(0.0, 4.0, 0.0)); // 创建完整新代理。
@@ -84,8 +86,7 @@ fn fixed_buffer_uploads_complete_batch_only_on_change() {
             .resource::<Assets<ShaderBuffer>>()
             .get(rain_shelter_buffer_handle().id())
             .unwrap()
-            .data
-            .as_ref()
+            .cast_slice::<u8>()
             .unwrap()
             .len(),
         3088

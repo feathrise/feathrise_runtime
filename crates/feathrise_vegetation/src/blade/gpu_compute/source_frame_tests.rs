@@ -21,7 +21,7 @@ const QUERY: &str = r#"
 
 pub(super) fn query() -> String {
     // 与现有体积姿态回归一样抽取真实绘制函数原文，专项不需要运行其他重型验证组。
-    let draw=include_str!("../shaders/gpu_grass_minimal.wgsl");
+    let draw=include_str!("../shaders/gpu_grass_minimal.wesl");
     let start=draw.find("fn volume_basis(").unwrap();
     let end=start+draw[start..].find("fn world_tip_to_surface(").unwrap();
     format!("{}\n{QUERY}",&draw[start..end])
@@ -57,7 +57,7 @@ pub(super) fn validate(device:&wgpu::Device,queue:&wgpu::Queue,shader:&wgpu::Sha
         read.slice(..).map_async(wgpu::MapMode::Read,move |result| {let _=tx.send(result);});
         device.poll(wgpu::PollType::Wait {submission_index:Some(submission),timeout:Some(Duration::from_secs(30))}).unwrap();
         rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
-        let data=read.slice(..).get_mapped_range();
+        let data=read.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
         let records:&[[u32;5]]=bytemuck::cast_slice(&data);
         for index in 0..4 {
             let record=records[index*3]; let expected=records[index*3+1]; let actual=records[index*3+2];

@@ -34,8 +34,8 @@ pub(crate) fn install(app: &mut App) {
     bevy::asset::load_internal_asset!(
         app,
         depth::SHADER,
-        "depth.wgsl",
-        bevy::shader::Shader::from_wgsl
+        "depth.wesl",
+        |source, _| bevy::shader::Shader::from_wesl(source, "embedded://feathrise_frame_generation_ui/world_ui/depth.wesl")
     ); // 编译期内嵌深度映射着色器。
     // 由 FSR 主插件注册，未编译该候选时完全不改变普通渲染。
     app.add_plugins(SortedRenderPhasePlugin::<WorldUi3d, MeshPipeline>::new(

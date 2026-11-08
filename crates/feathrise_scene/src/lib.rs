@@ -15,6 +15,8 @@ mod maps; // 统一数据驱动地图的内部实现。
 mod resources; // 地图热重载期间 Avian 物理暂停所有权资源。
 mod shared; // 场景运行时、GLB地形、动态水和热重载公共能力。
 #[cfg(test)]
+mod shader_test_support;
+#[cfg(test)]
 mod test_fixtures; // SDK自有中性输入仅供回归；产品不会引用测试目录或私有游戏素材。
 
 pub use shared::scene_residency::{

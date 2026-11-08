@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn volume_field_limit_uses_real_device_capacity_instead_of_a_fixed_cpu_budget() {
         let buffer = bevy::render::storage::ShaderBuffer::from(vec![UVec4::ZERO; 16]);
-        let bytes = buffer.data.as_ref().unwrap().len() as u64;
+        let bytes = buffer.cast_slice::<u8>().unwrap().len() as u64;
         let fields = VolumeSurfaceFields(
             default(),
             std::sync::Arc::new(std::sync::Mutex::new(Some(buffer))),

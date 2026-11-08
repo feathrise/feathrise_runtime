@@ -65,7 +65,7 @@ fn rr_waits_until_super_resolution_is_absent_and_never_coexists() {
         .world_mut()
         .spawn((
             Camera3d::default(),
-            SolariLighting { reset: false },
+            SolariLighting { reset: false, ..default() },
             super_resolution(),
         ))
         .id(); // 第一帧模拟独立SR仍由设置模块拥有。
@@ -252,7 +252,7 @@ fn quality_dlaa_and_off_switch_once_and_reset_both_histories() {
     app.add_systems(Update, maintain_dlss_ray_reconstruction); // 使用生产模式维护系统。
     let camera = app
         .world_mut()
-        .spawn((Camera3d::default(), SolariLighting { reset: true }))
+        .spawn((Camera3d::default(), SolariLighting { reset: true, ..default() }))
         .id(); // 初次Solari历史尚未建立。
     {
         let mut runtime = app.world_mut().resource_mut::<RaytracingRuntime>(); // 构造已激活基础Solari会话。
@@ -324,7 +324,7 @@ fn input_color_debug_view_toggles_without_rebuilding_or_resetting_histories() {
     app.add_systems(Update, maintain_dlss_ray_reconstruction); // 复用生产幂等同步入口。
     let camera = app
         .world_mut()
-        .spawn((Camera3d::default(), SolariLighting { reset: false }))
+        .spawn((Camera3d::default(), SolariLighting { reset: false, ..default() }))
         .id(); // 构造已可接管但尚无RR组件的唯一玩法相机。
     {
         let mut runtime = app.world_mut().resource_mut::<RaytracingRuntime>(); // 配置已激活基础Solari会话。
@@ -488,7 +488,7 @@ fn solari_reset_is_forwarded_once_while_stable_frame_stays_false() {
     let camera = app
         .world_mut()
         .spawn((
-            SolariLighting { reset: true }, // 模拟切镜系统本帧请求清空Solari历史。
+            SolariLighting { reset: true, ..default() }, // 模拟切镜系统本帧请求清空Solari历史。
             ray_reconstruction(false),      // RR尚未收到同帧reset。
         ))
         .id(); // 保存唯一历史目标。

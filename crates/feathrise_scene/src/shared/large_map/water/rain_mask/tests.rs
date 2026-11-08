@@ -23,7 +23,7 @@ use feathrise_scene_core::state::ScenePhase; // 覆盖正式场景切换的失�
 #[test] // 实际捕获片元的有色/无色网格入口均必须通过Naga。
 fn height_fragment_is_valid_with_and_without_vertex_colors() {
     // 与既有水Shader测试共用wgpu导出的同版本Naga，无新增依赖。
-    let production = include_str!("height.wgsl"); // 直接验证生产文件，不能用测试侧高度算法替代。
+    let production = include_str!("height.wesl"); // 直接验证生产文件，不能用测试侧高度算法替代。
     for vertex_colors in [false, true] {
         // 覆盖原水网格有无顶点色两种真实管线布局。
         let color_field = if vertex_colors {
@@ -34,30 +34,8 @@ fn height_fragment_is_valid_with_and_without_vertex_colors() {
         let mut source = format!(
             "struct VertexOutput {{ @builtin(position) position: vec4<f32>, @location(0) world_position: vec4<f32>, {color_field} }}\n"
         ); // 只以最小同类型IO桩替代Bevy导入，不替代生产片元正文。
-        let mut active = true; // 本片元只有一层顶点色条件，未来新增指令应明确更新测试。
-        for line in production.lines() {
-            // 固定小型Shader在测试中一次展开。
-            let directive = line.trim(); // 保留生产表达式内部原样。
-            if directive.starts_with("#import ") {
-                continue;
-            } // 唯一VertexOutput导入已由匹配IO声明提供。
-            if directive == "#ifdef VERTEX_COLORS" {
-                active = vertex_colors;
-                continue;
-            } // 使用实际管线顶点色定义控制生产分支。
-            if directive == "#endif" {
-                active = true;
-                continue;
-            } // 恢复条件外完整高度编码正文。
-            assert!(
-                !directive.starts_with('#'),
-                "新增Shader预处理指令需纳入真实变体测试：{directive}"
-            ); // 防止将未知生产分支静默丢弃。
-            if active {
-                source.push_str(&line.replace("#{MATERIAL_BIND_GROUP}", "2"));
-                source.push('\n');
-            } // 仅替换Bevy绑定组插值，保留105号覆盖uniform和所有计算。
-        } // 完成实际生产片元变体展开。
+        let defines: &[&str] = if vertex_colors { &["VERTEX_COLORS"] } else { &[] };
+        source.push_str(&crate::shader_test_support::preprocess(production, defines, 2));
         let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|error| {
             panic!(
                 "高度片元VERTEX_COLORS={vertex_colors}语法错误：{}",
@@ -74,54 +52,21 @@ fn height_fragment_is_valid_with_and_without_vertex_colors() {
 } // 结束无GPU生产高度片元回归。
 
 fn water_vertex_for_capture(vertex_colors: bool) -> String {
-    // 展开真实水顶点入口，仅替换Bevy空间变换函数。
-    let mut result = String::new(); // 测试期小型源码拼接不进入帧关键路径。
-    let mut importing = false; // 正式顶点文件使用多行导入。
-    let mut active = true; // 现有顶点入口的属性条件均不嵌套。
-    for line in include_str!("../shaders/vertex.wgsl").lines() {
-        // 正文始终取正式入口，避免测试另写波形调用。
-        let trimmed = line.trim(); // 只解释预处理指令。
-        if importing {
-            importing = !trimmed.ends_with('}');
-            continue;
-        } // 多行导入由生产库和最小Bevy桩提供。
-        if trimmed.starts_with("#import ") {
-            importing = trimmed.ends_with('{');
-            continue;
-        } // 单行导入同时跳过。
-        if let Some(symbol) = trimmed.strip_prefix("#ifdef ") {
-            active = symbol == "VERTEX_COLORS" && vertex_colors;
-            continue;
-        } // 本回归隔离有无顶点色，其余可选属性关闭。
-        if trimmed == "#endif" {
-            active = true;
-            continue;
-        } // 条件结束恢复生产正文。
-        assert!(
-            !trimmed.starts_with('#'),
-            "新顶点预处理指令需更新捕获测试：{trimmed}"
-        ); // 未知指令不能静默遗漏。
-        if active {
-            result.push_str(&line.replace("mesh_functions::", ""));
-            result.push('\n');
-        } // 只把Bevy命名空间映射到同签名空间变换桩。
-    } // 完成真实顶点属性变体展开。
-    result // 返回仍调用实际sample_dynamic_water的完整顶点入口。
-} // 结束顶点预处理辅助。
+    let defines: &[&str] = if vertex_colors { &["VERTEX_COLORS"] } else { &[] };
+    crate::shader_test_support::preprocess(include_str!("../shaders/vertex.wesl"), defines, 2)
+        .replace("mesh_functions::", "")
+}
 
 #[test] // 捕获必须复用100号真实波形uniform且不要求101至104微法线纹理。
 fn capture_vertex_uses_only_wave_uniform_material_binding() {
     // 验证实际水库与实际顶点入口的传递资源使用，不靠字符串猜测。
-    let water = include_str!("../shaders/water.wgsl")
-        .lines()
-        .filter(|line| !line.starts_with("#define_import_path"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .replace("#{MATERIAL_BIND_GROUP}", "2"); // 保留完整水库，包括真实但顶点不使用的纹理声明和函数。
+    let water = include_str!("../shaders/water.wesl")
+        .replace("constants::MATERIAL_BIND_GROUP", "2"); // 保留完整水库，包括真实但顶点不使用的纹理声明和函数。
     let stub = r#" // 仅模拟Bevy空间坐标接口，不模拟任何水波算法。
 struct Vertex { @builtin(instance_index) instance_index: u32, @location(0) position: vec3<f32>, @location(2) uv: vec2<f32>, @location(5) color: vec4<f32>, } // 生产顶点实际读取的输入接口。
 struct Globals { time: f32, } // 时间字段保持正式类型。
 @group(0) @binding(0) var<uniform> globals: Globals; // 全局时钟属于view组，不属于捕获材质。
+fn decompress_vertex(vertex: Vertex, instance: u32) -> Vertex { return vertex; }
 fn get_world_from_local(instance: u32) -> mat4x4<f32> { return mat4x4<f32>(); } // 测试只校验类型与资源依赖。
 fn mesh_position_local_to_world(world: mat4x4<f32>, position: vec4<f32>) -> vec4<f32> { return world * position; } // 保留空间变换签名。
 fn mesh_normal_local_to_world(normal: vec3<f32>, instance: u32) -> vec3<f32> { return normal; } // 不替换实际水波解析法线。

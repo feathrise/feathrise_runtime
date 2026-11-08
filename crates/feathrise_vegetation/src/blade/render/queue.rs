@@ -295,12 +295,12 @@ pub(super) fn queue_gpu_grass_shadows(
             let Ok(cascades) = directional_lights.get(*directional_light_entity) else {
                 continue; // 方向光级联可见性尚未准备完成时等待下一帧。
             }; // 取得当前方向光对全部玩法相机的可见实体集合。
-            let Some(visible_entities) = cascades
+            let Some((_, visible_entities)) = cascades
                 .subviews
                 .get(&extracted_shadow_view.retained_view_entity)
             else {
                 continue; // 当前方向光尚未为该玩法相机级联发布可见实体时安全等待下一帧。
-            }; // Bevy 0.19按保留阴影视图直接索引每个级联的可见集合。
+            }; // 按保留阴影视图直接索引每个级联的可见集合。
             let Some(shadow_phase) =
                 shadow_phases.get_mut(&extracted_shadow_view.retained_view_entity)
             else {

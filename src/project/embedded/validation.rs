@@ -204,7 +204,7 @@ fn capture_ready(world: &mut World) {
     }
     // 后台首张Playing图可能早于实际输入许可；此时仅保留有界等待诊断，不能把禁用图冻结为已捕获。
     if !identity.native_input_ready() {
-        record_capture_wait(&mut evidence, &state, runtime.frames, "native-input", serde_json::Value::Null);
+        record_capture_wait(&mut evidence, &state, runtime, "native-input", serde_json::Value::Null);
         world.insert_resource(evidence);
         return;
     }
@@ -229,7 +229,7 @@ fn capture_ready(world: &mut World) {
     // 单槽RenderApp真实回执还核对当前相机、附件采样数、物理尺寸和提取后的四球/网格参数。
     let (render_ready, render_readiness) = capture_gate::poll_readiness(world, evidence.render_ticket);
     if !render_ready {
-        record_capture_wait(&mut evidence, &state, frame, "render-readiness", render_readiness);
+        record_capture_wait(&mut evidence, &state, world.non_send::<Runtime>(), "render-readiness", render_readiness);
         world.insert_resource(evidence);
         return;
     }
@@ -270,15 +270,32 @@ fn capture_ready(world: &mut World) {
     world.entity_mut(request).observe(captured);
 }
 
-fn record_capture_wait(evidence: &mut Evidence, state: &EmbeddedProjectState, frame: u64, waiting_for: &str, readiness: serde_json::Value) {
+fn record_capture_wait(evidence: &mut Evidence, state: &EmbeddedProjectState, runtime: &Runtime, waiting_for: &str, readiness: serde_json::Value) {
     let now = Instant::now();
     if evidence.next_render_diagnostic.is_some_and(|next| now < next) { return; }
     evidence.next_render_diagnostic = Some(now + Duration::from_secs(2));
     let directory = evidence.directory.clone();
+    // 仅在写入输入等待回执时读取窗口归属，保留游戏线程看到的活动窗口与焦点。
+    #[cfg(windows)]
+    let native_input = (waiting_for == "native-input").then(|| {
+        use windows_sys::Win32::UI::{
+            Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
+            WindowsAndMessaging::GetForegroundWindow,
+        };
+        // SAFETY: 这些查询没有输入参数，返回的句柄只用于记录。
+        unsafe {
+            serde_json::json!({"guest_hwnd":runtime.hwnd,
+                "foreground_hwnd":GetForegroundWindow() as usize as u64,
+                "active_hwnd":GetActiveWindow() as usize as u64,
+                "focus_hwnd":GetFocus() as usize as u64})
+        }
+    });
+    #[cfg(not(windows))]
+    let native_input = serde_json::Value::Null;
     let report = serde_json::json!({"pid":std::process::id(),"world_id":state.world_id,
-        "revision":state.revision,"mode":format!("{:?}",state.mode),"frame":frame,
+        "revision":state.revision,"mode":format!("{:?}",state.mode),"frame":runtime.frames,
         "waiting_for":waiting_for,"capture_input":evidence.observed.as_ref().map(CaptureIdentity::input_evidence),
-        "render_readiness":readiness,"not_capture":true});
+        "native_input":native_input,"render_readiness":readiness,"not_capture":true});
     // 编译中/失败也保存明确证据；两秒最多一次并复用截图后台槽，不能阻塞帧或无限排队。
     evidence.writer = Some(IoTaskPool::get().spawn(async move {
         let base = format!("{}-author-view-wait",std::process::id());

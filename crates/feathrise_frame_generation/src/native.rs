@@ -301,6 +301,13 @@ pub(crate) unsafe extern "C" fn shutdown_before_device_destroy() {
                 result = outcome.result,
                 "SL关闭后宿主NGX延迟Shutdown1完成"
             ); // 记录真实原生结果用于泄漏实测审计。
+        } else if outcome.already_inactive() {
+            // 共享 NGX 已由 Streamline 收尾，单列原始状态供退出审计。
+            bevy::log::info!(
+                device = outcome.device,
+                result = outcome.result,
+                "SL关闭后宿主NGX已处于未初始化状态"
+            );
         } else {
             // 最终设备销毁边界无法安全延后重试，必须明确暴露失败。
             bevy::log::error!(

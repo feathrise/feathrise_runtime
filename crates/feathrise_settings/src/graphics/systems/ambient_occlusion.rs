@@ -363,6 +363,7 @@ mod tests {
         let mut app = test_app(); // 使用正式作者状态备份路径。
         let authored_ssao = ScreenSpaceAmbientOcclusion {
             quality_level: ScreenSpaceAmbientOcclusionQualityLevel::Medium, // 作者使用未公开到 UI 的中档。
+            radius: 0.42,
             constant_object_thickness: 0.75, // 作者为当前场景定制物体厚度。
         }; // 构造需要完整恢复的作者参数。
         let camera = app

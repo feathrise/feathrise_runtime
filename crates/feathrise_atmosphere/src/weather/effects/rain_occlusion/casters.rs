@@ -22,32 +22,32 @@ pub(super) fn install(app: &mut App) {
         .add_observer(name_removed); // 移除规划名后可重新成为正常世界对象。
 } // 不添加每帧遍历所有标准材质实体的系统。
 
-fn material_inserted(event: On<Insert, MeshMaterial3d<StandardMaterial>>, mut commands: Commands) {
+fn material_inserted(event: On<Insert<MeshMaterial3d<StandardMaterial>>>, mut commands: Commands) {
     // 材质生命周期事件定位唯一源。
     enqueue(event.entity, &mut commands); // 延迟到 bundle 完整安装后读取最终状态。
 } // 不在事件中复制资产。
 
-fn material_removed(event: On<Remove, MeshMaterial3d<StandardMaterial>>, mut commands: Commands) {
+fn material_removed(event: On<Remove<MeshMaterial3d<StandardMaterial>>>, mut commands: Commands) {
     // Remove 触发时旧材质仍存在。
     enqueue(event.entity, &mut commands); // 命令执行时旧材质已移除，避免误判仍有源。
 } // despawn 后的命令允许静默退出。
 
-fn layers_inserted(event: On<Insert, RenderLayers>, mut commands: Commands) {
+fn layers_inserted(event: On<Insert<RenderLayers>>, mut commands: Commands) {
     // 同时接收外部层调整和本模块自己的插入。
     enqueue(event.entity, &mut commands); // reconcile 对相同层无写入，因此不会产生无限递归。
 } // 单实体排队成本不随地图规模增加。
 
-fn layers_removed(event: On<Remove, RenderLayers>, mut commands: Commands) {
+fn layers_removed(event: On<Remove<RenderLayers>>, mut commands: Commands) {
     // 恢复隐式世界层也需要更新资格。
     enqueue(event.entity, &mut commands); // 当前实体最终状态是唯一权威来源。
 } // 不缓存可能已过时的事件快照。
 
-fn name_inserted(event: On<Insert, Name>, mut commands: Commands) {
+fn name_inserted(event: On<Insert<Name>>, mut commands: Commands) {
     // 规划前缀是项目约定的唯一辅助对象标识。
     enqueue_family(event.entity, &mut commands); // glTF的名称通常位于primitive父节点，需要定向更新已登记后代。
 } // 不按模型文件名猜测屋顶。
 
-fn name_removed(event: On<Remove, Name>, mut commands: Commands) {
+fn name_removed(event: On<Remove<Name>>, mut commands: Commands) {
     // 名称删除后解除规划名排除条件。
     enqueue_family(event.entity, &mut commands); // 只标记此祖先的反向索引桶，不复制全部子节点。
 } // 事件不自行操作实体层。

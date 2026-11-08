@@ -1,5 +1,6 @@
 // 数字输入外部赋值桥：业务系统通过消息同步数值，不直接操作控件内部组件。
 
+use crate::InteractionButton;
 use super::*; // 复用数字输入查询、格式化和视觉同步辅助函数。
 
 /// Apply external value updates pushed by business systems.
@@ -25,7 +26,7 @@ pub fn handle_numeric_input_set_value(
             &mut BorderColor,
             Option<&NumericInputPalette>,
         ),
-        With<Button>,
+        With<InteractionButton>,
     >,
     disabled_query: Query<(), With<NumericInputDisabled>>,
 ) {

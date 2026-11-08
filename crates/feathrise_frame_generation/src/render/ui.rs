@@ -81,7 +81,7 @@ fn finalize(
     ); // wgpu记录读用途及布局后原生只读复制。
     let result = record_native(&mut context, "dlss_fg_ui_tag", |command_buffer| {
         native::tag_ui(frame.0, command_buffer, &ui_native)
-    }); // 独立原生编码器接在UI转换屏障之后，避免wgpu29混合编码断言。
+    }); // 独立原生编码器接在UI转换屏障之后，普通编码器继续管理纹理状态。
     if result != Some(native::RESULT_OK) {
         // SDK复制真实预乘UI，不持有跨帧裸借用。
         fail_frame(frame.0, &feedback, &mut state, &mut history);

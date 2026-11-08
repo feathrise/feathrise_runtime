@@ -296,7 +296,7 @@ fn collect_shadow_mdi(
             } => {
                 let lookup_view = RetainedViewEntity {
                     main_entity: retained_view.main_entity,
-                    auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                    auxiliary_entity: None,
                     subview_index: *face_index as u32,
                 };
                 params
@@ -308,7 +308,7 @@ fn collect_shadow_mdi(
             LightEntity::Spot { light_entity } => {
                 let lookup_view = RetainedViewEntity {
                     main_entity: retained_view.main_entity,
-                    auxiliary_entity: MainEntity::from(Entity::PLACEHOLDER),
+                    auxiliary_entity: None,
                     subview_index: 0,
                 };
                 params
@@ -318,12 +318,12 @@ fn collect_shadow_mdi(
                     .and_then(|visible| visible.subviews.get(&lookup_view))
             }
         };
-        let Some(visible_meshes) = visible_entities.and_then(RenderVisibleEntities::get::<Mesh3d>)
+        let Some(visible_meshes) = visible_entities.and_then(|(_, entities)| entities.get::<Mesh3d>())
         else {
             continue; // 当前灯光子视图没有可见3D Mesh。
         };
         for (_, main_entity) in visible_meshes.iter_visible() {
-            let Some(&(pipeline, draw_function)) = view_cache.get(main_entity) else {
+            let Some(&(pipeline, draw_function, _)) = view_cache.get(main_entity) else {
                 continue; // 阴影材质专用化尚未成功。
             };
             let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity)

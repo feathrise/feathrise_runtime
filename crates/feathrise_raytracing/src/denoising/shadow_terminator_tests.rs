@@ -11,8 +11,11 @@ struct ResolvedMaterial { base_color: vec3<f32>, emissive: vec3<f32>, reflectanc
 struct Geometry { triangle_count: u32, }
 struct Vertex { position: vec3<f32>, normal: vec3<f32>, }
 @group(0) @binding(0) var<storage, read> geometry_ids: array<Geometry>;
-@group(0) @binding(1) var<storage, read> transforms: array<mat4x4<f32>>;
+@group(0) @binding(1) var<storage, read> transforms: array<mat3x4<f32>>;
 const RAY_T_MIN: f32 = 0.0001;
+fn affine3_to_square(t: mat3x4<f32>) -> mat4x4<f32> {
+    return transpose(mat4x4<f32>(t[0], t[1], t[2], vec4<f32>(0.0, 0.0, 0.0, 1.0)));
+}
 fn load_vertices(g: Geometry, p: u32) -> array<Vertex, 3> {
     let v = Vertex(vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0));
     return array<Vertex, 3>(v, v, v);
@@ -37,10 +40,10 @@ fn terrain_gbuffer_instance_and_triangle_routing_preserve_emission_exponent() {
 
 #[test]
 fn real_gbuffer_proxy_projection_compiles_with_naga() {
-    let source = include_str!("shaders/gbuffer_shadow_terminator.wgsl");
+    let source = include_str!("shaders/gbuffer_shadow_terminator.wesl");
     let body = source
         .lines()
-        .filter(|line| !line.trim().starts_with('#'))
+        .filter(|line| !line.trim().starts_with("import "))
         .collect::<Vec<_>>()
         .join("\n");
     let source = format!("{DEPENDENCIES}\n{body}");

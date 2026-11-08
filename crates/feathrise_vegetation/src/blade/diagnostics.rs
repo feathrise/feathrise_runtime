@@ -6,6 +6,7 @@ use bevy::render::extract_resource::ExtractResource; // 渲染图节点读取同
 
 /// GPU状态异步回读的渲染帧采样间隔。
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, Eq, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GpuBladeReadbackConfig {
     frame_interval: u64, // 一表示逐帧尝试采样，正式默认四；槽位忙仍只丢诊断而不阻塞绘制。
 }

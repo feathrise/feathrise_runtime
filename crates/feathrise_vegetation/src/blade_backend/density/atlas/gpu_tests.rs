@@ -112,7 +112,7 @@ fn gpu_generated_mips_match_cpu_reference_on_requested_backend() {
         .expect("GPU mip readback buffer should map successfully");
 
     {
-        let mapped = readback.slice(..).get_mapped_range(); // 回调成功后才借用CPU可见字节。
+        let mapped = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效"); // 回调成功后才借用CPU可见字节。
         let actual = readback_plan
             .decode(&mapped)
             .expect("mapped mip bytes should match the shared readback plan"); // 使用运行时同一去填充解码。
@@ -164,7 +164,8 @@ fn create_gpu_context(requested: RequestedBackend) -> GpuContext {
     let adapter = bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance, // 与正式草地渲染选择一致地优先独显。
         force_fallback_adapter: false, // 软件适配器不能代替正式双后端验收。
-        compatible_surface: None,      // Compute与回读不需要窗口表面。
+        compatible_surface: None,
+        apply_limit_buckets: false,      // Compute与回读不需要窗口表面。
     }))
     .expect("requested GPU backend should expose a hardware adapter");
     let info = adapter.get_info(); // 在请求Device前保存可读验收信息。

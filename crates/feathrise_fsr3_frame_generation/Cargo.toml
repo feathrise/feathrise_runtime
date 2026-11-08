@@ -17,7 +17,7 @@ feathrise_scene_core = { workspace = true }
 feathrise_settings = { workspace = true } # 唯一请求源与图形附件租约。
 sha2 = { workspace = true } # 每次启动在LoadLibrary前复验固定DLL与MIT许可字节身份。
 wgpu = { workspace = true }
-wgpu-hal = { version = "=29.0.4", features = ["vulkan"] }
+wgpu-hal = { version = "=30.0.1", features = ["vulkan"] }
 
 [build-dependencies]
 cc = "1.2.56" # 仅维护者显式源码重建时编译桥，普通用户直接链接配套 .lib。

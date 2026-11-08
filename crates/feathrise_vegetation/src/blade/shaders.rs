@@ -26,8 +26,8 @@ pub(crate) fn register_core_shaders(app: &mut App) {
         // 绘制着色器同样不再经过宿主 AssetServer 路径解析。
         app,                              // 向同一应用注册主视图与阴影共用源码。
         GPU_GRASS_DRAW_SHADER_HANDLE,     // RenderApp 初始化阶段直接使用该稳定句柄。
-        "shaders/gpu_grass_minimal.wgsl", // 文件随 crate 发布并由 Cargo 自动纳入包。
-        Shader::from_wgsl                 // 继续支持 Bevy 的 #import 与 shader_defs 预处理。
+        "shaders/gpu_grass_minimal.wesl", // 文件随 crate 发布并由 Cargo 自动纳入包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_vegetation/blade/shaders/gpu_grass_minimal.wesl")
     );
 }
 

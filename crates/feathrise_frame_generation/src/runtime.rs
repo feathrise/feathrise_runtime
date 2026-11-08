@@ -47,6 +47,8 @@ const PCL_SIMULATION_END: u32 = 1; // `sl::PCLMarker::eSimulationEnd`稳定值�
 
 /// 提取到RenderApp的最终运行请求；玩家偏好与资格阻断已经在主世界解析。
 #[derive(Resource, Clone, Copy, Debug, Default, ExtractResource)]
+#[extract_app(RenderApp)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct RenderRequest {
     pub(crate) enabled: bool, // 设备、窗口和唯一玩法相机就绪后独立准备帧生成输入。
     pub(crate) camera: Option<Entity>, // 精确主世界相机身份，避免辅助视图覆盖当前帧标签。

@@ -3,7 +3,8 @@
 use bevy::prelude::*; // 四阶矩阵和四向量。
 use bevy::render::render_resource::ShaderType; // 与生产WGSL存储缓冲共享对齐。
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)] // 完整批次可以固定大小按值发布。
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType, bytemuck::Pod, bytemuck::Zeroable)] // 完整批次可以固定大小按值发布。
 pub struct RainShelterVolume {
     // 不含任何Mesh、材质或碰撞资源。
     pub world_to_local: Mat4, // 世界向上射线进入作者局部盒子的逆矩阵。

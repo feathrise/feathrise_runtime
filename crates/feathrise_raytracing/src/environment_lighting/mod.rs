@@ -3,6 +3,7 @@
 //! Solari会为活动相机插入`SkipDeferredLighting`，因此Bevy标准Deferred PBR不会消费
 //! `EnvironmentMapLight`。本模块在不透明Forward覆盖与既有阴影兼容完成后、透明内容和RR之前，
 //! 复用同一MeshView环境贴图绑定，以加法方式只补回Deferred首表面的环境项。
+//! 0.20 的实时射线未命中与世界缓存不再重复累加天空，以保留地图独立的补光和反射强度。
 
 mod node; // Core3d主颜色上的原位加法节点。
 mod pipeline; // 复用MeshView环境贴图布局的全屏专用管线。
@@ -31,7 +32,7 @@ use crate::raster_shadows::RasterShadowCompositeSet; // 环境光晚于有界方
 
 /// 注册Solari环境IBL兼容层；无RenderApp的逻辑测试继续保持可运行。
 pub(super) fn install_solari_environment_lighting(app: &mut App) {
-    embedded_asset!(app, "solari_environment_lighting.wgsl"); // 把完整环境采样Shader嵌入当前crate。
+    embedded_asset!(app, "solari_environment_lighting.wesl"); // 把完整环境采样Shader嵌入当前crate。
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return; // 无头逻辑App没有GPU子世界，不安装任何渲染资源。
     };

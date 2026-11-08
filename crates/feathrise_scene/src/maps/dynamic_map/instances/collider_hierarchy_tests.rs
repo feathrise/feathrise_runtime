@@ -47,7 +47,7 @@ impl tracing::Subscriber for HierarchyWarnings {
 struct InvalidAttachments(Vec<(Entity, Entity)>);
 
 fn observe_attachment(
-    insert: On<Insert, ColliderOf>,
+    insert: On<Insert<ColliderOf>>,
     relations: Query<&ColliderOf>,
     bodies: Query<(), With<RigidBody>>,
     mut invalid: ResMut<InvalidAttachments>,

@@ -22,13 +22,16 @@ jobs:
       matrix:
         variant: [default, validation]
     env:
-      # 补丁修订随 SDK 源码版本锁定，升级时连同接入文档一起更新。
+      # 仓库变量保存与 SDK 配套的公开补丁提交，以下步骤验证并固定检出。
       FEATHRISE_PATCH_REPOSITORY: feathrise/feathrise_patches
-      FEATHRISE_PATCH_REV: 3c251d3530980b66e49b4748769db36ae9c6bd5a
+      FEATHRISE_PATCH_REV: ${{ vars.FEATHRISE_PATCH_REV }}
     steps:
       - name: Validate the pinned public patch source
         shell: pwsh
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:FEATHRISE_PATCH_REV)) {
+            throw '请设置仓库变量 FEATHRISE_PATCH_REV，使用与 Bevy 0.20.1 配套的公开补丁提交。'
+          }
           if ($env:FEATHRISE_PATCH_REPOSITORY -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or $env:FEATHRISE_PATCH_REV -notmatch '^[0-9a-fA-F]{40}$') {
             throw 'SDK 工作流的补丁仓配置无效，必须使用 owner/repository 和完整 40 位提交。'
           }

@@ -24,7 +24,7 @@ pub(super) fn map_for_scene(scene: ScenePhase, active: Option<&ActiveDynamicMap>
 }
 
 pub(super) fn register_scene_scoped_root(
-    insert: On<Insert, DespawnOnExit<ScenePhase>>,
+    insert: On<Insert<DespawnOnExit<ScenePhase>>>,
     scoped: Query<&DespawnOnExit<ScenePhase>, Allow<Disabled>>,
     children: Query<&ChildOf, Allow<Disabled>>,
     owners: Query<&ResidentMapEntity, Allow<Disabled>>,
@@ -64,7 +64,7 @@ pub(super) fn register_scene_scoped_root(
 }
 
 pub(super) fn register_additional_root<T: Component>(
-    insert: On<Insert, T>,
+    insert: On<Insert<T>>,
     children: Query<&ChildOf, Allow<Disabled>>,
     owners: Query<&ResidentMapEntity, Allow<Disabled>>,
     current: Option<Res<State<ScenePhase>>>,
@@ -99,7 +99,7 @@ pub(super) fn register_additional_root<T: Component>(
 }
 
 pub(super) fn register_owner(
-    insert: On<Insert, ResidentMapEntity>,
+    insert: On<Insert<ResidentMapEntity>>,
     owners: Query<&ResidentMapEntity, Allow<Disabled>>,
     mut index: ResMut<ResidentEntityIndex>,
     activity: Option<Res<SceneResidencyActivity>>,
@@ -121,7 +121,7 @@ pub(super) fn register_owner(
 }
 
 pub(super) fn unregister_owner(
-    remove: On<Remove, ResidentMapEntity>,
+    remove: On<Remove<ResidentMapEntity>>,
     mut index: ResMut<ResidentEntityIndex>,
     mut assets: ResMut<super::assets::AssetOwners>,
 ) {
@@ -130,7 +130,7 @@ pub(super) fn unregister_owner(
 }
 
 pub(super) fn inherit_parent_owner(
-    insert: On<Insert, ChildOf>,
+    insert: On<Insert<ChildOf>>,
     children: Query<&ChildOf, Allow<Disabled>>,
     owners: Query<&ResidentMapEntity, Allow<Disabled>>,
     mut commands: Commands,
@@ -298,7 +298,7 @@ pub(super) fn resume_adopted_audio(
 }
 
 pub(super) fn pause_added_body(
-    insert: On<Insert, RigidBody>,
+    insert: On<Insert<RigidBody>>,
     mut parked: Query<&mut ParkedSceneEntity, Allow<Disabled>>,
     disabled: Query<(), (With<RigidBodyDisabled>, Allow<Disabled>)>,
     mut commands: Commands,
@@ -312,7 +312,7 @@ pub(super) fn pause_added_body(
 }
 
 pub(super) fn pause_added_collider(
-    insert: On<Insert, Collider>,
+    insert: On<Insert<Collider>>,
     mut parked: Query<&mut ParkedSceneEntity, Allow<Disabled>>,
     disabled: Query<(), (With<ColliderDisabled>, Allow<Disabled>)>,
     mut commands: Commands,

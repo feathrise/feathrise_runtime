@@ -366,7 +366,7 @@ fn setup_real_tree_specimen(
         return; // 中性树形夹具GLB尚未完成时留给下一帧重试。
     }; // 取得两份夹具高档网格。
     let (Some(trunk_aabb), Some(canopy_aabb)) =
-        (trunk_mesh.compute_aabb(), canopy_mesh.compute_aabb())
+        (trunk_mesh.get_aabb(), canopy_mesh.get_aabb())
     else {
         return; // 缺位置属性的异常源不能伪造可见树高。
     }; // 从实际顶点计算两部件的局部边界。

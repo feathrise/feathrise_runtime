@@ -23,7 +23,7 @@ fn composite_target_multiplies_rgb_without_writing_alpha() {
 
 #[test]
 fn shader_keeps_bounded_visibility_and_never_writes_history() {
-    let shader = include_str!("raster_shadow_composite.wgsl");
+    let shader = include_str!("raster_shadow_composite.wesl");
     let energy_gate = shader
         .find("let light_has_energy =")
         .expect("方向光阴影采样前必须识别GPU预乘后的零能量灯"); // 锁定日/月常驻灯的能量门位置。

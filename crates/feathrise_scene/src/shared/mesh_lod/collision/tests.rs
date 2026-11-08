@@ -150,7 +150,7 @@ fn production_wrapped_mesh_preserves_scale_winding_and_weak_source_lease() {
         let normal = level
             .collider
             .shape_scaled()
-            .feature_normal_at_point(hit.feature, ray.point_at(hit.time_of_impact))
+            .feature_normal_at_point(hit.subshape, hit.feature, ray.point_at(hit.time_of_impact))
             .unwrap();
         assert!(normal.y > 0.9);
     }

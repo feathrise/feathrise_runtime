@@ -178,7 +178,7 @@ fn process_world_asset_root_invalidations(
 
 /// 覆盖组件插入时登记当前强Scene0句柄；同一bundle重复通知保持幂等。
 fn register_inserted_mesh_override_root(
-    insert: On<Insert, DynamicWaterMeshOverrides>,
+    insert: On<Insert<DynamicWaterMeshOverrides>>,
     roots: Query<&WorldAssetRoot>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
     mut commands: Commands,
@@ -195,7 +195,7 @@ fn register_inserted_mesh_override_root(
 
 /// `WorldAssetRoot`后插入或替换时把既有覆盖组件迁到新资产桶。
 fn register_inserted_world_asset_root(
-    insert: On<Insert, WorldAssetRoot>,
+    insert: On<Insert<WorldAssetRoot>>,
     roots: Query<&WorldAssetRoot, Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::MapPlacementInstance>)>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
     mut commands: Commands,
@@ -229,7 +229,7 @@ fn fail_registration_if_full(
 }
 
 fn unregister_discarded_world_asset_root(
-    discard: On<Discard, WorldAssetRoot>,
+    discard: On<Discard<WorldAssetRoot>>,
     roots: Query<(), Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::MapPlacementInstance>)>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
 ) {
@@ -239,7 +239,7 @@ fn unregister_discarded_world_asset_root(
 }
 
 fn unregister_removed_mesh_override_root(
-    remove: On<Remove, DynamicWaterMeshOverrides>,
+    remove: On<Remove<DynamicWaterMeshOverrides>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
 ) {
     index.unregister(remove.entity);

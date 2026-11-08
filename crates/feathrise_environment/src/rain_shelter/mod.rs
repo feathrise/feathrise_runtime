@@ -14,4 +14,4 @@ pub(crate) use systems::install_rain_shelter;
 pub use systems::rain_shelter_buffer_handle; // 所有材质使用唯一资产身份。
 pub use types::RainShelterVolume; // 材质与作者桥共用相同OBB。 // 由地表插件安装一次。
 pub const RAIN_SHELTER_RAY_WGSL: &str =
-    include_str!("../terrain_surface/shaders/rain_shelter.wgsl"); // 材质和Hanabi共用实际生产射线函数。
+    include_str!("../terrain_surface/shaders/rain_shelter.wesl"); // 材质和Hanabi共用实际生产射线函数。

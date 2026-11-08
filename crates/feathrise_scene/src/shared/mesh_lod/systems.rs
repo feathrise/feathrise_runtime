@@ -15,7 +15,7 @@ use bevy::{
 use feathrise_map_content::MeshDisplayLodSettings;
 
 pub(super) fn mesh_inserted(
-    event: On<Insert, Mesh3d>,
+    event: On<Insert<Mesh3d>>,
     mut runtime: Option<ResMut<MeshLodRuntime>>,
 ) {
     if let Some(runtime) = runtime.as_mut() {

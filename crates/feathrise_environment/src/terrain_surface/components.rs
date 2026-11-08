@@ -9,10 +9,12 @@ use super::material::TerrainSurfaceMaterial; // 主世界材质仲裁必须使�
 
 /// 子地图的渲染证据不能混入父图；实体地址与地表世代共同拒绝迟到反馈。
 #[derive(Component, Clone, Copy, Debug, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TerrainSurfaceInstanceScope { pub instance: bevy::prelude::Entity, pub generation: u32 }
 
 /// 只观察有界准备席位的候选；活动子图不重复聚合整套GPU诊断。
 #[derive(Component, Clone, Copy, Debug, Default, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TerrainSurfaceInstanceWarmup;
 
 /// 标记已经绑定正式权重材质的地形实体或短寿命预热实体。
@@ -21,13 +23,14 @@ pub struct TerrainSurfaceCarrier; // RenderApp只观察显式承接实体，不�
 
 /// 仅用于材质管线准备的离屏副本；有Mesh/AABB也不属于可取景、可编辑的地图内容。
 #[derive(Component, Clone, Copy, Debug, Default, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct TerrainSurfaceWarmup;
 
 /// 雕刻体积面复用地表PBR，但不加入唯一地表加载/预热统计，隐藏体积候选不能阻塞整图Ready。
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TerrainVolumeSurface;
 
-impl ExtractComponent for TerrainSurfaceCarrier {
+impl ExtractComponent<bevy::render::RenderApp> for TerrainSurfaceCarrier {
     // 使用Bevy组件提取器同步零尺寸身份。
     type QueryData = &'static Self; // 主世界只读取标记本身。
     type QueryFilter = (); // 预热实体即使位于视锥外也必须提取。
@@ -39,7 +42,7 @@ impl ExtractComponent for TerrainSurfaceCarrier {
     } // 完成承接标记提取。
 } // 完成承接标记提取实现。
 
-impl SyncComponent for TerrainSurfaceCarrier {
+impl SyncComponent<bevy::render::RenderApp> for TerrainSurfaceCarrier {
     // 声明渲染世界目标组件类型。
     type Target = Self; // 主世界与渲染世界保持一对一标记。
 } // 完成同步组件实现。
@@ -106,7 +109,7 @@ impl TerrainSurfaceTextureProbe {
     } // 完成失败探针构造。
 } // 完成纹理探针公共接口。
 
-impl ExtractComponent for TerrainSurfaceTextureProbe {
+impl ExtractComponent<bevy::render::RenderApp> for TerrainSurfaceTextureProbe {
     // 把当前完整纹理组和失败位同步到RenderApp。
     type QueryData = &'static Self; // 主世界只读完整探针。
     type QueryFilter = (); // 探针没有网格或可见性仍必须无条件提取。
@@ -118,7 +121,7 @@ impl ExtractComponent for TerrainSurfaceTextureProbe {
     } // 完成纹理探针提取。
 } // 完成探针提取实现。
 
-impl SyncComponent for TerrainSurfaceTextureProbe {
+impl SyncComponent<bevy::render::RenderApp> for TerrainSurfaceTextureProbe {
     // 声明渲染世界目标组件类型。
     type Target = Self; // 探针在两个世界保持相同字段。
 } // 完成探针同步实现。

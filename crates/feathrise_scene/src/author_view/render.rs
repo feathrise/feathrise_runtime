@@ -23,8 +23,8 @@ use bevy::{
 pub struct ShadingRenderPlugin;
 impl Plugin for ShadingRenderPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "solid.wgsl");
-        embedded_asset!(app, "face_wire.wgsl");
+        embedded_asset!(app, "solid.wesl");
+        embedded_asset!(app, "face_wire.wesl");
         app.add_plugins((
             ExtractComponentPlugin::<ShadingView>::default(),
             UniformComponentPlugin::<ShadingView>::default(),
@@ -59,7 +59,7 @@ fn init_pipeline(
 ) {
     commands.insert_resource(super::wireframe::FaceWireShader(load_embedded_asset!(
         assets.as_ref(),
-        "face_wire.wgsl"
+        "face_wire.wesl"
     )));
     commands.insert_resource(SolidPipeline {
         layout: BindGroupLayoutDescriptor::new(
@@ -75,7 +75,7 @@ fn init_pipeline(
             ),
         ),
         fullscreen: fullscreen.clone(),
-        shader: load_embedded_asset!(assets.as_ref(), "solid.wgsl"),
+        shader: load_embedded_asset!(assets.as_ref(), "solid.wesl"),
     });
 }
 impl SpecializedRenderPipeline for SolidPipeline {
@@ -147,7 +147,7 @@ fn solid_pass(
     }
     let (Some(normal), Some(depth), Some(uniform), Some(buffer)) = (
         prepass.normal_view(),
-        prepass.depth_view(),
+        prepass.depth_only_view(),
         uniforms.uniforms().binding(),
         uniforms.uniforms().buffer(),
     ) else {

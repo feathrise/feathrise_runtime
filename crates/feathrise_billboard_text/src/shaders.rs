@@ -16,13 +16,13 @@ pub(super) fn register_billboard_shaders(app: &mut App) {
     load_internal_asset!(
         app,
         BILLBOARD_COLOR_VERTEX_SHADER,
-        "shaders/color_vertex.wgsl",
-        Shader::from_wgsl
+        "shaders/color_vertex.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_billboard_text/shaders/color_vertex.wesl")
     ); // 主颜色层按材质Uniform选择抖动或无抖动投影。
     load_internal_asset!(
         app,
         BILLBOARD_PREPASS_VERTEX_SHADER,
-        "shaders/prepass_vertex.wgsl",
-        Shader::from_wgsl
+        "shaders/prepass_vertex.wesl",
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_billboard_text/shaders/prepass_vertex.wesl")
     ); // RR引导层与主颜色层共享同一投影模式。
 }

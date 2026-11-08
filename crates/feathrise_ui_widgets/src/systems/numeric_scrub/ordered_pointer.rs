@@ -2,7 +2,7 @@
 
 use bevy::{prelude::*, ecs::system::SystemParam, camera::RenderTarget,
     picking::pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput},
-    ui::{FocusPolicy, UiStack, ComputedUiTargetCamera, OverrideClip}, window::PrimaryWindow};
+    ui::{FocusPolicy, UiStack, ComputedUiTargetCamera, CalculatedClip}, window::PrimaryWindow};
 use crate::{components::{NumericInputFieldButton, NumericInputDisabled}, types::NumericInputScrubButton};
 
 const EVENT_BUDGET: usize = 256;
@@ -30,11 +30,7 @@ pub(in crate::systems) struct OrderedPointer<'w, 's> {
     events: MessageReader<'w, 's, PointerInput>,
     capture: Local<'s, Capture>,
     stack: Option<Res<'w, UiStack>>,
-    nodes: Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform,
-        Option<&'static InheritedVisibility>, Option<&'static FocusPolicy>,
-        Option<&'static ComputedUiTargetCamera>, Option<&'static UiTargetCamera>)>,
-    clipping: Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform, &'static Node)>,
-    parents: Query<'w, 's, &'static ChildOf, Without<OverrideClip>>,
+    nodes: Nodes<'w, 's>,
     fields: Query<'w, 's, &'static NumericInputFieldButton, Without<NumericInputDisabled>>,
     cameras: Query<'w, 's, (&'static Camera, &'static RenderTarget)>,
     primary: Query<'w, 's, Entity, With<PrimaryWindow>>,
@@ -84,7 +80,7 @@ impl OrderedPointer<'_, '_> {
                 if frame.released || frame.canceled { *self.capture = Capture::default(); break; }
             } else if let PointerAction::Press(button @ (PointerButton::Primary | PointerButton::Secondary)) = event.action {
                 let root = hit(&event.location, self.stack.as_deref(), &self.nodes,
-                    &self.clipping, &self.parents, &self.fields, &self.cameras, self.primary.single().ok());
+                    &self.fields, &self.cameras, self.primary.single().ok());
                 if let Some((root, field, x)) = root {
                     let kind = if button == PointerButton::Primary { NumericInputScrubButton::Value }
                         else { NumericInputScrubButton::Sensitivity };
@@ -111,7 +107,7 @@ impl OrderedPointer<'_, '_> {
 
 type Nodes<'w, 's> = Query<'w, 's, (&'static ComputedNode, &'static UiGlobalTransform,
     Option<&'static InheritedVisibility>, Option<&'static FocusPolicy>,
-    Option<&'static ComputedUiTargetCamera>, Option<&'static UiTargetCamera>)>;
+    Option<&'static ComputedUiTargetCamera>, Option<&'static UiTargetCamera>, Option<&'static CalculatedClip>)>;
 
 fn window_position(location: &Location, camera: Entity,
     cameras: &Query<(&Camera, &RenderTarget)>, primary: Option<Entity>) -> Option<Vec2> {
@@ -133,7 +129,7 @@ fn physical_position(location: &Location, camera: Entity,
 
 fn field_x(root: Entity, location: &Location, nodes: &Nodes,
     cameras: &Query<(&Camera, &RenderTarget)>, primary: Option<Entity>) -> Option<f32> {
-    let (_, _, _, _, computed, explicit) = nodes.get(root).ok()?;
+    let (_, _, _, _, computed, explicit, _) = nodes.get(root).ok()?;
     let camera = computed.and_then(ComputedUiTargetCamera::get).or_else(|| explicit.map(|value| value.0))?;
     // 布局只负责按下命中；整笔以窗口物理坐标计算位移。字段因文本/面板移动或缩放，
     // 不能被当成鼠标继续拖动，也不能在静止帧把已采用数值推向另一档。
@@ -141,18 +137,16 @@ fn field_x(root: Entity, location: &Location, nodes: &Nodes,
 }
 
 fn hit(location: &Location, stack: Option<&UiStack>, nodes: &Nodes,
-    clipping: &Query<(&ComputedNode, &UiGlobalTransform, &Node)>,
-    parents: &Query<&ChildOf, Without<OverrideClip>>,
     fields: &Query<&NumericInputFieldButton, Without<NumericInputDisabled>>,
     cameras: &Query<(&Camera, &RenderTarget)>, primary: Option<Entity>) -> Option<(Entity, Entity, f32)> {
     let stack = stack?;
     for &entity in stack.uinodes.iter().rev().take(HIT_BUDGET) {
-        let Ok((node, transform, visible, policy, computed, explicit)) = nodes.get(entity) else { continue; };
+        let Ok((node, transform, visible, policy, computed, explicit, clip)) = nodes.get(entity) else { continue; };
         if !visible.is_some_and(|value| value.get()) || node.is_empty() { continue; }
         let Some(camera) = computed.and_then(ComputedUiTargetCamera::get).or_else(|| explicit.map(|value| value.0)) else { continue; };
         let Some(point) = physical_position(location, camera, cameras, primary) else { continue; };
         if !node.contains_point(*transform, point)
-            || !bevy::ui::clip_check_recursive(point, entity, clipping, parents) { continue; }
+            || clip.is_some_and(|clip| !clip.contains_point(point)) { continue; }
         // 沿官方UI栈与FocusPolicy裁决顶层；不能只测字段矩形而穿过上方对话框。
         if let Ok(field) = fields.get(entity) {
             return field_x(entity, location, nodes, cameras, primary).map(|x| (field.root, entity, x));

@@ -40,7 +40,7 @@ pub struct GpuBladeClipmapHeight {
     pub ready: bool,          // 仅完整已采用快照允许 Compute，未就绪不得回退平地。
 } // 完成与场景无关的公共高度契约。
 
-impl ExtractComponent for GpuBladeClipmapHeight {
+impl ExtractComponent<bevy::render::RenderApp> for GpuBladeClipmapHeight {
     // 强句柄保证地形和草地使用同一资源生命期。
     type QueryData = &'static Self; // 主世界只读完整快照。
     type QueryFilter = (); // 所有分页草窗都需同步移除与更新。
@@ -50,7 +50,7 @@ impl ExtractComponent for GpuBladeClipmapHeight {
         Some(item.clone()) // 只克隆句柄和固定数量参数。
     } // 完成快照提取。
 } // 完成 ExtractComponent 实现。
-impl SyncComponent for GpuBladeClipmapHeight {
+impl SyncComponent<bevy::render::RenderApp> for GpuBladeClipmapHeight {
     // 组件卸载时同步清理渲染副本。
     type Target = Self; // 不派生额外实体或资源。
 } // 完成同步契约。

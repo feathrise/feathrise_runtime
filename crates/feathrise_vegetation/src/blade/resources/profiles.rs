@@ -97,6 +97,7 @@ impl Default for GpuBladeProfile {
 
 /// 主世界与RenderApp共享的固定四槽叶片植被profile表。
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GpuBladeProfiles {
     pub(crate) profiles: [GpuBladeProfile; GPU_GRASS_PROFILE_CAPACITY], // 两位内容编号可直接安全索引。
 }
@@ -161,6 +162,7 @@ impl GpuBladeProfileBank {
 /// 下标零在渲染端保留给既有 `GpuBladeProfiles + GpuBladeRenderAssets`；本资源中的
 /// 第零项对应公开批次 ID 一，后续项依次增长，因此旧场景无需迁移即可继续使用批次零。
 #[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GpuBladeProfileBanks {
     banks: Vec<GpuBladeProfileBank>, // 数量由实际开发者预设派生，不设置产品硬上限。
     free: std::collections::BTreeSet<usize>, // 复用空槽而不移动其他根仍在使用的ID。

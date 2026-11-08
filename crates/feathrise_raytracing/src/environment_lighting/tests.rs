@@ -26,7 +26,7 @@ fn environment_target_adds_rgb_without_writing_alpha() {
 
 #[test]
 fn shader_consumes_both_environment_channels_and_preserves_content_boundaries() {
-    let shader = include_str!("solari_environment_lighting.wgsl"); // 锁定随crate嵌入的真实源码。
+    let shader = include_str!("solari_environment_lighting.wesl"); // 锁定随crate嵌入的真实源码。
     assert!(shader.contains("environment_map::environment_map_light(")); // 必须复用Bevy标准漫反射与GGX镜面采样。
     assert!(shader.contains("environment_light.diffuse")); // 天空补光必须进入HDR结果。
     assert!(shader.contains("environment_light.specular")); // 天空反射必须进入普通材质HDR结果。

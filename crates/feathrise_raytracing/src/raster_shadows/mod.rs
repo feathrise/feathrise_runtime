@@ -29,7 +29,7 @@ pub(super) struct RasterShadowCompositeSet;
 
 /// 注册标准shadow map驱动的Solari光栅阴影兼容层；无RenderApp的逻辑测试保持可运行。
 pub(super) fn install_raster_shadow_compatibility(app: &mut App) {
-    embedded_asset!(app, "raster_shadow_composite.wgsl"); // WGSL随crate嵌入，不新增松散资产部署契约。
+    embedded_asset!(app, "raster_shadow_composite.wesl"); // WGSL随crate嵌入，不新增松散资产部署契约。
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };

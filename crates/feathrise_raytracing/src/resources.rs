@@ -62,7 +62,7 @@ pub struct RaytracingRuntimeStatus {
     dlss_rr_render_resolution: UVec2, // NGX上下文实际要求的内部主通道尺寸。
     dlss_rr_context_generation: u64, // 当前相机会话中RR上下文创建/重建次数。
     dlss_rr_resolution_change_count: u64, // 当前相机会话中输出或内部尺寸实际变化次数。
-    gpu_timings: RaytracingGpuTimings, // 四段Solari GPU毫秒。
+    gpu_timings: RaytracingGpuTimings, // Solari各通道GPU毫秒。
     world_cache_active_cells: Option<u32>, // Bevy现有诊断发布的活跃world-cache cell数。
     disabled_host_cpu_p95_ms: Option<f64>, // 关闭态本crate主世界宿主系统P95；feature A/B仍需外部测量Solari提取成本。
     standard_material_host_count: u32,     // Solari关闭态仍会提取的StandardMaterial资产数量。
@@ -242,14 +242,25 @@ impl RaytracingRuntimeStatus {
     }
     /// 返回当前地形目标不可扩大的 TLAS 实例硬上限。
     pub fn maximum_instance_count(&self) -> u32 { MAX_INSTANCE_COUNT }
+    /// Bevy 0.20将直接光合并到照明通道。旧接口保留并返回空值。
     pub fn direct_lighting_ms(&self) -> Option<f64> {
-        self.gpu_timings.direct_lighting_ms
+        None
     }
+    /// Bevy 0.20将漫反射间接光合并到照明通道。旧接口保留并返回空值。
     pub fn diffuse_indirect_ms(&self) -> Option<f64> {
-        self.gpu_timings.diffuse_indirect_ms
+        None
     }
+    /// Bevy 0.20将镜面间接光合并到照明通道。旧接口保留并返回空值。
     pub fn specular_indirect_ms(&self) -> Option<f64> {
-        self.gpu_timings.specular_indirect_ms
+        None
+    }
+    /// 返回Solari光源瓦片预采样的GPU时间。
+    pub fn presample_light_tiles_ms(&self) -> Option<f64> {
+        self.gpu_timings.presample_light_tiles_ms
+    }
+    /// 返回Solari合并照明通道的GPU时间，包含直接光、间接光和反射。
+    pub fn solari_lighting_ms(&self) -> Option<f64> {
+        self.gpu_timings.solari_lighting_ms
     }
     pub fn world_cache_ms(&self) -> Option<f64> {
         self.gpu_timings.world_cache_ms

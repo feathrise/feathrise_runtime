@@ -1,8 +1,16 @@
 //! 游戏与编辑器共用的 UI 组件和数值控件契约。
 
 use bevy::prelude::*;
+use bevy::ui::FocusPolicy;
 
 use crate::types::{NumericInputScrubMapping, NumericInputSpec, NumericValue};
+
+/// 保留游戏和编辑器现有按钮的三态与命中规则，由各业务系统决定何时执行操作。
+#[allow(deprecated, reason = "现有共享控件仍由 Bevy UI 的 Interaction 驱动")]
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+#[reflect(Component)]
+#[require(Node, FocusPolicy::Block, Interaction)]
+pub struct InteractionButton;
 
 /// Three-state button colors reused across UI crates.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]

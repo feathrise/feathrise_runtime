@@ -11,7 +11,7 @@ struct TestWorldLabel {
     #[uniform(100)] // 与storage同时验证真实材质绑定。
     opacity: f32, // 透明度在实际片元计算中使用。
 } // 标签夹具材质结束。
-const LABEL_SHADER_SOURCE: &str = include_str!("fixtures/instanced_label.wgsl");
+const LABEL_SHADER_SOURCE: &str = include_str!("fixtures/instanced_label.wesl");
 const LABEL_SHADER: Handle<Shader> =
     bevy::asset::uuid_handle!("73038648-5917-4de0-9e6d-cb5af9daaf96"); // 测试shader身份。
 impl Material for TestWorldLabel {
@@ -51,7 +51,10 @@ fn bevy_world_ui_split_and_fallback_render() {
         .resource_mut::<Assets<Shader>>()
         .insert(
             LABEL_SHADER.id(),
-            Shader::from_wgsl(LABEL_SHADER_SOURCE, "instanced_label_test.wgsl"),
+            Shader::from_wesl(
+                LABEL_SHADER_SOURCE,
+                "embedded://feathrise_frame_generation_ui/world_ui/fixtures/instanced_label.wesl",
+            ),
         )
         .unwrap(); // SDK自带实际中性shader，不通过相对路径偷读游戏资产。
     while app.plugins_state() != bevy::app::PluginsState::Ready {
@@ -140,7 +143,7 @@ fn bevy_world_ui_split_and_fallback_render() {
         .spawn((
             Mesh3d(mesh),
             MeshMaterial3d(label),
-            bevy::mesh::MeshTag(0),
+            bevy::mesh::MeshTag::new(0),
             Transform::from_xyz(0.0, 0.0, -3.0),
             feathrise_scene_core::view::FrameGenerationUi,
         ))
@@ -305,38 +308,19 @@ fn label_is_in_world_ui(render: &World, entity: Entity) -> bool {
 
 #[test]
 fn instanced_label_shader_validates_for_split_and_fallback() {
-    // 默认CPU测试验证GPU回归所用的同一份完整shader；实际Bevy导入/布局仍由显式GPU回归覆盖。
-    for world_ui_pass in [false, true] {
-        let mut enabled = true;
-        let mut source = String::new();
-        for line in LABEL_SHADER_SOURCE.lines() {
-            match line.trim() {
-                "#import bevy_pbr::mesh_functions"
-                | "#import bevy_pbr::mesh_view_bindings::view" => {}
-                "#ifdef WORLD_UI_PASS" => enabled = world_ui_pass,
-                "#else" => enabled = !world_ui_pass,
-                "#endif" => enabled = true,
-                directive if directive.starts_with('#') => {
-                    panic!("未覆盖的夹具shader预处理指令：{directive}")
-                }
-                _ if enabled => {
-                    source.push_str(line);
-                    source.push('\n');
-                }
-                _ => {}
-            }
-        }
-        // 仅替换Bevy提供的接口，保留真实实例storage、投影、扩边、导数与透明片元代码。
-        let source = source
-            .replace("#{MATERIAL_BIND_GROUP}", "2")
-            .replace("mesh_functions::get_tag", "fixture_get_tag")
-            .replace(
-                "mesh_functions::get_world_from_local",
-                "fixture_get_world_from_local",
-            );
-        let source = format!(
-            "{}\n{source}",
-            r#"
+    use wesl::{CompileOptions, resolver::VirtualResolver, syntax::ModulePath};
+
+    // 使用真实 WESL 条件编译与导入，离屏 GPU 测试再检查实际 Bevy 的绑定布局。
+    let mut resolver = VirtualResolver::new();
+    let fixture = ModulePath::from_path("/fixtures/instanced_label");
+    resolver.add_module(fixture.clone(), LABEL_SHADER_SOURCE.into());
+    resolver.add_module(
+        ModulePath::from_path("constants"),
+        "const MATERIAL_BIND_GROUP = 3;".into(),
+    );
+    resolver.add_module(
+        ModulePath::from_path("bevy_pbr/render/mesh_view_bindings"),
+        r#"
 struct FixtureView {
     world_from_view: mat4x4<f32>,
     clip_from_world: mat4x4<f32>,
@@ -345,17 +329,29 @@ struct FixtureView {
     main_pass_viewport: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> view: FixtureView;
-fn fixture_get_tag(index: u32) -> u32 { return index; }
-fn fixture_get_world_from_local(index: u32) -> mat4x4<f32> {
-    return mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 1.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(0.0, 0.0, 0.0, 1.0),
+"#.into(),
     );
-}
-"#
-        );
+    resolver.add_module(
+        ModulePath::from_path("bevy_pbr/render/mesh_functions"),
+        r#"
+fn get_tag(index: u32) -> u32 { return index; }
+fn get_world_from_local(index: u32) -> mat4x4<f32> { return mat4x4<f32>(); }
+"#.into(),
+    );
+    for world_ui_pass in [false, true] {
+        let mut options = CompileOptions {
+            imports: true,
+            condcomp: true,
+            visibility: false,
+            ..Default::default()
+        };
+        options.features.set("WORLD_UI_PASS", world_ui_pass);
+        let source = wesl::compile(&fixture, &options, &resolver)
+            .unwrap_or_else(|error| {
+                panic!("实例标签 WESL 编译失败，独立 pass={world_ui_pass}：{error:?}")
+            })
+            .syntax
+            .to_string();
         let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|error| {
             panic!("实例标签WGSL解析失败，独立pass={world_ui_pass}：{error:?}")
         });
@@ -405,5 +401,5 @@ fn read_guide_gate(app: &mut App) -> f32 {
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap()
         .unwrap(); // 不吞掉设备错误。
-    f32::from_ne_bytes(buffer.slice(..).get_mapped_range()[..4].try_into().unwrap()) // 返回真实信号。
+    f32::from_ne_bytes(buffer.slice(..).get_mapped_range().unwrap()[..4].try_into().unwrap()) // 返回真实信号。
 } // GPU信号读取结束。

@@ -6,7 +6,7 @@ use avian3d::debug_render::PhysicsGizmos;
 use bevy::{
     camera::RenderTarget,
     gizmos::config::GizmoConfigStore,
-    picking::{backend::HitData, events::{Drag, DragEnd, DragStart, Pointer}, pointer::{Location, PointerButton, PointerId}},
+    picking::{backend::HitData, events::{Pointer, PointerDrag, PointerDragEnd, PointerDragStart}, pointer::{Location, PointerButton, PointerId}},
     prelude::*,
     render::{RenderApp, gpu_readback::{Readback, ReadbackComplete},
         render_resource::{CachedPipelineState, Extent3d, PipelineCache, TextureDimension, TextureFormat, TextureUsages, WgpuFeatures},
@@ -212,9 +212,21 @@ fn production_preview_hud_gpu_renders_triangles_restores_scene_and_drags() {
     assert_eq!(scene_changes(&normal, &restored), 0, "关闭模型网格必须恢复同一3D画面");
     let location = Location { target: RenderTarget::from(target.clone()).normalize(None).unwrap(), position: rect(&app, handle).center() };
     let distance = Vec2::new(420., 480.);
-    app.world_mut().trigger(Pointer::new(PointerId::Mouse, location.clone(), DragStart { button: PointerButton::Primary, hit: HitData::new(camera, 0., None, None) }, handle));
-    app.world_mut().trigger(Pointer::new(PointerId::Mouse, location.clone(), Drag { button: PointerButton::Primary, distance, delta: distance }, handle));
-    app.world_mut().trigger(Pointer::new(PointerId::Mouse, location, DragEnd { button: PointerButton::Primary, distance }, handle));
+    app.world_mut().trigger(PointerDragStart {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location.clone()),
+        button: PointerButton::Primary, hit: HitData::new(camera, 0., None, None),
+    });
+    app.world_mut().trigger(PointerDrag {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location.clone()),
+        button: PointerButton::Primary, distance, delta: distance,
+    });
+    app.world_mut().trigger(PointerDragEnd {
+        entity: handle,
+        pointer: Pointer::new(PointerId::Mouse, location),
+        button: PointerButton::Primary, distance,
+    });
     let dragged = capture(&mut app, &target, &output.join("04-dragged.png"));
     let moved = rect(&app, root);
     assert!(moved.min.distance(original.min) > 300. && moved.max.x <= 800. && moved.max.y <= 600.);

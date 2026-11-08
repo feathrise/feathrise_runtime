@@ -107,7 +107,7 @@ fn output_depth_coordinates_match_jittered_scene_projection() {
     // 覆盖超性能、质量、DLAA和非整数窗口尺寸。
     use bevy::render::camera::TemporalJitter; // 使用当前引擎实现作为独立参照。
     let output = Vec2::new(1905.0, 1080.0); // 非整除窗口能暴露错误的固定档位倍率。
-    let projection = Mat4::perspective_infinite_reverse_rh(0.8, output.x / output.y, 0.1); // 与玩法相机同类反向Z透视。
+    let projection = bevy::math::proj::perspective_infinite_reverse(0.8, output.x / output.y, 0.1); // 与玩法相机同类反向Z透视。
     for internal in [Vec2::new(635.0, 360.0), Vec2::new(1270.0, 720.0), output] {
         // 真实内部像素尺寸。
         for offset in [Vec2::ZERO, Vec2::new(0.375, -0.25), Vec2::new(-0.5, 0.5)] {
@@ -130,9 +130,9 @@ fn output_depth_coordinates_match_jittered_scene_projection() {
 #[test] // cargo check不会编译WGSL，因此单独验证真实片元代码。
 fn depth_mapping_shader_validates() {
     // 仅替换Bevy import，保留生产shader完整计算逻辑。
-    let source = include_str!("depth.wgsl")
+    let source = include_str!("depth.wesl")
         .lines()
-        .filter(|line| !line.starts_with("#import"))
+        .filter(|line| !line.starts_with("import "))
         .collect::<Vec<_>>()
         .join("\n"); // 测试夹具允许同步处理固定短文本。
     let source = format!(

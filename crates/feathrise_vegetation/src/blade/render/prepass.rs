@@ -153,12 +153,16 @@ impl SpecializedMeshPipeline for GpuBladePrepassPipeline {
                 self.interaction_layout.clone(),
             ],
             vertex: VertexState {
+
+                constants: Vec::new(),
                 shader: self.shader.clone(),
                 shader_defs: shader_defs.clone(),
                 entry_point: Some("prepass_vertex".into()),
                 buffers: vec![mesh_vertex_layout, instance_vertex_layout],
             },
             fragment: Some(FragmentState {
+
+                constants: Vec::new(),
                 shader: self.shader.clone(),
                 shader_defs,
                 entry_point: Some("prepass_fragment".into()),

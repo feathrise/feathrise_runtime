@@ -35,6 +35,7 @@ impl GpuBladeInteractionSource {
 /// 【功能设计】CPU每帧只上传176字节固定数据；世界稳定风摆和每根草对足迹的距离响应都在顶点着色器完成，
 /// 不创建逐草ECS实体、不保存逐草弯曲历史，也不随一千万候选规模增长CPU或上传成本。
 #[derive(Resource, ExtractResource, Clone, Copy, Debug, PartialEq, ShaderType)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct GpuBladeInteraction {
     pub(crate) wind: Vec4, // xy为归一化世界风向，z为草尖最大风摆米数，w为动画速度。
     pub(crate) wind_phase: Vec4, // x为天气变速/一小时回绕的相位补偿，其余槽保留为零。

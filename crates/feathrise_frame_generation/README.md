@@ -11,7 +11,7 @@ DLSS SR／RR 与 Streamline 帧生成使用两个独立 SDK，不能只配置 `S
 | 输入 | 实际要求 |
 | --- | --- |
 | Rust／MSVC | `x86_64-pc-windows-msvc` 工具链、Visual C++ x64 构建工具和 Windows SDK；原生桥使用 C++17，在配置好 MSVC 环境的 x64 开发者终端中运行 |
-| `DLSS_SDK` | [NVIDIA DLSS SDK v310.5.3](https://github.com/NVIDIA/DLSS/tree/v310.5.3) 根目录；需要 `include/`、`lib/Windows_x86_64/x64/` 中的 NGX 静态库，以及 `lib/Windows_x86_64/rel/` 中的 `nvngx_dlss.dll` 和 `nvngx_dlssd.dll` |
+| `DLSS_SDK` | [NVIDIA DLSS SDK v310.9.1](https://github.com/NVIDIA/DLSS/tree/v310.9.1) 根目录；需要 `include/`、`lib/Windows_x86_64/x64/` 中的 NGX 静态库，以及 `lib/Windows_x86_64/rel/` 中的 `nvngx_dlss.dll` 和 `nvngx_dlssd.dll` |
 | `VULKAN_SDK` | [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) 根目录，必须包含 `Include/vulkan/vulkan.h`；NGX 绑定与 Streamline 桥均读取其头文件 |
 | LLVM／Clang | `bindgen` 使用 `libclang` 解析头文件，`LIBCLANG_PATH` 指向包含 `libclang.dll` 的目录；让匹配版本的 `clang.exe` 可通过 `PATH` 找到，或用 `CLANG_PATH` 指定其完整路径，以发现 C／C++ 头文件搜索目录。参见 [bindgen 要求](https://rust-lang.github.io/rust-bindgen/requirements.html)与 [clang-sys 查找规则](https://github.com/KyleMayes/clang-sys/blob/v1.8.1/src/support.rs) |
 | `STREAMLINE_SDK` | [Streamline 2.12.0](https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.12.0) 根目录；目录名必须为 `Streamline-v2.12.0`，包含公共 `include/` 与 `bin/x64/` 生产 DLL，文件还须通过固定 SHA-256 校验 |
@@ -21,7 +21,7 @@ DLSS SR／RR 与 Streamline 帧生成使用两个独立 SDK，不能只配置 `S
 以下路径仅作示例，须替换为本机实际 SDK 根目录；在 SDK 仓库根执行检查：
 
 ```powershell
-$env:DLSS_SDK = 'C:\SDK\DLSS-v310.5.3'
+$env:DLSS_SDK = 'C:\SDK\DLSS-v310.9.1'
 $env:VULKAN_SDK = 'C:\SDK\VulkanSDK'
 $env:STREAMLINE_SDK = 'C:\SDK\Streamline-v2.12.0'
 $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'

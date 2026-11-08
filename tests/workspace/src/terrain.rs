@@ -30,8 +30,8 @@ fn wet_terrain_full_fragment_variants_are_valid_wgsl() {
             // 与正式load_height_shader相同，先拼接共享参数/拼接函数，再验证高度库；不能用缺少宿主ABI的半份源码。
             format!(
                 "{}\n{}",
-                preprocess(include_str!("../../../crates/feathrise_vegetation/src/blade/shaders/clipmap_stitches.wgsl"), defines),
-                preprocess(include_str!("../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wgsl"), defines),
+                feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false).replace("#{MATERIAL_BIND_GROUP}", "2"),
+                preprocess(include_str!("../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wesl"), defines),
             )
         } else {
             String::new()
@@ -41,7 +41,7 @@ fn wet_terrain_full_fragment_variants_are_valid_wgsl() {
             preprocess(PBR_STUB, defines),
             format!(
                 "{}\n{}",
-                include_str!("../../../crates/feathrise_environment/src/terrain_surface/shaders/rain_shelter.wgsl"),
+                include_str!("../../../crates/feathrise_environment/src/terrain_surface/shaders/rain_shelter.wesl"),
                 preprocess(WEATHER, defines)
             ),
             preprocess(RAIN, defines),

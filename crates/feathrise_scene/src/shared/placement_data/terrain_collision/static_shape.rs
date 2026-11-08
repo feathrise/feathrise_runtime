@@ -4,7 +4,7 @@ use avian3d::parry::{
     mass_properties::MassProperties,
     math::Pose,
     query::{PointProjection, PointQuery, Ray, RayCast, RayIntersection},
-    shape::{CompositeShape, FeatureId, Shape, ShapeType, TriMesh, TypedShape},
+    shape::{CompositeShape, FeatureId, Shape, ShapeType, SubShapeId, TriMesh, TypedShape},
 };
 use bevy::prelude::*;
 use std::sync::Arc;
@@ -88,10 +88,15 @@ impl Shape for StaticTerrainShape {
     fn ccd_angular_thickness(&self) -> f32 {
         self.mesh.ccd_angular_thickness()
     }
-    fn feature_normal_at_point(&self, feature: FeatureId, point: Vec3) -> Option<Vec3> {
-        self.mesh.feature_normal_at_point(feature, point)
+    fn feature_normal_at_point(
+        &self,
+        subshape: SubShapeId,
+        feature: FeatureId,
+        point: Vec3,
+    ) -> Option<Vec3> {
+        self.mesh.feature_normal_at_point(subshape, feature, point)
     }
-    fn as_composite_shape(&self) -> Option<&dyn CompositeShape> {
+    fn as_composite_shape(&self) -> Option<&(dyn CompositeShape + Sync)> {
         Some(self.mesh.as_ref()) // 使用真正的BVH、三角形和内边缘法线约束，绝不填成凸体。
     }
 }

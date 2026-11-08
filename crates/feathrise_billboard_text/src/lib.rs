@@ -90,7 +90,7 @@ impl Plugin for BillboardTextPlugin {
             .resource_mut::<Assets<bevy::render::storage::ShaderBuffer>>()
             .insert(
                 BILLBOARD_GUIDE_GATE.id(),
-                bevy::render::storage::ShaderBuffer::from(Vec4::ZERO),
+                bevy::render::storage::ShaderBuffer::from(vec![[0.0_f32; 4]]),
             )
             .expect("固定Billboard引导缓冲登记失败"); // 固定共享GPU信号初值为普通引导，不随实体增长。
         shaders::register_billboard_shaders(app); // 先登记顶点入口，再让材质插件建立异步管线。

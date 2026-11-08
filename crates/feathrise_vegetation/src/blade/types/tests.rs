@@ -1,6 +1,6 @@
 use super::*; // 读取内部紧凑实例镜像。
 
-const DRAW_SHADER_SOURCE: &str = include_str!("../shaders/gpu_grass_minimal.wgsl"); // 测试下沉一级后仍读取blade共享绘制源码，锁定随机种子不能退回草根浮点位模式。
+const DRAW_SHADER_SOURCE: &str = include_str!("../shaders/gpu_grass_minimal.wesl"); // 测试下沉一级后仍读取blade共享绘制源码，锁定随机种子不能退回草根浮点位模式。
 const COMPUTE_SHADER_SOURCE: &str = include_str!("../shaders/gpu_grass_compute.wgsl"); // 测试下沉一级后仍读取blade共享Compute源码和粗瓦片安全边界。
 
 #[test] // 公开profile槽构造器必须在CPU侧阻止任何超出固定两位ABI的编号。
@@ -198,14 +198,14 @@ fn draw_normal_prepass_writes_bevy_encoded_visible_grass_normal() {
     // Windows 检出可能把 WGSL 统一为 CRLF；契约检查只关心预处理器相邻关系，先归一化换行避免把工作树格式误判为 Shader 回归。
     let normalized_draw_shader = DRAW_SHADER_SOURCE.replace("\r\n", "\n");
     assert!(
-        normalized_draw_shader.contains("#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS")
+        normalized_draw_shader.contains("@if(NORMAL_PREPASS_OR_DEFERRED_PREPASS)")
             && normalized_draw_shader.contains(
                 "output.world_normal = surface_basis * reconstructed_grass_world_normal("
             ),
         "Normal或Deferred预通道必须从真实风摆、足迹和实例姿态重建草叶世界法线",
     ); // 禁止只修pipeline附件格式却继续把地下地形法线留在草叶深度像素。
     assert!(
-        normalized_draw_shader.contains("#ifdef NORMAL_PREPASS")
+        normalized_draw_shader.contains("@if(NORMAL_PREPASS)")
             && normalized_draw_shader.contains("@location(0) normal: vec4<f32>")
             && normalized_draw_shader.contains(
                 "output.normal = vec4<f32>(visible_world_normal * 0.5 + vec3<f32>(0.5), 1.0);",
@@ -219,13 +219,13 @@ fn draw_normal_prepass_writes_bevy_encoded_visible_grass_normal() {
         "NormalPrepass与Deferred必须继续按front_facing共用双面草叶可见法线",
     ); // SSAO法线、Solari GBuffer与RR normal guide不得在背面采用不同半球。
     let motion_import = normalized_draw_shader
-        .find("#ifdef MOTION_VECTOR_PREPASS\n#import bevy_pbr::pbr_prepass_functions::calculate_motion_vector")
+        .find("@if(!GPU_GRASS_SHADOW && GPU_GRASS_PREPASS && MOTION_VECTOR_PREPASS) import bevy_pbr::render::pbr_prepass_functions::calculate_motion_vector")
         .expect("运动函数导入必须受Motion宏保护");
     let motion_output = normalized_draw_shader
-        .find("#ifdef MOTION_VECTOR_PREPASS\n    @location(1) motion_vector: vec2<f32>")
+        .find("@if(MOTION_VECTOR_PREPASS) @location(1) motion_vector: vec2<f32>")
         .expect("运动附件输出必须受Motion宏保护");
     let motion_write = normalized_draw_shader
-        .find("#ifdef MOTION_VECTOR_PREPASS\n    output.motion_vector = calculate_motion_vector(")
+        .find("@if(MOTION_VECTOR_PREPASS) output.motion_vector = calculate_motion_vector(")
         .expect("运动矢量计算必须受Motion宏保护");
     assert!(motion_import < motion_output && motion_output < motion_write); // Normal-only变体不能要求PreviousView绑定或不存在的location1附件。
 }

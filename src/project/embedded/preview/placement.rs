@@ -11,7 +11,7 @@ struct RootIndex {
     roots: BTreeMap<(MapId, String), BTreeSet<Entity>>,
     reverse: BTreeMap<Entity, (MapId, String)>,
 }
-fn inserted(event: On<Insert, MapPlacementInstance>, roots: Query<&MapPlacementInstance>, mut index: ResMut<RootIndex>) {
+fn inserted(event: On<Insert<MapPlacementInstance>>, roots: Query<&MapPlacementInstance>, mut index: ResMut<RootIndex>) {
     if let Ok(root) = roots.get(event.entity) {
         let key = (root.map_id().clone(), root.id().to_owned());
         if let Some(previous) = index.reverse.get(&event.entity).cloned()
@@ -23,7 +23,7 @@ fn inserted(event: On<Insert, MapPlacementInstance>, roots: Query<&MapPlacementI
         index.reverse.insert(event.entity, key);
     }
 }
-fn removed(event: On<Remove, MapPlacementInstance>, mut index: ResMut<RootIndex>) {
+fn removed(event: On<Remove<MapPlacementInstance>>, mut index: ResMut<RootIndex>) {
     if let Some(key) = index.reverse.remove(&event.entity) {
         if let Some(roots) = index.roots.get_mut(&key) { roots.remove(&event.entity); }
         if index.roots.get(&key).is_some_and(BTreeSet::is_empty) { index.roots.remove(&key); }

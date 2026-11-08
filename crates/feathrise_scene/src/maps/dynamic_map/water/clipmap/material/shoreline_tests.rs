@@ -14,9 +14,9 @@ use super::{ClipmapHeightUniform, ClipmapRainHeightMaterial, ClipmapWaterUniform
 const WIDTH: u32 = 128;
 const HEIGHT: u32 = 64;
 const HEIGHT_SIZE: u32 = 257;
-const WATER: &str = include_str!("../../../../../shared/large_map/water/shaders/water.wgsl");
-const HEIGHT_SHADER: &str = include_str!("../../../clipmap/shaders/height.wgsl");
-const COVERAGE: &str = include_str!("../../shaders/clipmap_water.wgsl");
+const WATER: &str = include_str!("../../../../../shared/large_map/water/shaders/water.wesl");
+const HEIGHT_SHADER: &str = include_str!("../../../clipmap/shaders/height.wesl");
+const COVERAGE: &str = include_str!("../../shaders/clipmap_water.wesl");
 
 #[derive(Clone, Copy)]
 enum Probe {
@@ -67,10 +67,10 @@ fn production_source(probe: Probe) -> String {
 "#);
     } else if prepass {
         source.push_str(&preprocess_gpu_source(
-            include_str!("../../shaders/clipmap_water_prepass.wgsl"), &definitions,
+            include_str!("../../shaders/clipmap_water_prepass.wesl"), &definitions,
         ));
         source.push_str(&preprocess_gpu_source(
-            include_str!("../../shaders/clipmap_water_prepass_fragment.wgsl"), &definitions,
+            include_str!("../../shaders/clipmap_water_prepass_fragment.wesl"), &definitions,
         ));
         source.push_str(r#"
 @fragment fn probe_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -79,11 +79,11 @@ fn production_source(probe: Probe) -> String {
 "#);
     } else {
         source.push_str(&preprocess_gpu_source(
-            include_str!("../../shaders/clipmap_water_vertex.wgsl"), &definitions,
+            include_str!("../../shaders/clipmap_water_vertex.wesl"), &definitions,
         ));
         if matches!(probe, Probe::Rain) {
             source.push_str(&preprocess_gpu_source(
-                include_str!("../../shaders/clipmap_water_height.wgsl"), &definitions,
+                include_str!("../../shaders/clipmap_water_height.wesl"), &definitions,
             ));
         }
         source.push_str(r#"
@@ -138,7 +138,7 @@ fn clipmap_water_shoreline_gpu_pixels_and_wave_history() {
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false, compatible_surface: None,
+        force_fallback_adapter: false, compatible_surface: None, apply_limit_buckets: false,
     })).expect("岸线回归要求指定真实 GPU 后端");
     assert_eq!(adapter.get_info().backend, expected);
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
@@ -402,10 +402,10 @@ fn render_source(device: &wgpu::Device, queue: &wgpu::Queue, resources: &Resourc
     });
     let main_attributes = wgpu::vertex_attr_array![0 => Float32x3, 2 => Float32x2, 3 => Float32x2];
     let prepass_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x2];
-    let vertex_layout = [wgpu::VertexBufferLayout {
+    let vertex_layout = [Some(wgpu::VertexBufferLayout {
         array_stride: 28, step_mode: wgpu::VertexStepMode::Vertex,
         attributes: if matches!(probe, Probe::History | Probe::Prepass) { &prepass_attributes } else { &main_attributes },
-    }];
+    })];
     let target = Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba32Float, blend: None, write_mask: wgpu::ColorWrites::ALL });
     let mut targets = vec![target.clone()];
     if matches!(probe, Probe::Prepass) {
@@ -493,7 +493,7 @@ fn render_source(device: &wgpu::Device, queue: &wgpu::Queue, resources: &Resourc
     device.poll(wgpu::PollType::Wait { submission_index: Some(submission), timeout: Some(Duration::from_secs(30)) })
         .expect("岸线像素渲染超时");
     receiver.recv_timeout(Duration::from_secs(30)).expect("岸线像素映射超时").expect("岸线像素映射失败");
-    let bytes = readback.slice(..).get_mapped_range();
+    let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
     let pixels = bytes.chunks_exact(16).map(|pixel| std::array::from_fn(|channel| {
         f32::from_le_bytes(pixel[channel*4..channel*4+4].try_into().unwrap())
     })).collect();

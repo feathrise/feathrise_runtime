@@ -1,5 +1,6 @@
 //! 旧式数字字段的通用实体树；所属 UI 库注入主题。
 
+use crate::InteractionButton;
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition}; // 可选拖动行为按字段内相对位置计算物理像素位移。
 
@@ -22,7 +23,7 @@ pub fn spawn_numeric_field_with_palette(
         .spawn((
             NumericInputFieldButton { root },
             palette, // 禁用和焦点刷新也保留自己的主题。
-            Button,
+            InteractionButton,
             Interaction::default(),
             RelativeCursorPosition::default(), // 非可拖动字段只多维护一个轻量坐标；带ScrubConfig的根才真正消费拖动。
             Node {

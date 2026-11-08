@@ -276,5 +276,5 @@ fn query(
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
         .unwrap();
-    bytemuck::cast_slice(&readback.slice(..).get_mapped_range()).to_vec()
+    bytemuck::cast_slice(&readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效")).to_vec()
 }

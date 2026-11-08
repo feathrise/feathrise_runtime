@@ -32,7 +32,7 @@ pub(super) struct HudlessCapture {
 
 pub(crate) fn load_shader(app: &mut App) {
     // 在主 App 资产系统建立后调用。
-    bevy::asset::load_internal_asset!(app, SHADER, "hudless.wgsl", bevy::shader::Shader::from_wgsl); // 正式运行不访问作者源码路径。
+    bevy::asset::load_internal_asset!(app, SHADER, "hudless.wesl", |source, _| bevy::shader::Shader::from_wesl(source, "embedded://feathrise_frame_generation/render/hudless.wesl")); // 正式运行不访问作者源码路径。
 } // Shader 注册结束。
 
 pub(super) fn install(app: &mut SubApp) {

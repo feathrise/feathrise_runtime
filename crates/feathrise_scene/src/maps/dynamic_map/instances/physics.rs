@@ -4,7 +4,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use feathrise_scene_core::residency::EntityMapScope;
 
-pub(super) fn consolidate_static_bodies(add: On<Add, RigidBody>,
+pub(super) fn consolidate_static_bodies(add: On<Add<RigidBody>>,
     scope: EntityMapScope, bodies: Query<&RigidBody>, parents: Query<&ChildOf>, mut commands: Commands) {
     if scope.instance(add.entity).is_some() && bodies.get(add.entity) == Ok(&RigidBody::Static) {
         // 源地图域仍按原组合生成；子实例叶子的Collider由最近的批次静态刚体承接。
@@ -14,7 +14,7 @@ pub(super) fn consolidate_static_bodies(add: On<Add, RigidBody>,
     }
 }
 
-pub(super) fn repair_collider_body(insert: On<Insert, ColliderOf>, scope: EntityMapScope,
+pub(super) fn repair_collider_body(insert: On<Insert<ColliderOf>>, scope: EntityMapScope,
     bodies: Query<(&RigidBody, Has<super::components::SubMapBatch>)>,
     parents: Query<&ChildOf>, colliders: Query<&ColliderOf>, mut commands: Commands) {
     if scope.instance(insert.entity).is_none()
@@ -28,7 +28,7 @@ pub(super) fn repair_collider_body(insert: On<Insert, ColliderOf>, scope: Entity
     }
 }
 
-pub(super) fn consolidate_late_owned_bodies(insert: On<Insert, feathrise_scene_core::residency::MapInstanceOwner>,
+pub(super) fn consolidate_late_owned_bodies(insert: On<Insert<feathrise_scene_core::residency::MapInstanceOwner>>,
     bodies: Query<&RigidBody>, parents: Query<&ChildOf>, mut commands: Commands) {
     if bodies.get(insert.entity) == Ok(&RigidBody::Static) {
         // 异步模型可能先生成刚体、后建立所属层级；补齐Owner时仍必须转交完整批次。

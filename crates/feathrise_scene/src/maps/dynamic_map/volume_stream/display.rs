@@ -18,8 +18,8 @@ impl VolumeSurfaceFields {
             let buffer = self.1.try_lock().map_err(|_| "三维材质缓冲尚未交接")?;
             let bytes = buffer
                 .as_ref()
-                .and_then(|b| b.data.as_ref())
-                .map_or(0, Vec::len) as u64;
+                .and_then(|b| b.cast_slice::<u8>())
+                .map_or(0, <[u8]>::len) as u64;
             if bytes > limit {
                 return Err(format!(
                     "三维材质缓冲{:.1}MiB超过当前设备单绑定上限{:.1}MiB",

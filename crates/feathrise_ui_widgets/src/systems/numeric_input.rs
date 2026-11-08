@@ -1,5 +1,6 @@
 // 数字输入交互主循环：统一处理步进、焦点、键盘编辑、提交与取消。
 
+use crate::InteractionButton;
 use bevy::ecs::system::SystemParam; // 把输入源与控件状态分别收拢为高内聚系统参数。
 use bevy::input::keyboard::{Key, KeyboardInput}; // 使用Bevy 0.19保留键盘布局结果的文本消息读取负号等字符。
 use bevy::ui::RelativeCursorPosition; // 可拖动字段以节点中心为原点换算物理像素位移。
@@ -79,7 +80,7 @@ pub struct NumericInputState<'w, 's> {
     default_palette: Option<Res<'w, crate::resources::DefaultNumericInputPalette>>, // 精简测试可省略主题资源。
     pub(super) root_query: Query<'w, 's, NumericRootQueryData, With<NumericInputRoot>>,
     pub(super) text_query: Query<'w, 's, NumericTextQueryData>,
-    pub(super) field_query: Query<'w, 's, NumericFieldQueryData, With<Button>>,
+    pub(super) field_query: Query<'w, 's, NumericFieldQueryData, With<InteractionButton>>,
     pub(super) disabled_query: Query<'w, 's, (), With<NumericInputDisabled>>,
     pub(super) changed_writer: MessageWriter<'w, NumericInputChanged>,
     pub(super) committed_writer: MessageWriter<'w, NumericInputCommitted>,

@@ -25,7 +25,7 @@ pub(crate) fn terrain_grid_color() -> Color {
 
 /// 动态GLB显示、Geometry Clipmap显示只凭唯一正式地形身份获得网格目标。
 pub(crate) fn mark_dynamic_terrain_grid_target(
-    add: On<Add, DynamicMapTerrainPrimitive>, // 正式显示实体生成或换代时触发一次。
+    add: On<Add<DynamicMapTerrainPrimitive>>, // 正式显示实体生成或换代时触发一次。
     mut commands: Commands,                   // 观察器只插入公共零大小标记。
 ) {
     commands.entity(add.entity).insert(TerrainGridTarget); // 离屏预热与隐藏GLB输入没有正式显示身份，因而不会命中。

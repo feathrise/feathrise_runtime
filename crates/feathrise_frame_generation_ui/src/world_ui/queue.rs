@@ -8,7 +8,7 @@ use super::{
 use crate::ui::WorldUiCompositeReady; // 高清绘制只依赖空间合成能力，不依赖SDK在线。
 use bevy::image::ToExtents; // 将已验证的二维尺寸转为单层纹理附件规格。
 use bevy::{
-    camera::{CompositingSpace, MainPassResolutionOverride},
+    camera::MainPassResolutionOverride,
     core_pipeline::{core_3d::Transparent3d, oit::OrderIndependentTransparencySettings},
     diagnostic::FrameCount,
     pbr::DrawMaterial,
@@ -23,7 +23,7 @@ use bevy::{
         renderer::RenderDevice,
         sync_world::MainEntity,
         texture::TextureCache,
-        view::{ExtractedView, ViewTarget},
+        view::{ExtractedView, ResolvedCompositingSpace, ViewTarget},
     },
 }; // 公开视图、材质和缓存 API，不复制私有 PBR 布局。
 use feathrise_scene_core::view::FrameGenerationUi; // 只处理业务显式声明的世界 UI 网格。
@@ -45,7 +45,7 @@ pub(super) fn extract_entities(
         } // 不对 UI 做部分剥离，超限全部保持普通路径。
         output
             .items
-            .push((Entity::PLACEHOLDER, MainEntity::from(entity))); // Bevy 0.19 queue_material_meshes 明确使用 PLACEHOLDER/main_entity 成对键。
+            .push((Entity::PLACEHOLDER, MainEntity::from(entity))); // Bevy 的 queue_material_meshes 明确使用 PLACEHOLDER/main_entity 成对键。
     } // 有界精确标记提取结束。
 } // extract_entities 结束。
 
@@ -91,6 +91,7 @@ pub(super) fn split_world_ui(
         &ExtractedView,
         &ExtractedCamera,
         &ViewTarget,
+        Option<&ResolvedCompositingSpace>,
         &Msaa,
         Option<&MainPassResolutionOverride>,
         Has<OrderIndependentTransparencySettings>,
@@ -118,7 +119,7 @@ pub(super) fn split_world_ui(
         // 没有需要高清世界标签的唯一主视图才关闭。
         return;
     } // 关闭时完整保留普通标签。
-    let Some((entity, extracted, camera, target, msaa, resolution, oit)) =
+    let Some((entity, extracted, camera, target, compositing_space, msaa, resolution, oit)) =
         views.iter().find(|(_, extracted, ..)| {
             Some(extracted.retained_view_entity.main_entity.id()) == request.camera
         })
@@ -158,7 +159,7 @@ pub(super) fn split_world_ui(
     let valid = output_size.min_element() > 0 && internal_size.min_element() > 0 && internal_size.cmple(output_size).all() // 内部区域必须完整落在附件内。
         && camera.physical_viewport_size == Some(output_size) && camera.viewport.as_ref().is_none_or(|view| view.physical_position == UVec2::ZERO && view.physical_size == output_size) // 首版只接受唯一全窗口视口。
         && camera.target.is_some() && views.iter().filter(|(_, _, other, ..)| other.target == camera.target).take(2).count() == 1 // 多相机共享窗口不能取得原子场景/UI 所有权。
-        && msaa.samples() == 1 && !oit && target.main_texture_format() == TextureFormat::Rgba16Float && matches!(target.compositing_space, None | Some(CompositingSpace::Linear)) // MSAA/OIT 或不同颜色契约全部回退原 phase。
+        && msaa.samples() == 1 && !oit && target.main_texture_format() == TextureFormat::Rgba16Float && ResolvedCompositingSpace::space(compositing_space).is_none_or(|space| space.is_linear()) // MSAA/OIT 或不同颜色契约全部回退原 phase。
         && target.main_texture().size().width == output_size.x && target.main_texture().size().height == output_size.y // 与现有主深度及合成目标共用附件尺寸。
         && output_size.max_element() <= device.limits().max_texture_dimension_2d && u64::from(output_size.x) * u64::from(output_size.y) * 12 <= MAX_WORLD_UI_BYTES; // RGBA16F颜色加Depth32Float重映射共12字节/像素，沿用固定总显存预算。
     if !valid {

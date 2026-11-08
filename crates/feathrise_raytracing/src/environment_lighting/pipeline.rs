@@ -65,7 +65,7 @@ pub(super) fn init_solari_environment_pipeline(
         fullscreen_shader: fullscreen_shader.clone(), // 复用标准顶点Shader资源。
         fragment_shader: load_embedded_asset!(
             asset_server.as_ref(),
-            "solari_environment_lighting.wgsl"
+            "solari_environment_lighting.wesl"
         ), // 嵌入资源由AssetServer统一热路径解析。
     }); // 完成环境管线模板登记。
 }

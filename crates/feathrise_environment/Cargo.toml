@@ -3,7 +3,7 @@
 name = "feathrise_environment"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.97.1"
 publish = ["crates-io"]
 description = "Unified vegetation distribution and rendering entry point for Bevy"
 license = "MIT OR Apache-2.0"
@@ -41,12 +41,14 @@ full = [
 ]
 
 [dependencies]
+bytemuck = { workspace = true }
 bevy_app = { workspace = true }
 bevy = { workspace = true, optional = true }
 feathrise_vegetation = { path = "../feathrise_vegetation", version = "0.1.0", default-features = false }
 feathrise_grounding = { workspace = true, optional = true }
 
 [dev-dependencies]
+wesl = { version = "=0.6.0", features = ["naga-ext"] } # 现有生产着色器回归使用与 Bevy 相同的条件编译。
 bevy_solari = { workspace = true } # Mesh风离屏示例可选复现Solari最终合成，不进入生产依赖图。
 wgpu = { workspace = true } # 地表回归使用与Bevy锁定版本相同的Naga校验生产WGSL，避免错误延迟到进图建管线。
 

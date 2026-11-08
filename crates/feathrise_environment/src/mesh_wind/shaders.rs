@@ -14,17 +14,17 @@ pub(super) const TREE_WIND_PREPASS_SHADER_HANDLE: Handle<Shader> =
 
 /// 注册共享位移库和两个顶点入口。
 pub(super) fn register_mesh_wind_shaders(app: &mut App) {
-    load_shader_library!(app, "shaders/wind.wgsl"); // 当前帧与历史帧都调用这一份顶点位移核心。
+    load_shader_library!(app, "shaders/wind.wesl"); // 当前帧与历史帧都调用这一份顶点位移核心。
     load_internal_asset!(
         app,                            // 向当前应用登记主渲染Shader资产。
         TREE_WIND_VERTEX_SHADER_HANDLE, // MaterialExtension返回同一固定句柄。
-        "shaders/vertex.wgsl",          // 文件随environment crate一并编译打包。
-        Shader::from_wgsl               // 保留Bevy的#import、条件定义和绑定组替换。
+        "shaders/vertex.wesl",          // 文件随environment crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/mesh_wind/shaders/vertex.wesl")
     ); // 完成主渲染与阴影顶点入口登记。
     load_internal_asset!(
         app,                             // 向当前应用登记预通道Shader资产。
         TREE_WIND_PREPASS_SHADER_HANDLE, // 预通道和延迟顶点入口共享该句柄。
-        "shaders/prepass.wgsl",          // 文件随environment crate一并编译打包。
-        Shader::from_wgsl                // 保留运动向量、预通道和延迟条件编译。
+        "shaders/prepass.wesl",          // 文件随environment crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_environment/mesh_wind/shaders/prepass.wesl")
     ); // 完成预通道顶点入口登记。
 } // 完成全部自有Mesh风Shader注册。

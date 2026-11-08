@@ -34,6 +34,7 @@ struct GpuEvidence {
     remaining_scene_lights: usize,
 }
 #[derive(Resource, Clone, ExtractResource, Default)]
+#[extract_app(bevy::render::RenderApp)]
 struct GpuProbe(Arc<Mutex<GpuEvidence>>);
 #[derive(Resource, Default)]
 struct Smoke {

@@ -14,17 +14,17 @@ pub(super) const VEGETATION_BILLBOARD_PREPASS_SHADER_HANDLE: Handle<Shader> =
 
 /// 注册共享GPU朝向库和两个Bevy PBR顶点入口。
 pub(super) fn register_vegetation_billboard_shaders(app: &mut App) {
-    load_shader_library!(app, "shaders/billboard.wgsl"); // 主、阴影与预通道共用唯一世界矩阵核心。
+    load_shader_library!(app, "shaders/billboard.wesl"); // 主、阴影与预通道共用唯一世界矩阵核心。
     load_internal_asset!(
         app,                                       // 向当前应用登记主渲染Shader资产。
         VEGETATION_BILLBOARD_VERTEX_SHADER_HANDLE, // MaterialExtension返回同一固定句柄。
-        "shaders/vertex.wgsl",                     // 文件随vegetation crate一并编译打包。
-        Shader::from_wgsl                          // 保留Bevy的#import、条件定义与绑定组替换。
+        "shaders/vertex.wesl",                     // 文件随vegetation crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_vegetation/mesh_backend/billboard/shaders/vertex.wesl")
     ); // 完成主渲染与阴影顶点入口登记。
     load_internal_asset!(
         app,                                        // 向当前应用登记预通道Shader资产。
         VEGETATION_BILLBOARD_PREPASS_SHADER_HANDLE, // 预通道与延迟顶点入口共享句柄。
-        "shaders/prepass.wgsl",                     // 文件随vegetation crate一并编译打包。
-        Shader::from_wgsl                           // 保留运动向量和预通道条件编译。
+        "shaders/prepass.wesl",                     // 文件随vegetation crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_vegetation/mesh_backend/billboard/shaders/prepass.wesl")
     ); // 完成预通道与延迟顶点入口登记。
 } // 完成全部GPU公告板Shader注册。

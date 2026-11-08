@@ -29,8 +29,10 @@ use bevy::{
         camera::{ExtractedCamera, TemporalJitter}, // 当前输出窗口与深度采样偏移。
         render_resource::{PipelineCache, TextureUsages},
         renderer::{RenderContext, ViewQuery},
-        view::{ExtractedView, ViewTarget, window::ExtractedWindows}, // 读取实际交换链图像格式，不能误用sRGB视图格式。
+        sync_world::MainEntity,
+        view::{ExtractedView, ExtractedWindow, ViewTarget}, // 读取实际交换链图像格式，不能误用sRGB视图格式。
     },
+    window::PrimaryWindow,
 }; // Bevy导入结束。
 use feathrise_scene_core::view::PrimarySceneView; // 从主世界提取唯一玩法投影参数。
 use feathrise_frame_generation_ui::{
@@ -195,13 +197,13 @@ fn disable_without_request(
     request: Res<RenderRequest>,   // 主世界已经解析设备、DLSS和玩法相机资格。
     frame: Res<FrameCount>,        // 空标签也绑定明确帧号。
     feedback: Res<RenderFeedback>, // 关闭后当前帧不再被视为输入就绪。
-    windows: Res<ExtractedWindows>, // 直接读取本次提取的变化，覆盖主世界资格系统之后才发生的resize。
+    windows: Query<&ExtractedWindow, With<PrimaryWindow>>, // 直接读取本次提取的变化，覆盖主世界资格系统之后才发生的resize。
     mut state: ResMut<RuntimeState>, // 保存最近规格以完整关闭。
     mut history: ResMut<CameraHistory>, // 停用后下一玩法帧必须重置历史。
 ) {
     let window_transition = windows
-        .primary
-        .and_then(|entity| windows.get(&entity))
+        .single()
+        .ok()
         .is_none_or(|window| window.size_changed || window.present_mode_changed); // 缺窗、尺寸与呈现模式变化都不能沿用旧交换链FG。
     if request.enabled
         && !window_transition
@@ -235,7 +237,7 @@ fn capture_and_tag(
         &ExtractedCamera,
         Option<&ViewUpscalingPipeline>,
     )>, // 输入和最终输出必须同时就绪。
-    windows: Res<ExtractedWindows>, // 已配置的真实交换链图像，和渲染用sRGB视图区别对待。
+    windows: Query<(MainEntity, &ExtractedWindow)>, // 已配置的真实交换链图像，和渲染用sRGB视图区别对待。
     world_ui_gate: Res<WorldUiFrameGate>, // 世界标签没有完整分离时禁止插值带UI场景。
     mut ui_permission: ResMut<UiFramePermission>, // 场景标签成功才允许本帧透明UI事务。
     request: Res<RenderRequest>,    // 最终资格请求。
@@ -371,9 +373,10 @@ fn capture_and_tag(
     }; // 输出格式结束。
     let output_format = match camera.target.as_ref() {
         // 仅接受SDK支持的真实UNORM窗口图像，不改写原生格式身份。
-        Some(NormalizedRenderTarget::Window(window)) => windows
-            .get(&window.entity())
-            .and_then(|window| window.swap_chain_texture_format), // 与当前相机准确关联。
+        Some(NormalizedRenderTarget::Window(target)) => windows
+            .iter()
+            .find(|(main_entity, _)| *main_entity == target.entity())
+            .and_then(|(_, window)| window.swap_chain_texture_format), // 相机目标保留主世界窗口身份。
         _ => None, // 离屏纹理不能作为DLSS-G交换链。
     }; // 当前已配置图像规格。
     let output_format = match output_format {
@@ -451,7 +454,7 @@ fn capture_and_tag(
     ); // 显式从颜色写入转换为SDK只读布局。
     state.tags_valid = true; // SDK可能部分提交后失败，失败路径必须撤销全部标签。
     let result = record_native(&mut context, "dlss_fg_scene_tags", |command_buffer| {
-        // wgpu29禁止同一编码器混用原生和wgpu命令。
+        // 原生标签使用独立编码器，保留 wgpu 的资源跟踪和命令顺序。
         native::tag_inputs(
             frame.0,
             command_buffer,

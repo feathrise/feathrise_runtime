@@ -35,7 +35,7 @@ pub struct InstanceQuery<'w, 's, D: IterQueryData + 'static, F: QueryFilter + 's
     index: Option<Res<'w, OwnershipIndex>>,
 }
 type OwnedIter<'w, 's, D, F> = QueryManyUniqueIter<'w, 's,
-    (D, Option<&'static MapInstanceOwner>), F, std::iter::Copied<hash_set::Iter<'w>>>;
+    (D, Option<&'static MapInstanceOwner>), F, std::iter::Copied<hash_set::Iter<'w, Entity>>>;
 enum Inner<'w, 's, D: IterQueryData, F: QueryFilter> {
     All(QueryIter<'w, 's, (D, Option<&'static MapInstanceOwner>), F>),
     Owned(OwnedIter<'w, 's, D, F>),
@@ -50,7 +50,8 @@ impl<'w, 's, D: IterQueryData, F: QueryFilter> Iterator for InstanceQueryIter<'w
         let belongs = |(value, owner): (D::Item<'w, 's>, Option<&MapInstanceOwner>)|
             (owner.map(|owner| owner.0) == self.instance).then_some(value);
         match &mut self.inner { Inner::All(iter) => iter.find_map(belongs),
-            Inner::Owned(iter) => iter.find_map(belongs) }
+            // 索引包含实例内的全部实体；和原查询一样跳过不匹配或已失效的实体。
+            Inner::Owned(iter) => iter.find_map(|item| item.ok().and_then(belongs)) }
     }
 }
 impl<'w, 's, D: IterQueryData + 'static, F: QueryFilter + 'static> InstanceQuery<'w, 's, D, F> {

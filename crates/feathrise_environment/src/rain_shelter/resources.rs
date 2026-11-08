@@ -4,7 +4,8 @@ use super::types::RainShelterVolume;
 use bevy::prelude::*; // 资源与调度标签。
 use bevy::render::render_resource::ShaderType; // 生产GPU布局编码。 // 单个固定96字节OBB。
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)] // 与WGSL的3088字节布局完全一致。
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType, bytemuck::Pod, bytemuck::Zeroable)] // 与WGSL的3088字节布局完全一致。
 pub struct RainShelterGpu {
     // 只有完整有效作者批次才能发布。
     pub header: Vec4,                      // X有效体数，Y所有体世界最高Y，ZW预留。

@@ -23,7 +23,7 @@ use bevy::{
     camera::CameraUpdateSystems, // 历史判定读取本帧已经解析的物理目标尺寸。
     pbr::DefaultOpaqueRendererMethod, // 关闭态保持Forward；目标会话由有界兼容桥临时切Deferred并精确恢复。
     prelude::*,                       // App、Plugin、Update/PostUpdate与系统链。
-    render::diagnostic::RenderDiagnosticsPlugin, // 取得Solari四段GPU时间戳诊断。
+    render::diagnostic::RenderDiagnosticsPlugin, // 取得Solari通道的GPU时间戳诊断。
     render::extract_resource::ExtractResourcePlugin, // 把固定材质目标表同步到RenderApp核对Deferred准备状态。
     transform::TransformSystems,                     // 历史判定读取本帧最终世界相机姿态。
 };
@@ -32,8 +32,7 @@ use feathrise_settings::GraphicsRuntimeLeaseSystems; // 动态RTT在Update命令
 
 use capability::initialize_capability;
 use denoising::{
-    install_di_stability_shader, install_dynamic_terrain_shadow_terminator_shaders,
-    install_gi_stability_shader, maintain_dlss_ray_reconstruction,
+    install_solari_realtime_shaders, maintain_dlss_ray_reconstruction,
     restore_dlss_ray_reconstruction_on_rollback, sync_dlss_antialiasing_requirement,
     sync_dlss_ray_reconstruction_reset,
 };
@@ -80,13 +79,11 @@ pub type RaytracingBlocker = RaytracingPrototypeBlocker;
 impl Plugin for RaytracingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SolariPlugins); // 先注册官方实时光追与内嵌shader，下一行才能精确覆盖同名资源。
-        install_dynamic_terrain_shadow_terminator_shaders(app); // 标准GBuffer兼容契约先覆盖公共解析和光泽root，后续DI/GI副本统一导入安全起点。
-        install_gi_stability_shader(app); // 正式停用跨帧GI reservoir，DI/cache/RR保持正常历史。
-        install_di_stability_shader(app); // 正式停用DI同帧邻居reservoir，保留initial/temporal、visibility、GI与RR。
+        install_solari_realtime_shaders(app); // 登记地表起点与直接光、间接光的复用门。
         raster_shadows::install_raster_shadow_compatibility(app); // 玩家与LOD0叶片仍走标准shadow map；Solari后、RR前消费其方向光可见度。
         environment_lighting::install_solari_environment_lighting(app); // 阴影兼容后、透明内容与RR前追加同一EnvironmentMapLight天空IBL。
         app.add_plugins((
-            RenderDiagnosticsPlugin, // 提供Solari四段GPU时间戳。
+            RenderDiagnosticsPlugin, // 提供Solari通道的GPU时间戳。
             ExtractResourcePlugin::<DeferredRasterBridgeTargets>::default(), // 最多256个材质ID进入RenderApp。
             ExtractResourcePlugin::<telemetry::TerrainGeometryTargets>::default(),
         ));

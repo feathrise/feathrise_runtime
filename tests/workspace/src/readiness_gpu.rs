@@ -108,7 +108,7 @@ fn install_host_height_shader(app: &mut App) {
         }
     }
     let source = format!("{stitch_source}\n{}", include_str!(
-        "../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wgsl"
+        "../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wesl"
     ));
     let handle: Handle<Shader> = bevy::asset::uuid_handle!("7931b3c4-7851-4c15-9f6f-f20102d0ed00");
     app.world_mut().resource_mut::<Assets<Shader>>().insert(

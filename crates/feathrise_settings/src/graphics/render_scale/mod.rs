@@ -22,7 +22,7 @@ pub(crate) use systems::apply_render_scale; // 保持 GraphicsSettingsPlugin 单
 
 /// 注册渲染比例的提取、逐视图 uniform、管线准备和空间放大阶段。
 pub(crate) fn configure_render_scale(app: &mut App) {
-    embedded_asset!(app, "render_scale.wgsl"); // 发布构建不依赖 assets 目录中的松散着色器文件。
+    embedded_asset!(app, "render_scale.wesl"); // 发布构建不依赖 assets 目录中的松散着色器文件。
     app.add_plugins((
         ExtractComponentPlugin::<RenderScaleView>::default(), // 只提取当前被画质功能接管的窗口 3D 相机。
         UniformComponentPlugin::<RenderScaleView>::default(), // 每个接管视图上传低分辨率和完整输出尺寸。

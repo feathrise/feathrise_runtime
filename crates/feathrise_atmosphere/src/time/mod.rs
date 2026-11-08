@@ -28,7 +28,7 @@ impl Plugin for WorldTimePlugin {
     fn build(&self, app: &mut App) {
         dynamic_sky::install_atmosphere_render_state_cleanup(app); // Bevy 0.19.1移除大气设置后必须同帧清理旧HDR渲染门控，避免F12天空盒切换格式冲突。
         crate::skybox::install_authored_environment_map_support(app); // 先建立补光比例派生缓存和共享黑Cube。
-        crate::skybox::install_main_pass_viewport_skybox_shader(app); // 天空盒模式在 DLSS/固定比例下按真实主通道视口重建方向。
+        // Bevy 0.20 的天空盒按真实主通道视口重建方向，继续兼容 DLSS 与固定渲染比例。
         app.init_resource::<feathrise_settings::EnvironmentPreviewSettings>()
             .init_resource::<WorldClock>() // 新游戏和旧存档缺省为六月十五日正午。
             .init_resource::<WorldEnvironmentModifiers>() // 未注册天气时使用中性修正，保证现有昼夜画面完全不变。

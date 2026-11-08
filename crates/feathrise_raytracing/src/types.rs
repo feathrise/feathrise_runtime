@@ -218,9 +218,8 @@ pub(crate) struct RaytracingBudgetSnapshot {
 /// Solari 核心计算与相邻主要光栅通道的上一份 GPU 毫秒诊断。
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct RaytracingGpuTimings {
-    pub(crate) direct_lighting_ms: Option<f64>, // 直接光ReSTIR阶段。
-    pub(crate) diffuse_indirect_ms: Option<f64>, // 漫反射间接光阶段。
-    pub(crate) specular_indirect_ms: Option<f64>, // 镜面间接光/反射阶段。
+    pub(crate) presample_light_tiles_ms: Option<f64>, // 光源瓦片预采样。
+    pub(crate) solari_lighting_ms: Option<f64>, // 合并的直接光、间接光与反射。
     pub(crate) world_cache_ms: Option<f64>,     // 世界缓存维护阶段。
     pub(crate) early_prepass_gpu_ms: Option<f64>, // 深度、运动矢量、GBuffer及草地预通道的聚合GPU时间。
     pub(crate) main_opaque_pass_gpu_ms: Option<f64>, // 主不透明与AlphaMask颜色阶段的聚合GPU时间。
@@ -229,9 +228,8 @@ pub(crate) struct RaytracingGpuTimings {
 
 impl RaytracingGpuTimings {
     pub(crate) fn all_present(self) -> bool {
-        self.direct_lighting_ms.is_some()
-            && self.diffuse_indirect_ms.is_some()
-            && self.specular_indirect_ms.is_some()
+        self.presample_light_tiles_ms.is_some()
+            && self.solari_lighting_ms.is_some()
             && self.world_cache_ms.is_some()
     }
 }

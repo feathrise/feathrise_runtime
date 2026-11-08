@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use std::{borrow::Cow, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
 
-const DRAW: &str = include_str!("../shaders/gpu_grass_minimal.wgsl");
+const DRAW: &str = include_str!("../shaders/gpu_grass_minimal.wesl");
 const QUERY: &str = r#"
 struct PoseResult {
     x:vec4<f32>, y:vec4<f32>, z:vec4<f32>,
@@ -126,7 +126,7 @@ pub(super) fn validate(device: &wgpu::Device, queue: &wgpu::Queue) {
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
         .unwrap();
-    let bytes = readback.slice(..).get_mapped_range();
+    let bytes = readback.slice(..).get_mapped_range().expect("读回缓冲映射范围必须有效");
     let results: &[[f32; 24]] = bytemuck::cast_slice(&bytes);
     let root = Vec3::new(12.0, 3.0, -8.0);
     for (i, (input, result)) in inputs.iter().zip(results).enumerate() {

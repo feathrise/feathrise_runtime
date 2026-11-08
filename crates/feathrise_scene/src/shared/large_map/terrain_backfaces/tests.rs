@@ -199,7 +199,7 @@ fn terrain_backfaces_only_refreshes_render_inputs_and_restores_temporary_tags() 
             TerrainGridTarget,
             Mesh3d(Handle::default()),
             MeshMaterial3d(original.clone()),
-            MeshTag(42),
+            MeshTag::new(42),
         ))
         .id();
     let untagged = app
@@ -229,13 +229,13 @@ fn terrain_backfaces_only_refreshes_render_inputs_and_restores_temporary_tags() 
             .last_changed(),
         mesh_tick
     );
-    assert_eq!(app.world().get::<MeshTag>(tagged).unwrap().0, 42);
-    assert_eq!(app.world().get::<MeshTag>(untagged).unwrap().0, 0);
+    assert_eq!(app.world().get::<MeshTag>(tagged).unwrap().value, 42);
+    assert_eq!(app.world().get::<MeshTag>(untagged).unwrap().value, 0);
     app.world_mut()
         .resource_mut::<TerrainBackfacesPreview>()
         .enabled = false;
     app.update();
-    assert_eq!(app.world().get::<MeshTag>(tagged).unwrap().0, 42);
+    assert_eq!(app.world().get::<MeshTag>(tagged).unwrap().value, 42);
     assert!(app.world().get::<MeshTag>(untagged).is_none());
     assert_eq!(
         app.world()

@@ -3,7 +3,7 @@
 use std::{
     collections::VecDeque, // 完成结果与关闭态宿主CPU样本使用有界队列。
     sync::{Arc, Mutex},    // 主世界与RenderApp之间只共享固定小型遥测快照。
-    time::Instant,         // 四段GPU诊断时间戳用于拒绝复用旧会话测量。
+    time::Instant,         // GPU诊断时间戳用于拒绝复用旧会话测量。
 };
 
 use bevy::{
@@ -169,6 +169,7 @@ pub(crate) struct DeferredAuxiliaryCameraLeaseState {
 
 /// 提取到RenderApp的只读材质身份表；最多256项且只在成员变化时重建。
 #[derive(Resource, Clone, Debug, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct DeferredRasterBridgeTargets {
     pub(crate) revision: u64,            // 与主世界接管状态使用同一代次。
     pub(crate) ids: Vec<UntypedAssetId>, // 类型擦除后仍由TypeId区分不同材质资产表。
@@ -244,11 +245,11 @@ pub(crate) struct RaytracingRuntime {
     pub(crate) last_warmup_render_frame: u64, // 防止同一遥测快照被重复计数。
     pub(crate) last_warmup_gpu_diagnostic_frame: u64, // 防止半秒内旧诊断或部分更新被重复计数。
     pub(crate) render_telemetry: RenderTelemetrySnapshot, // 最近一次从桥读取的快照。
-    pub(crate) gpu_timings: RaytracingGpuTimings, // 最近四段诊断值。
+    pub(crate) gpu_timings: RaytracingGpuTimings, // 最近一次Solari通道诊断。
     pub(crate) world_cache_active_cells: Option<u32>, // 最近半秒内官方活跃cell诊断；旧会话不得复用。
-    pub(crate) gpu_diagnostics_fresh: bool, // 四段测量都来自最近半秒，不能复用旧会话残值。
-    pub(crate) gpu_diagnostic_frame: u64,   // 四段测量全部换新后才递增一次的完整诊断帧号。
-    pub(crate) last_gpu_diagnostic_stamps: Option<[Instant; 4]>, // 各阶段上次已消费的独立时间戳。
+    pub(crate) gpu_diagnostics_fresh: bool, // 各通道测量都来自最近半秒。
+    pub(crate) gpu_diagnostic_frame: u64,   // 各通道测量全部换新后才递增一次的完整诊断帧号。
+    pub(crate) last_gpu_diagnostic_stamps: Option<[Instant; 3]>, // 各通道上次已消费的独立时间戳。
     pub(crate) pending_rollback: Option<PendingRollback>, // 本帧末尾统一执行的原子撤销。
     pub(crate) disabled_host_samples_ms: VecDeque<f64>, // 最多120份关闭态主世界宿主耗时。
 }

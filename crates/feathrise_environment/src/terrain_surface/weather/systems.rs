@@ -24,7 +24,7 @@ pub(in crate::terrain_surface) fn install_surface_weather(app: &mut App) {
         .resource_mut::<Assets<ShaderBuffer>>() // 只在插件安装创建一次资产。
         .insert(
             surface_weather_buffer_handle().id(),
-            ShaderBuffer::from(SurfaceWeatherGpu::default()),
+            ShaderBuffer::from(vec![SurfaceWeatherGpu::default()]),
         ) // 固定大小且默认COPY_DST。
         .expect("表面天气UUID资产必须可以安装"); // UUID不是可回收索引，正常安装不会失败。
     app.add_systems(
@@ -81,7 +81,9 @@ fn upload_surface_weather(
     } // 无变化时不触发RenderAsset提取或上传。
     if let Some(mut buffer) = buffers.get_mut(surface_weather_buffer_handle().id()) {
         // 固定句柄直接定位。
-        buffer.set_data(*state); // 同尺寸GPU缓冲由Bevy原位写入，CPU编码最多64字节。
+        if let Some([weather]) = buffer.cast_slice_mut::<SurfaceWeatherGpu>() {
+            *weather = *state; // 固定64字节原位更新，GPU缓冲由Bevy复用。
+        }
     } // 资源被宿主卸载时安全跳过。
 } // 完成共享天气上传。
 
@@ -141,19 +143,21 @@ mod tests {
             .add_message::<AssetEvent<TerrainSurfaceMaterial>>(); // 满足正式遮罩绑定系统的资产事件依赖。
         install_surface_weather(&mut app); // 安装正式系统和资产。
         app.update(); // 消费初始化变更。
-        app.world_mut()
+        <bevy::render::storage::GpuShaderBuffer as bevy::render::render_asset::RenderAsset>::take_gpu_data(
+            &mut app.world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .get_mut(surface_weather_buffer_handle().id())
-            .unwrap()
-            .data = None; // 模拟RenderApp已取走CPU上传包。
+            .unwrap(),
+            None,
+        ).unwrap();
         app.update(); // 暂停稳定状态没有任何资源写入。
         assert!(
             app.world()
                 .resource::<Assets<ShaderBuffer>>()
                 .get(surface_weather_buffer_handle().id())
                 .unwrap()
-                .data
-                .is_none()
+                .cast_slice::<u8>()
+            .is_none()
         ); // 不重复制造上传包。
         app.world_mut()
             .resource_mut::<SurfaceWeatherGpu>()
@@ -165,8 +169,7 @@ mod tests {
                 .resource::<Assets<ShaderBuffer>>()
                 .get(surface_weather_buffer_handle().id())
                 .unwrap()
-                .data
-                .as_ref()
+                .cast_slice::<u8>()
                 .unwrap()
                 .len(),
             64

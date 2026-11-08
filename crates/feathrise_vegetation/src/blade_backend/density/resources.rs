@@ -84,6 +84,7 @@ pub(super) enum VegetationGpuBaseJob {
 
 /// 当前最多一个待提取GPU作业。
 #[derive(Clone, Debug, Default, ExtractResource, Resource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(super) struct VegetationGpuMipRequest {
     pub(super) job: Option<VegetationGpuMipJob>, // `None`表示稳定版本或正在等待主世界决定下一层。
 }

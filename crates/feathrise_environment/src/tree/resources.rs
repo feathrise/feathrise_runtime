@@ -55,6 +55,7 @@ pub struct TreeRenderStats {
 
 /// 当前树木原型供RenderApp识别的唯一Mesh资产ID表。
 #[derive(Resource, Clone, Debug, Default, ExtractResource)] // 每帧只提取最多七个轻量ID，不复制Mesh数据。
+#[extract_app(bevy::render::RenderApp)]
 pub struct TreeRenderMonitorConfig {
     pub mesh_ids: Vec<AssetId<Mesh>>, // 地图进入时写入，离场时清空以截断上一地图渲染样本。
     enabled: bool, // 只有F3树木页可临时授权RenderApp扫描，普通游戏帧保持零监控成本。

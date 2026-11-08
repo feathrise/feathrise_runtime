@@ -48,5 +48,5 @@ impl Material for RainHeightMaterial {
 
 pub(super) fn register_shader(app: &mut App) {
     // 水顶点shader已由上层先登记。
-    load_internal_asset!(app, HEIGHT_SHADER, "height.wgsl", Shader::from_wgsl); // 高度shader随程序打包。
+    load_internal_asset!(app, HEIGHT_SHADER, "height.wesl", |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/shared/large_map/water/rain_mask/height.wesl")); // 高度shader随程序打包。
 } // 完成shader安装。

@@ -18,24 +18,24 @@ pub(super) const DYNAMIC_WATER_FRAGMENT_SHADER_HANDLE: Handle<Shader> =
 
 /// 注册共享水面波形库、两个顶点通道入口和透明标准PBR片元入口。
 pub(super) fn register_dynamic_water_shaders(app: &mut App) {
-    load_shader_library!(app, "shaders/water.wgsl"); // 当前帧与历史帧都调用同一份波高和法线核心。
-    load_shader_library!(app, "shaders/reflection.wgsl"); // 同帧屏幕空间反射在透明片元中有限追踪。
+    load_shader_library!(app, "shaders/water.wesl"); // 当前帧与历史帧都调用同一份波高和法线核心。
+    load_shader_library!(app, "shaders/reflection.wesl"); // 同帧屏幕空间反射在透明片元中有限追踪。
     load_internal_asset!(
         app,                                // 向当前应用登记主渲染Shader资产。
         DYNAMIC_WATER_VERTEX_SHADER_HANDLE, // MaterialExtension返回同一固定句柄。
-        "shaders/vertex.wgsl",              // 文件随scene crate一并编译打包。
-        Shader::from_wgsl                   // 保留Bevy的#import、条件定义和绑定组替换。
+        "shaders/vertex.wesl",              // 文件随scene crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/shared/large_map/water/shaders/vertex.wesl")
     ); // 完成主渲染与阴影顶点入口登记。
     load_internal_asset!(
         app,                                 // 向当前应用登记预通道Shader资产。
         DYNAMIC_WATER_PREPASS_SHADER_HANDLE, // 预通道和延迟顶点入口共享该句柄。
-        "shaders/prepass.wgsl",              // 文件随scene crate一并编译打包。
-        Shader::from_wgsl                    // 保留运动向量、预通道和延迟条件编译。
+        "shaders/prepass.wesl",              // 文件随scene crate一并编译打包。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/shared/large_map/water/shaders/prepass.wesl")
     ); // 完成预通道顶点入口登记。
     load_internal_asset!(
         app,                                  // 向当前应用登记逐像素水流Shader资产。
         DYNAMIC_WATER_FRAGMENT_SHADER_HANDLE, // 透明前向材质入口使用同一固定句柄。
-        "shaders/fragment.wgsl", // 文件随scene crate编译并继续复用StandardMaterial PBR。
-        Shader::from_wgsl        // 保留Bevy导入、材质绑定组替换和网格属性条件编译。
+        "shaders/fragment.wesl", // 文件随scene crate编译并继续复用StandardMaterial PBR。
+        |source, _| Shader::from_wesl(source, "embedded://feathrise_scene/shared/large_map/water/shaders/fragment.wesl")
     ); // 完成动态水面片元入口登记。
 } // 完成全部GPU水面Shader注册。

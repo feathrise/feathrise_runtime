@@ -1,4 +1,4 @@
-//! Bevy 0.19 / wgpu 29 的 Windows 交换链呈现保护。
+//! Bevy 0.20 / wgpu 30 的 Windows 交换链呈现保护。
 //!
 //! Bevy 会为 Wayland 窗口设置 `needs_initial_present`，保证没有相机时也提交首个缓冲；
 //! 该标记在 Windows 同样被初始化。NVIDIA Vulkan 驱动可能因此取得尚无生产写入的
@@ -6,7 +6,7 @@
 //! Windows 不需要 Wayland 的首次 buffer commit，因此在 `prepare_windows` 取得交换链
 //! 图像前清除此标记；真正的窗口相机就绪后仍完整使用 Bevy 原生渲染和呈现路径。
 //!
-//! Bevy 0.19 的最终放大节点还有第二条首帧路径：它会先把窗口附件标记为已使用，再在
+//! Bevy 0.20 的最终放大节点还有第二条首帧路径：它会先把窗口附件标记为已使用，再在
 //! blit 管线尚未就绪时直接返回。保护系统紧跟 Core2d/Core3d 的原生放大节点，仅在对应
 //! blit 管线未就绪时向同一命令缓冲补初始化 pass，避免单独提交和稳定帧额外 GPU 工作。
 //!
@@ -33,7 +33,7 @@ use bevy::{
         },
         renderer::{RenderContext, ViewQuery},
         view::ViewTarget,
-        view::window::{ExtractedWindows, create_surfaces, prepare_windows},
+        view::window::{ExtractedWindow, create_surfaces, prepare_windows},
     },
 };
 
@@ -70,8 +70,8 @@ impl Plugin for VulkanSurfaceGuardPlugin {
 }
 
 /// 清除新 Windows 窗口的 Wayland 首次提交标记，避免无相机帧提前取得并呈现交换链图像。
-fn suppress_unrendered_initial_present(mut windows: ResMut<ExtractedWindows>) {
-    for window in windows.values_mut() {
+fn suppress_unrendered_initial_present(mut windows: Query<&mut ExtractedWindow>) {
+    for mut window in &mut windows {
         if window.needs_initial_present {
             window.needs_initial_present = false; // 后续仅在真实窗口相机产生输出时取得和呈现surface。
         }

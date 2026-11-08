@@ -17,8 +17,8 @@ pub(super) fn load_shader(app: &mut App) {
     bevy::asset::load_internal_asset!(
         app,
         resources::WORLD_UI_SHADER,
-        "sample.wgsl",
-        bevy::shader::Shader::from_wgsl
+        "sample.wesl",
+        |source, _| bevy::shader::Shader::from_wesl(source, "embedded://feathrise_frame_generation_ui/ui/world_composite/sample.wesl")
     ); // 不在运行期读取作者文件。
 } // Shader注册结束。
 

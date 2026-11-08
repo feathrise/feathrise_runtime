@@ -30,10 +30,10 @@ use bevy::{
 
 use crate::{
     constants::{
-        DIFFUSE_INDIRECT_DIAGNOSTIC, DIRECT_LIGHTING_DIAGNOSTIC,
         DLSS_RAY_RECONSTRUCTION_CPU_DIAGNOSTIC, DLSS_RAY_RECONSTRUCTION_DIAGNOSTIC,
         EARLY_PREPASS_GPU_DIAGNOSTIC, MAIN_OPAQUE_PASS_GPU_DIAGNOSTIC,
-        MAIN_TRANSPARENT_PASS_GPU_DIAGNOSTIC, SPECULAR_INDIRECT_DIAGNOSTIC,
+        MAIN_TRANSPARENT_PASS_GPU_DIAGNOSTIC, PRESAMPLE_LIGHT_TILES_DIAGNOSTIC,
+        SOLARI_LIGHTING_DIAGNOSTIC,
         WORLD_CACHE_ACTIVE_CELLS_DIAGNOSTIC, WORLD_CACHE_DIAGNOSTIC,
     },
     resources::{
@@ -216,7 +216,7 @@ pub(crate) fn begin_disabled_host_measurement(
     timer.started = (!request.enabled).then(std::time::Instant::now); // 开启态明确清空旧开始值。
 }
 
-/// 把上一完整RenderApp快照和四段GPU诊断同步到生命周期资源。
+/// 把上一完整RenderApp快照和Solari通道GPU诊断同步到生命周期资源。
 pub(crate) fn sync_render_telemetry(
     bridge: Res<RaytracingTelemetryBridge>, // 只读复制锁内固定快照。
     diagnostics: Res<DiagnosticsStore>,     // RenderDiagnosticsPlugin同步回来的主世界存储。
@@ -226,9 +226,8 @@ pub(crate) fn sync_render_telemetry(
         runtime.render_telemetry = *snapshot; // 主线程非阻塞复制；竞争帧沿用上一完整快照。
     }
     runtime.gpu_timings = RaytracingGpuTimings {
-        direct_lighting_ms: diagnostic_value(&diagnostics, &DIRECT_LIGHTING_DIAGNOSTIC),
-        diffuse_indirect_ms: diagnostic_value(&diagnostics, &DIFFUSE_INDIRECT_DIAGNOSTIC),
-        specular_indirect_ms: diagnostic_value(&diagnostics, &SPECULAR_INDIRECT_DIAGNOSTIC),
+        presample_light_tiles_ms: diagnostic_value(&diagnostics, &PRESAMPLE_LIGHT_TILES_DIAGNOSTIC),
+        solari_lighting_ms: diagnostic_value(&diagnostics, &SOLARI_LIGHTING_DIAGNOSTIC),
         world_cache_ms: diagnostic_value(&diagnostics, &WORLD_CACHE_DIAGNOSTIC),
         early_prepass_gpu_ms: fresh_diagnostic_value(&diagnostics, &EARLY_PREPASS_GPU_DIAGNOSTIC), // 包含新增GPU草地运动矢量绘制且过期后立即隐藏。
         main_opaque_pass_gpu_ms: fresh_diagnostic_value(
@@ -259,19 +258,15 @@ pub(crate) fn sync_render_telemetry(
             fresh_diagnostic_value(&diagnostics, &DLSS_RAY_RECONSTRUCTION_DIAGNOSTIC) // 保留原RR GPU时间并统一过期判断。
         })
         .flatten(); // 只在目标相机活动且测量不超过半秒时发布，回退后不复用旧厂商GPU诊断。
-    runtime.gpu_diagnostics_fresh = [
-        &DIRECT_LIGHTING_DIAGNOSTIC,
-        &DIFFUSE_INDIRECT_DIAGNOSTIC,
-        &SPECULAR_INDIRECT_DIAGNOSTIC,
-        &WORLD_CACHE_DIAGNOSTIC,
-    ]
-    .into_iter()
-    .all(|path| diagnostic_is_fresh(&diagnostics, path)); // 旧会话残留值超过半秒后不能通过新预热门。
-    if runtime.gpu_diagnostics_fresh
-        && let Some(stamps) = diagnostic_stamps(&diagnostics)
+    let stamps = diagnostic_stamps(&diagnostics);
+    runtime.gpu_diagnostics_fresh = stamps.is_some_and(|stamps| {
+        stamps.into_iter().all(|stamp| stamp.elapsed().as_secs_f32() <= 0.5)
+    }); // 旧会话残留值超过半秒后不能通过新预热门。
+    if let Some(stamps) = stamps
+        && runtime.gpu_diagnostics_fresh
         && diagnostic_frame_advanced(runtime.last_gpu_diagnostic_stamps, stamps)
     {
-        runtime.last_gpu_diagnostic_stamps = Some(stamps); // 四段时间戳一起提交，部分更新不污染比较基线。
+        runtime.last_gpu_diagnostic_stamps = Some(stamps); // 全部时间戳一起提交，部分更新不污染比较基线。
         runtime.gpu_diagnostic_frame = runtime.gpu_diagnostic_frame.wrapping_add(1).max(1); // 预热只消费完整换新的诊断帧。
     }
 }
@@ -307,7 +302,7 @@ fn diagnostic_is_fresh(diagnostics: &DiagnosticsStore, path: &DiagnosticPath) ->
         .is_some_and(|measurement| measurement.time.elapsed().as_secs_f32() <= 0.5) // 正常帧率下覆盖多个完整渲染帧但排除旧会话。
 }
 
-fn diagnostic_stamps(diagnostics: &DiagnosticsStore) -> Option<[std::time::Instant; 4]> {
+fn diagnostic_stamps(diagnostics: &DiagnosticsStore) -> Option<[std::time::Instant; 3]> {
     let measurement_time = |path: &DiagnosticPath| {
         diagnostics
             .get(path)
@@ -315,16 +310,15 @@ fn diagnostic_stamps(diagnostics: &DiagnosticsStore) -> Option<[std::time::Insta
             .map(|measurement| measurement.time) // 每段保留自己的时间戳，不能用最早或最晚一项代替完整帧。
     };
     Some([
-        measurement_time(&DIRECT_LIGHTING_DIAGNOSTIC)?,
-        measurement_time(&DIFFUSE_INDIRECT_DIAGNOSTIC)?,
-        measurement_time(&SPECULAR_INDIRECT_DIAGNOSTIC)?,
+        measurement_time(&PRESAMPLE_LIGHT_TILES_DIAGNOSTIC)?,
         measurement_time(&WORLD_CACHE_DIAGNOSTIC)?,
+        measurement_time(&SOLARI_LIGHTING_DIAGNOSTIC)?,
     ])
 }
 
 fn diagnostic_frame_advanced(
-    previous: Option<[std::time::Instant; 4]>, // 上次完整提交的四段时间戳。
-    current: [std::time::Instant; 4],          // 本帧主世界看到的四段最新时间戳。
+    previous: Option<[std::time::Instant; 3]>, // 上次完整提交的时间戳。
+    current: [std::time::Instant; 3],          // 本帧主世界看到的最新时间戳。
 ) -> bool {
     previous.is_none_or(|previous| {
         current
@@ -368,7 +362,7 @@ pub(crate) fn finish_disabled_host_measurement(
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant}; // 构造四段同步和部分更新的稳定时间戳。
+    use std::time::{Duration, Instant}; // 构造完整和部分更新的稳定时间戳。
 
     use bevy::diagnostic::{
         Diagnostic,            // 为固定测试路径建立诊断历史。
@@ -377,7 +371,7 @@ mod tests {
         DiagnosticsStore,      // 模拟RenderDiagnosticsPlugin同步后的主世界存储。
     };
 
-    use super::{diagnostic_frame_advanced, fresh_diagnostic_count, fresh_diagnostic_value}; // 同时锁定预热帧判定、计数转换与半秒诊断过期门。
+    use super::{diagnostic_frame_advanced, diagnostic_stamps, fresh_diagnostic_count, fresh_diagnostic_value};
 
     /// 建立只含一个确定测量的固定诊断存储。
     fn diagnostic_store(age: Duration, value: f64) -> (DiagnosticsStore, DiagnosticPath) {
@@ -393,14 +387,29 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_frame_requires_all_four_stages_to_advance() {
+    fn diagnostic_frame_requires_all_solari_spans_to_advance() {
+        // 使用Bevy 0.20实际记录的路径，防止旧版分段名称让预热无法完成。
+        let paths = [
+            "render/solari_lighting/presample_light_tiles/elapsed_gpu",
+            "render/solari_lighting/world_cache/elapsed_gpu",
+            "render/solari_lighting/lighting/elapsed_gpu",
+        ].map(DiagnosticPath::new);
+        let mut diagnostics = DiagnosticsStore::default();
         let base = Instant::now();
-        let previous = [base; 4];
-        let mut partial = previous;
-        partial[0] += Duration::from_millis(1); // 只有直接光换新不能代表完整Solari诊断帧。
-        assert!(!diagnostic_frame_advanced(Some(previous), partial));
-        let complete = [base + Duration::from_millis(1); 4];
-        assert!(diagnostic_frame_advanced(Some(previous), complete)); // 四段全部换新后才允许预热计数。
+        for path in &paths {
+            let mut diagnostic = Diagnostic::new(path.clone());
+            diagnostic.add_measurement(DiagnosticMeasurement { time: base, value: 1.0 });
+            diagnostics.add(diagnostic);
+        }
+        let previous = diagnostic_stamps(&diagnostics);
+        assert_eq!(previous, Some([base; 3]));
+        let next = base + Duration::from_millis(1);
+        for (index, path) in paths.iter().enumerate() {
+            diagnostics.get_mut(path).unwrap()
+                .add_measurement(DiagnosticMeasurement { time: next, value: 1.0 });
+            let current = diagnostic_stamps(&diagnostics).unwrap();
+            assert_eq!(diagnostic_frame_advanced(previous, current), index == paths.len() - 1);
+        }
     }
 
     #[test] // 新鲜样本必须直接进入F1，不能等待额外帧或做平滑替换。
