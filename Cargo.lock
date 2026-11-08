@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_atmosphere"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_hanabi",
@@ -3249,21 +3249,21 @@ dependencies = [
 
 [[package]]
 name = "feathrise_author_tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "feathrise_billboard_text"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
 ]
 
 [[package]]
 name = "feathrise_editor_protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "feathrise_author_tools",
  "serde",
@@ -3273,7 +3273,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_environment"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_app",
@@ -3317,7 +3317,7 @@ checksum = "da6f530dae11f90a2819fff9abfa7c79b958b5532b89621c25fbcf24fda9b9f1"
 
 [[package]]
 name = "feathrise_fps_display"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3333,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_frame_generation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ash",
  "bevy",
@@ -3350,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_frame_generation_ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "feathrise_billboard_text",
@@ -3363,7 +3363,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_fsr3"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "wgpu",
@@ -3372,7 +3372,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_fsr3_frame_generation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ash",
  "bevy",
@@ -3389,7 +3389,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_grounding"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3398,7 +3398,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_map_content"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "serde",
@@ -3409,7 +3409,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_map_terrain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bytemuck",
@@ -3421,7 +3421,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_plugin_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "object",
  "serde",
@@ -3431,7 +3431,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_portal"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "feathrise_billboard_text",
@@ -3441,7 +3441,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_raytracing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_solari",
@@ -3456,7 +3456,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "avian3d",
@@ -3490,11 +3490,11 @@ dependencies = [
 
 [[package]]
 name = "feathrise_runtime_manifest"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "feathrise_scene"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "avian3d",
  "bevy",
@@ -3519,7 +3519,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_scene_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
 ]
@@ -3536,7 +3536,7 @@ dependencies = [
 
 [[package]]
 name = "feathrise_settings"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "feathrise_fsr3",
@@ -3547,14 +3547,14 @@ dependencies = [
 
 [[package]]
 name = "feathrise_ui_widgets"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
 ]
 
 [[package]]
 name = "feathrise_vegetation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bevy",
  "bytemuck",

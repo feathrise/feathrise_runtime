@@ -5,7 +5,7 @@
 # 距离裁剪、可选 TTL 自动销毁）显示在某个实体头顶或任意世界坐标。
 [package]
 name = "feathrise_billboard_text"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Offscreen-baked world-space billboard text for Bevy."
 license = "MIT OR Apache-2.0"

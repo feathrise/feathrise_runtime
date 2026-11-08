@@ -18,6 +18,6 @@ target/debug/feathrise-plugin-meta inspect <插件单文件> --json
 cargo test --locked -p feathrise_plugin_api --features reader-test-support
 ```
 
-发布后可通过 `cargo install feathrise_plugin_api --version "=0.1.0" --locked --features reader --bin feathrise-plugin-meta` 独立安装检查命令。普通插件只依赖默认接口；地图文件传输显式开启 `blob-io`，复用后台有界读写和 SHA-256 身份，不引入编辑器实现。
+发布后可通过 `cargo install feathrise_plugin_api --version "=0.2.0" --locked --features reader --bin feathrise-plugin-meta` 独立安装检查命令。普通插件只依赖默认接口。地图文件传输显式开启 `blob-io`，复用后台有界读写和 SHA-256 身份，不引入编辑器实现。
 
 CLI静态检查所有已实现的格式；安装是否适用于当前平台由调用方再执行 `validate_current_platform`。`reader-test-support` 只给测试生成带真实共享库头的解析夹具，不能用于证明 DLL 加载或完整作者业务通过。Linux/macOS代码需要各自实机另验。

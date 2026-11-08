@@ -54,7 +54,7 @@ ZIP只允许以下八个根目录文件，不接受路径穿越、子目录、�
 
 ```powershell
 git clone https://github.com/feathrise/feathrise_patches.git
-git -C feathrise_patches checkout --detach 3c251d3530980b66e49b4748769db36ae9c6bd5a
+git -C feathrise_patches checkout --detach 019fd1fe13ed9107d17b360b8f5a3df61bfc139a
 $patchRepository = (Resolve-Path './feathrise_patches').Path
 $env:FIDELITYFX_SDK = (Resolve-Path 'C:/SDK/FidelityFX-SDK-v1.1.4').Path
 $env:VULKAN_SDK = (Resolve-Path 'C:/VulkanSDK/1.4.357.0').Path
@@ -67,7 +67,7 @@ $env:FEATHRISE_FSR3_BUILD_FROM_SOURCE = '1'
 对已解包的本 crate 直接构建。首次检查允许 Cargo 按当前依赖和补丁来源更新锁文件，成功后再添加 `--locked` 复验：
 
 ```powershell
-cargo --config (Join-Path $patchRepository '.cargo/config.toml') check --manifest-path 'C:/src/feathrise_fsr3_frame_generation-0.1.0/Cargo.toml'
+cargo --config (Join-Path $patchRepository '.cargo/config.toml') check --manifest-path 'C:/src/feathrise_fsr3_frame_generation-0.2.0/Cargo.toml'
 ```
 
 包内构建脚本按 `CARGO_MANIFEST_DIR/scripts/构建FSR修订运行库.ps1` 定位。源码副本、CMake 缓存和修订运行库默认写入本次 Cargo 私有 `OUT_DIR/fsr3-source/`，不改写 registry 包的源码输入。直接检查解包包时，Cargo 默认的 `target/.../build/<包哈希>/out/fsr3-source/`，以及包内自定义 `--target-dir` 对应的输出都允许使用；脚本核对继承的绝对 `OUT_DIR` 与当前包 `CARGO_MANIFEST_DIR` 身份，不依赖目标目录名。需要复用已有缓存时，可显式将 `FEATHRISE_FSR3_SOURCE_BUILD_ROOT` 设为独立绝对目录，例如现有 `.local/fsr3-sdk-patched`；显式覆盖的目录应放在包源码外，并与官方 SDK 和补丁材料目录分离；包内只允许上述 Cargo 专用生成目录。已有完整 DLL／manifest 仍须通过同一来源校验；半包或未知内容保持拒绝覆盖。

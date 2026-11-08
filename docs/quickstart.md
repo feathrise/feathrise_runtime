@@ -55,10 +55,10 @@ cargo run --locked --example minimal_project -- --capture "$env:TEMP/feathrise-m
 ```toml
 [dependencies]
 bevy = "=0.20.1"
-feathrise_runtime = { version = "0.1.0", path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
+feathrise_runtime = { version = "0.2.0", path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
 ```
 
-下面的配置适用于已发布的 Bevy 0.19.1 版 SDK 0.1.0。将配套 Git 补丁添加到工程根的 `Cargo.toml`。
+Bevy 0.20.1 工程可在 0.2.0 发布后采用[对应的 registry 配方](crates-io.md#sdk-020--bevy-0201)。下面的配置适用于 Bevy 0.19.1 与 SDK 0.1.0。将所选版本的配套 Git 补丁添加到工程根的 `Cargo.toml`。
 
 ```toml
 [dependencies]
