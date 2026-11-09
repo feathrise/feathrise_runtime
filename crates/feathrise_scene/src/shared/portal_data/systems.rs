@@ -304,7 +304,7 @@ fn current_portal_dependency_failure(
 
 /// 资产事件仅设置脏标记；稳定帧不遍历世界或重复解析JSON。
 pub(crate) fn observe_portal_data_events(
-    registry: Option<crate::maps::dynamic_map::sources::MapRuntimeCatalog>,
+    registry: Option<Res<MapContentRegistry>>, // 跨图关系订阅完整目录，不采用只含当前容器的地形投影视图。
     mut manifest_events: feathrise_scene_core::residency::ResidentAssetEventReader<MapManifestAsset>,
     mut portal_events: feathrise_scene_core::residency::ResidentAssetEventReader<MapPortalsAsset>,
     mut boundary_events: feathrise_scene_core::residency::ResidentAssetEventReader<MapBoundariesAsset>,
@@ -363,7 +363,7 @@ pub(crate) fn rebuild_data_driven_portals(
     current_scene: (InstanceRes<State<ScenePhase>>, feathrise_scene_core::residency::InstanceFrame,
         Option<Res<State<ScenePhase>>>, Option<Res<feathrise_map_content::MapInstanceRootRequest>>,
         Option<Res<feathrise_map_content::MapInstanceGraph>>,Option<Res<crate::SubMapRuntimeStatus>>),
-    registry: Option<crate::maps::dynamic_map::sources::MapRuntimeCatalog>,
+    registry: Option<Res<MapContentRegistry>>, // 传送目标属于全局地图目录；源点姿态仍由当前实例frame解释。
     manifests: Res<Assets<MapManifestAsset>>,
     portal_assets: Res<Assets<MapPortalsAsset>>,
     boundary_assets: Res<Assets<MapBoundariesAsset>>,
@@ -506,6 +506,49 @@ mod tests {
     }; // 使用正式公开资产类型验证默认出生点完整解析路径。
 
     use super::*; // 测试私有resolve_target_spawn，确保运行时语义而不只验证Serde。
+
+    #[test]
+    fn cross_map_catalog_updates_invalidate_portals_inside_scoped_map_views() {
+        use feathrise_scene_core::residency::{
+            InstanceResourceTable, MapInstanceContextAppExt, MapRuntimeScope, MapSourceFrame,
+        };
+
+        let mut app = App::new();
+        app.init_instance_resource::<MapContentRegistry>()
+            .init_instance_resource::<MapPortalRuntimeState>()
+            .init_resource::<ActiveDynamicMap>()
+            .add_message::<AssetEvent<MapManifestAsset>>()
+            .add_message::<AssetEvent<MapPortalsAsset>>()
+            .add_message::<AssetEvent<MapBoundariesAsset>>()
+            .add_systems(Update, observe_portal_data_events);
+        let instance = app.world_mut().spawn_empty().id();
+        app.insert_resource(MapRuntimeScope {
+            instance: Some(instance), frame: MapSourceFrame::default(),
+        });
+        app.world_mut().resource_mut::<MapContentRegistry>().revision = 7;
+        app.world_mut().resource_mut::<InstanceResourceTable<MapContentRegistry>>()
+            .values.insert(instance, MapContentRegistry { revision: 3, ..default() });
+        app.world_mut().resource_mut::<InstanceResourceTable<MapPortalRuntimeState>>()
+            .values.insert(instance, MapPortalRuntimeState {
+                dirty: false, catalog_revision: 3, ..default()
+            });
+
+        // 当前实例只持有自己的投影，目标地图的新目录仍必须唤醒这份传送图。
+        app.update();
+        let state = &mut app.world_mut()
+            .resource_mut::<InstanceResourceTable<MapPortalRuntimeState>>().values;
+        assert!(state[&instance].dirty);
+        let state = state.get_mut(&instance).unwrap();
+        state.dirty = false;
+        state.catalog_revision = 7;
+        app.update();
+        assert!(!app.world().resource::<InstanceResourceTable<MapPortalRuntimeState>>()
+            .values[&instance].dirty); // 目录稳定时不反复解析。
+        app.world_mut().resource_mut::<MapContentRegistry>().revision = 8;
+        app.update();
+        assert!(app.world().resource::<InstanceResourceTable<MapPortalRuntimeState>>()
+            .values[&instance].dirty);
+    }
 
     #[test]
     fn local_arrivals_follow_only_the_selected_instance_frame() {
