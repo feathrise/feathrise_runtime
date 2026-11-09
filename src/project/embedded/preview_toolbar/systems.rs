@@ -1,5 +1,6 @@
 //! 三个按钮的局部状态与显示租约；复用模型三角线框、Avian调试组和原模式请求。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::{components::*, resources::*, ui};
 use crate::project::embedded::EmbeddedProjectState;
 use bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseButtonInput,
@@ -52,12 +53,12 @@ pub(in crate::project::embedded) fn take_return_request(world: &mut World) -> bo
 }
 
 pub(super) fn interact(world: &mut World,
-    mut buttons: Local<Option<QueryState<(&ToolbarAction, &Interaction), Changed<Interaction>>>>,
+    mut buttons: Local<Option<QueryState<(&ToolbarAction, &UiInteraction), Changed<UiInteraction>>>>,
 ) {
     if world.resource::<EmbeddedProjectState>().mode != Mode::Playing { return; }
     let actions: Vec<_> = buttons.get_or_insert_with(||world.query_filtered::<
-        (&ToolbarAction, &Interaction), Changed<Interaction>>()).iter(world)
-        .filter_map(|(action, interaction)| (*interaction == Interaction::Pressed).then_some(*action))
+        (&ToolbarAction, &UiInteraction), Changed<UiInteraction>>()).iter(world)
+        .filter_map(|(action, interaction)| (*interaction == UiInteraction::Pressed).then_some(*action))
         .take(3).collect();
     let Some(mut state) = world.remove_resource::<PreviewToolbarState>() else { return; };
     if state.baseline.is_some() {
@@ -102,7 +103,7 @@ pub(super) fn present(
     mut roots: Query<(&mut Node, &mut UiTargetCamera), With<ToolbarRoot>>,
     primary: Query<(Entity, &Camera), (With<PrimarySceneView>, Without<ToolbarCamera>)>,
     mut cameras: Query<(Entity, &mut Camera), With<ToolbarCamera>>,
-    mut buttons: Query<(&ToolbarAction, &Interaction, &mut BackgroundColor)>,
+    mut buttons: Query<(&ToolbarAction, &UiInteraction, &mut BackgroundColor)>,
 ) {
     let playing = project.mode == Mode::Playing;
     let primary = primary.single().ok().filter(|(_, camera)| camera.is_active).map(|(entity, _)| entity);
@@ -124,11 +125,11 @@ pub(super) fn present(
             ToolbarAction::Collision => state.collision,
         };
         let color = match (*interaction, selected) {
-            (Interaction::Pressed, true) => Color::srgba(0.27, 0.52, 0.69, 1.0),
-            (Interaction::Hovered, true) => Color::srgba(0.23, 0.45, 0.60, 0.98),
+            (UiInteraction::Pressed, true) => Color::srgba(0.27, 0.52, 0.69, 1.0),
+            (UiInteraction::Hovered, true) => Color::srgba(0.23, 0.45, 0.60, 0.98),
             (_, true) => ui::SELECTED,
-            (Interaction::Pressed, false) => Color::srgba(0.31, 0.38, 0.47, 1.0),
-            (Interaction::Hovered, false) => ui::HOVERED,
+            (UiInteraction::Pressed, false) => Color::srgba(0.31, 0.38, 0.47, 1.0),
+            (UiInteraction::Hovered, false) => ui::HOVERED,
             _ => ui::NORMAL,
         };
         background.set_if_neq(BackgroundColor(color));
@@ -148,7 +149,7 @@ pub(super) fn restore_pointer(
 pub(super) fn capture_pointer(
     project: Res<EmbeddedProjectState>,
     mut pointer: ResMut<ToolbarPointerInput>,
-    targets: Query<&Interaction, With<ToolbarPointer>>,
+    targets: Query<&UiInteraction, With<ToolbarPointer>>,
     mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     motion: Option<ResMut<AccumulatedMouseMotion>>,
     scroll: Option<ResMut<AccumulatedMouseScroll>>,
@@ -157,7 +158,7 @@ pub(super) fn capture_pointer(
     wheels: Option<ResMut<Messages<MouseWheel>>>,
 ) {
     if project.mode != Mode::Playing
-        || (!pointer.capturing && !targets.iter().any(|interaction| *interaction != Interaction::None)) { return; }
+        || (!pointer.capturing && !targets.iter().any(|interaction| *interaction != UiInteraction::None)) { return; }
     // UiFocus已经消费本帧输入；原值移动到小型资源，玩法只见空值。
     // 不能永久reset_all，否则真实WM_LBUTTONUP无法产生just_released，按钮会一直Pressed而拒绝第二次点击。
     // 按住移出工具条仍持续占用到真实松开，避免拖出时把UI点击的held状态交给玩法。

@@ -1,5 +1,6 @@
 //! 真实窗口消息经官方鼠标输入生产者与原控件，不能直接注入业务Changed/Committed冒充手势。
 
+use crate::UiInteraction;
 use super::*;
 use bevy::{camera::RenderTarget, ecs::message::MessageUpdateSystems,
     input::{InputPlugin, ButtonState, keyboard::{Key, KeyboardInput}, mouse::MouseButtonInput},
@@ -38,7 +39,7 @@ fn escape(app: &mut App, window: Entity) {
 fn numeric_scrub_ordered_same_frame_press_move_release_commits_once() {
     let (mut app, root, window) = fixture();
     // 整笔发生在一次Update之间，帧末已经离开字段；不能靠Hover或末坐标补造按下点。
-    app.world_mut().entity_mut(root).insert((Interaction::None, RelativeCursorPosition::default()));
+    app.world_mut().entity_mut(root).insert((UiInteraction::None, RelativeCursorPosition::default()));
     cursor(&mut app, window, 100.);
     button(&mut app, window, ButtonState::Pressed);
     cursor(&mut app, window, 200.);

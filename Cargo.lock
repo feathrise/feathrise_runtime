@@ -3329,6 +3329,7 @@ dependencies = [
  "feathrise_scene",
  "feathrise_scene_core",
  "feathrise_settings",
+ "feathrise_ui_widgets",
 ]
 
 [[package]]
@@ -3477,6 +3478,7 @@ dependencies = [
  "feathrise_scene",
  "feathrise_scene_core",
  "feathrise_settings",
+ "feathrise_ui_widgets",
  "feathrise_vegetation",
  "raw-window-handle",
  "serde",

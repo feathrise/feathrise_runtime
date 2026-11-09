@@ -1,3 +1,4 @@
+use crate::UiInteraction;
 // 数字输入交互主循环：统一处理步进、焦点、键盘编辑、提交与取消。
 
 use crate::InteractionButton;
@@ -19,7 +20,7 @@ type NumericTextQueryData = (&'static NumericInputDisplayText, &'static mut Text
 /// 字段按钮视觉查询数据。
 type NumericFieldQueryData = (
     &'static NumericInputFieldButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut ButtonColors,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
@@ -32,16 +33,16 @@ pub struct NumericInputInteractions<'w, 's> {
     step_buttons: Query<
         'w,
         's,
-        (&'static Interaction, &'static NumericInputStepButton),
-        Changed<Interaction>,
+        (&'static UiInteraction, &'static NumericInputStepButton),
+        Changed<UiInteraction>,
     >,
     field_clicks: Query<
         'w,
         's,
-        (&'static Interaction, &'static NumericInputFieldButton),
-        Changed<Interaction>,
+        (&'static UiInteraction, &'static NumericInputFieldButton),
+        Changed<UiInteraction>,
     >,
-    field_states: Query<'w, 's, (&'static Interaction, &'static NumericInputFieldButton)>,
+    field_states: Query<'w, 's, (&'static UiInteraction, &'static NumericInputFieldButton)>,
     keyboard_inputs: MessageReader<'w, 's, KeyboardInput>,
     pub(super) keyboard: Res<'w, ButtonInput<KeyCode>>,
     pub(super) mouse: Res<'w, ButtonInput<MouseButton>>, // 拖动扩展与普通失焦提交共享同一鼠标边沿。
@@ -50,7 +51,7 @@ pub struct NumericInputInteractions<'w, 's> {
         's,
         (
             &'static NumericInputFieldButton, // 字段反查业务数字输入根。
-            &'static Interaction,             // Bevy命中测试只把真正顶层字段标记为Hover/Pressed。
+            &'static UiInteraction,             // Bevy命中测试只把真正顶层字段标记为Hover/Pressed。
             &'static RelativeCursorPosition,  // 鼠标离开字段后仍保留相对拖动坐标。
             &'static ComputedNode,            // 归一化X乘物理宽度得到稳定像素阈值。
         ),
@@ -192,7 +193,7 @@ pub fn numeric_input_system(
         .find_map(|(interaction, button)| {
             (button.root == active_root).then_some(matches!(
                 *interaction,
-                Interaction::Hovered | Interaction::Pressed
+                UiInteraction::Hovered | UiInteraction::Pressed
             ))
         })
         .unwrap_or(false);

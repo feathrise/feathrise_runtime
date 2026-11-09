@@ -5,11 +5,26 @@ use bevy::ui::FocusPolicy;
 
 use crate::types::{NumericInputScrubMapping, NumericInputSpec, NumericValue};
 
-/// 保留游戏和编辑器现有按钮的三态与命中规则，由各业务系统决定何时执行操作。
-#[allow(deprecated, reason = "现有共享控件仍由 Bevy UI 的 Interaction 驱动")]
+/// 共享控件的稳定三态视图；由现代拾取的 Hovered 和仅主键的 Pressed 投影。
+/// 保留 Changed 检测和作者原生命中覆盖，不把任意鼠标键聚合成一次按钮按下。
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+#[reflect(Component, Default)]
+#[require(bevy::picking::hover::Hovered)]
+pub enum UiInteraction {
+    Pressed,
+    Hovered,
+    #[default]
+    None,
+}
+
+/// 取消、失焦或隐藏后等待本次主键松开，不能在重新显示时重放旧按下。
+#[derive(Component)]
+pub(crate) struct UiInteractionCancelled;
+
+/// 共用控件只声明命中根；点击事务仍由具体游戏或编辑器业务处理。
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
 #[reflect(Component)]
-#[require(Node, FocusPolicy::Block, Interaction)]
+#[require(Node, FocusPolicy::Block, UiInteraction)]
 pub struct InteractionButton;
 
 /// Three-state button colors reused across UI crates.

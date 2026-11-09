@@ -15,13 +15,16 @@ mod gpu_tests;
 use bevy::prelude::*;
 
 pub(super) fn install(app: &mut App) {
+    if !app.is_plugin_added::<feathrise_ui_widgets::UiInteractionPlugin>() {
+        app.add_plugins(feathrise_ui_widgets::UiInteractionPlugin);
+    }
     hud::install(app);
     app.init_resource::<resources::PreviewToolbarState>()
         .init_resource::<resources::ToolbarPointerInput>()
         .add_systems(Startup, ui::spawn)
         .add_systems(PreUpdate, systems::restore_pointer.before(bevy::input::InputSystems))
         // UI 已消费点击之后、原生自由相机和玩法读取之前，阻止工具条鼠标穿透。
-        .add_systems(PreUpdate, systems::capture_pointer.after(bevy::ui::UiSystems::Focus))
+        .add_systems(PreUpdate, systems::capture_pointer.after(feathrise_ui_widgets::UiInteractionSystems::Sync))
         .add_systems(Update, systems::interact.before(super::systems::drive))
         .add_systems(Update, systems::present.after(super::systems::drive))
         .add_systems(PostUpdate, systems::synchronize_mesh_wire.after(super::author_view::sync)

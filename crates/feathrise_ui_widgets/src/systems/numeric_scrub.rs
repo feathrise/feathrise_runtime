@@ -3,6 +3,7 @@
 //! 【功能设计】左键只负责实际值拖动，右键只负责字段灵敏度，中键进入精确输入；
 //! 一旦左键越过阈值，松开只提交一次结果。右拖也只在松开时通知持久化，避免逐帧写设置文件。
 
+use crate::UiInteraction;
 use super::*; // 复用数字输入根查询、格式化、提交消息与显示文本刷新入口。
 use bevy::ui::RelativeCursorPosition; // 字段归一化坐标换算为物理像素拖动距离。
 
@@ -40,12 +41,12 @@ fn has_conflicting_mouse_button(
         }) // 同帧刚结束的旧操作也先获得收口机会，下一静默帧才允许新事务。
 }
 
-/// 只接受Bevy UI命中系统选出的真正顶层字段；几何重叠但被遮挡的根保持`Interaction::None`。
+/// 只接受Bevy UI命中系统选出的真正顶层字段；几何重叠但被遮挡的根保持`UiInteraction::None`。
 fn pointer_targets_field(
-    interaction: &Interaction, // 顶层命中由Bevy UI堆叠与FocusPolicy统一裁决。
+    interaction: &UiInteraction, // 顶层命中由Bevy UI堆叠与FocusPolicy统一裁决。
     cursor: &RelativeCursorPosition, // 仍复核光标位于字段几何范围内。
 ) -> bool {
-    matches!(*interaction, Interaction::Hovered | Interaction::Pressed) && cursor.cursor_over()
+    matches!(*interaction, UiInteraction::Hovered | UiInteraction::Pressed) && cursor.cursor_over()
 }
 
 /// 返回字段当前相对光标的物理像素X；归一化坐标以节点中心为零。

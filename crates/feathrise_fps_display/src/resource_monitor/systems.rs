@@ -1,6 +1,7 @@
 //! F3分页资源监控的输入、显隐与低频刷新系统。
 //! UI实体创建位于`ui`模块；本文件只决定当前页，并且每个半秒周期只采样、格式化该页。
 
+use feathrise_ui_widgets::UiInteraction;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}; // 总览与植被验收读取同一平滑帧诊断。
 use bevy::ecs::system::SystemParam; // 把四页可选采样依赖组合成具名参数集。
 use bevy::prelude::*; // 引入输入、查询、颜色和资源类型。
@@ -35,7 +36,7 @@ use crate::resources::{ResourceMonitorGroup, ResourceMonitorPage, ResourceMonito
 
 type ResourceMonitorGroupButtonData = (
     &'static ResourceMonitorGroupButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
     &'static mut Node,
@@ -43,7 +44,7 @@ type ResourceMonitorGroupButtonData = (
 type ResourceMonitorGroupButtonFilter = Without<ResourceMonitorTabButton>;
 type ResourceMonitorTabButtonData = (
     &'static ResourceMonitorTabButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
     &'static mut Node,
@@ -140,7 +141,7 @@ pub(super) fn select_resource_monitor_page(
     }
     let mut requested_group = None; // 本帧最多接受一个顶层组按下。
     for (button, interaction, _, _, _) in &mut group_q {
-        if *interaction == Interaction::Pressed && first_available_page(button.group, bindings.as_deref()).is_some() {
+        if *interaction == UiInteraction::Pressed && first_available_page(button.group, bindings.as_deref()).is_some() {
             requested_group = Some(button.group); // 保存用户点击组，下一段统一切换默认叶子页。
         } // 悬停只影响样式。
     } // 完成五个顶层组输入扫描。
@@ -153,7 +154,7 @@ pub(super) fn select_resource_monitor_page(
     } // 完成顶层组状态更新。
     let mut requested_page = None; // 本帧最多接受一个鼠标按下页签。
     for (tab, interaction, _, _, _) in &mut tab_q {
-        if *interaction == Interaction::Pressed && tab.page.group() == state.group && page_available(tab.page, bindings.as_deref()) {
+        if *interaction == UiInteraction::Pressed && tab.page.group() == state.group && page_available(tab.page, bindings.as_deref()) {
             requested_page = Some(tab.page); // 保存用户点击页，下一段统一更新资源状态。
         } // 非当前组隐藏按钮不能切换正文。
     } // 完成当前组二级页签输入扫描。
@@ -169,7 +170,7 @@ pub(super) fn select_resource_monitor_page(
         let selected = button.group == state.group; // 当前顶层组样式优先于鼠标悬停。
         let target_background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94) // 选中组使用深铜底色。
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90) // 未选中悬停组轻微提亮。
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.86) // 普通组保持暗墨木色。
@@ -195,7 +196,7 @@ pub(super) fn select_resource_monitor_page(
         let selected = tab.page == state.page; // 当前页样式优先于鼠标悬停。
         let target_background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94) // 选中页使用清晰但克制的深铜底色。
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90) // 未选中悬停页轻微提亮。
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.86) // 普通页签保持暗墨木色。
@@ -365,7 +366,7 @@ mod page_binding_tests {
         world.insert_resource(ResourceMonitorState { visible: true, group: ResourceMonitorGroup::Crops,
             page: ResourceMonitorPage::Wheat, ..Default::default() });
         for group in ResourceMonitorGroup::ALL {
-            world.spawn((ResourceMonitorGroupButton { group }, bevy::ui::FocusPolicy::Block, Interaction::None,
+            world.spawn((ResourceMonitorGroupButton { group }, bevy::ui::FocusPolicy::Block, UiInteraction::None,
                 BackgroundColor::default(), BorderColor::default(), Node::default()));
         }
         world.run_system_once(select_resource_monitor_page).expect("动态页签查询不冲突");

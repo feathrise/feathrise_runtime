@@ -14,7 +14,8 @@ use bevy::{
 
 pub(super) fn install(app: &mut App) {
     app.add_systems(PreUpdate, clear_suspended
-        .after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus))
+        .after(bevy::input::InputSystems).before(bevy::ui::UiSystems::Focus)
+        .before(bevy::picking::PickingSystems::ProcessInput))
         .add_systems(Last, clear_suspended);
 }
 
@@ -42,6 +43,8 @@ pub(super) fn clear(world: &mut World) {
     clear_messages::<MouseWheel>(world);
     clear_messages::<CursorMoved>(world);
     clear_messages::<Ime>(world);
+    // 现代拾取在 First 已生成原始指针消息；交接时必须在拾取消费前一并丢弃。
+    clear_messages::<bevy::picking::pointer::PointerInput>(world);
 }
 
 fn clear_messages<M: bevy::ecs::message::Message>(world: &mut World) {

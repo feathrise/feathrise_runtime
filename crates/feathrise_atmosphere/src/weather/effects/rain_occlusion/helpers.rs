@@ -34,6 +34,6 @@ pub(super) fn capture_view(center: Vec3, velocity: Vec3) -> Option<(Transform, M
     let snapped = (local / pixel).round() * pixel; // 避免亚像素移动令屋檐闪烁。
     let origin = rotation * snapped - direction * UPSTREAM; // 上游捕获完整局部建筑。
     let transform = Transform::from_translation(origin).with_rotation(rotation); // 相机没有父节点。
-    let clip = Mat4::orthographic_rh(-SPAN * 0.5, SPAN * 0.5, -SPAN * 0.5, SPAN * 0.5, DEPTH, 0.0); // Bevy反向深度近1远0。
+    let clip = bevy::math::proj::orthographic(-SPAN * 0.5, SPAN * 0.5, -SPAN * 0.5, SPAN * 0.5, DEPTH, 0.0); // 沿用右手系和[0,1]深度；交换近远面保持Bevy反向深度近1远0。
     Some((transform, clip * transform.to_matrix().inverse())) // 同批返回真实视图和投影。
 } // 纯函数结束。

@@ -3,6 +3,7 @@
 //! 【功能设计】业务只提供稳定marker、初值、数值规格和拖动规格；公共控件统一拥有
 //! 左键拖实际值、右键拖独立灵敏度、中键进入精确输入的视觉与命中结构。
 
+use crate::UiInteraction;
 use crate::InteractionButton;
 use bevy::prelude::*; // 构建公共UI实体、文本、颜色和字体组件。
 use bevy::ui::{FocusPolicy, OverrideClip, RelativeCursorPosition}; // 提示越过窄框裁切，子视觉仍穿透命中。
@@ -108,7 +109,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
         palette.input,                     // 焦点刷新沿用字段自身的主题。
         options.scrub,                     // 启用左值、右灵敏度和中键精确输入专业手势。
         InteractionButton,                            // 复用公共字段交互与视觉系统。
-        Interaction::default(),            // 首帧从无交互状态开始。
+        UiInteraction::default(),            // 首帧从无交互状态开始。
         RelativeCursorPosition::default(), // 水平相对坐标驱动与帧率无关的总位移拖动。
         FocusPolicy::Block,                // 整个属性框消费鼠标，不能点透至游戏视口。
         Node {
@@ -137,6 +138,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
         field.spawn((
             NumericInputProgressFill { root: root_entity }, // 公共系统自动同步当前值进度。
             FocusPolicy::Pass,                              // 绝对底色不能截获根的三种鼠标手势。
+            Pickable::IGNORE,                               // 现代拾取也把装饰命中交给属性框根。
             Node {
                 position_type: PositionType::Absolute, // 填充位于文字下方且不参与横向布局。
                 left: Val::Px(0.0),                    // 从属性框左边缘开始增长。
@@ -150,6 +152,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
         field.spawn((
             Text::new(options.label), // 左侧显示业务属性名。
             FocusPolicy::Pass,        // 文字命中穿透给整个属性框。
+            Pickable::IGNORE,
             TextFont {
                 font: font.clone().into(),               // 与调用侧UI共享字体句柄。
                 font_size: style.label_font_size.into(), // 标签使用较低视觉层级字号。
@@ -162,6 +165,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
             NumericInputScrubValueText { root: root_entity }, // 右拖倍率另用鼠标旁提示，业务值和原精度继续可见。
             Text::new(display),                               // 首帧立即显示规范化业务值。
             FocusPolicy::Pass,                                // 数值文字不截获中键或左右拖动。
+            Pickable::IGNORE,
             TextFont {
                 font: font.clone().into(),               // 复用同一字体资产。
                 font_size: style.value_font_size.into(), // 数值略大形成中心焦点。
@@ -175,6 +179,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
                 NumericInputScrubValueText { root: root_entity }, // 倍率反馈期间仍保留米、角度等业务单位。
                 Text::new(options.unit), // 只在非空时生成单位，避免无意义布局间隔。
                 FocusPolicy::Pass,       // 单位文字同样穿透给属性框根。
+                Pickable::IGNORE,
                 TextFont {
                     font: font.clone().into(), // 临时倍率反馈继续共享同一字体资产。
                     font_size: style.unit_font_size.into(), // 单位使用最小辅助字号。

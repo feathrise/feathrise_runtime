@@ -1,6 +1,7 @@
 //! F3分页资源监控面板的实体创建。
 //! 本模块只创建标题、两级页签、共享LOD控件和十份互斥正文；输入、采样与报告构建由其他子模块负责。
 
+use feathrise_ui_widgets::UiInteraction;
 use bevy::prelude::*; // 引入Commands、UI组件、字体和颜色类型。
 use bevy::text::LineHeight; // Bevy 0.18未从prelude导出行高组件。
 use bevy::ui::FocusPolicy; // 根和正文允许输入穿透，只有页签按钮消费鼠标。
@@ -40,6 +41,7 @@ fn spawn_resource_monitor_panel_with_font(
             BorderColor::all(Color::srgba(0.745, 0.529, 0.243, 0.56)), // 使用规范铜金细边。
             Visibility::Hidden,            // 启动时隐藏，由F3显式打开。
             FocusPolicy::Pass,             // 根节点不拦截鼠标，页签按钮自行消费点击。
+            Pickable::IGNORE,              // 现代拾取不读取 FocusPolicy，根与装饰均显式透传。
             GlobalZIndex(260),             // 位于普通HUD与右上角FPS之上。
         ))
         .with_children(|panel| {
@@ -57,14 +59,15 @@ fn spawn_resource_monitor_panel_with_font(
                 },
                 LineHeight::RelativeToFont(DIAGNOSTIC_LINE_HEIGHT), // 标题沿用紧凑行高。
                 FocusPolicy::Pass,                                  // 标题不截获鼠标。
+                Pickable::IGNORE,
             )); // 完成标题创建。
             panel
-                .spawn((resource_monitor_tabs_node(), FocusPolicy::Pass)) // 横向页签容器不自行截获输入。
+                .spawn((resource_monitor_tabs_node(), FocusPolicy::Pass, Pickable::IGNORE)) // 横向页签容器不自行截获输入。
                 .with_children(|tabs| {
                     for group in ResourceMonitorGroup::ALL {
                         let selected = group == ResourceMonitorGroup::Overview; // 默认总览组在首次显示前已经具有选中样式。
                         tabs.spawn((
-                            Interaction::None, // 保留监视器的悬停与按压交互。
+                            UiInteraction::None, // 保留监视器的悬停与按压交互。
                             ResourceMonitorGroupButton { group }, // 点击后切换顶层功能组。
                             resource_monitor_tab_node(),          // 五个按钮使用一致尺寸。
                             BackgroundColor(if selected {
@@ -88,17 +91,18 @@ fn spawn_resource_monitor_panel_with_font(
                             },
                             TextColor(Color::srgba(0.94, 0.88, 0.73, 0.96)), // 铜木底上的浅米金文字。
                             FocusPolicy::Pass, // 按钮文字不建立第二个鼠标消费层。
+                            Pickable::IGNORE,
                         )); // 完成当前分页按钮和标签。
                     } // 完成五个固定分页按钮创建。
                 }); // 完成顶部功能组行。
             let mut sub_tabs_node = resource_monitor_tabs_node(); // 二级页签继续横向紧凑排列。
             sub_tabs_node.display = Display::None; // 默认总览没有二级页，整行完全退出布局。
             panel
-                .spawn((ResourceMonitorSubTabRow, sub_tabs_node, FocusPolicy::Pass)) // 二级容器只在作物或景观物组显示。
+                .spawn((ResourceMonitorSubTabRow, sub_tabs_node, FocusPolicy::Pass, Pickable::IGNORE)) // 二级容器只在作物或景观物组显示。
                 .with_children(|tabs| {
                     for page in ResourceMonitorPage::SUBTABS {
                         tabs.spawn((
-                            Interaction::None, // 保留监视器的悬停与按压交互。
+                            UiInteraction::None, // 保留监视器的悬停与按压交互。
                             ResourceMonitorTabButton { page }, // 点击后切换当前组内叶子页。
                             resource_monitor_subtab_node(false), // 默认总览组下全部二级按钮退出布局。
                             BackgroundColor(Color::srgba(0.055, 0.044, 0.035, 0.86)), // 未选中二级页使用暗墨木色。
@@ -114,6 +118,7 @@ fn spawn_resource_monitor_panel_with_font(
                             },
                             TextColor(Color::srgba(0.94, 0.88, 0.73, 0.96)), // 暗铜底上的浅米金文字。
                             FocusPolicy::Pass, // 按钮文字不建立第二个鼠标消费层。
+                            Pickable::IGNORE,
                         )); // 完成当前二级按钮和标签。
                     } // 完成七个故道植被、作物与景观物叶子按钮。
                 }); // 完成二级页签行。
@@ -124,6 +129,7 @@ fn spawn_resource_monitor_panel_with_font(
                     BackgroundColor(Color::srgba(0.044, 0.036, 0.030, 0.64)), // 使用规范暗墨半透明分区底。
                     BorderColor::all(Color::srgba(0.520, 0.380, 0.190, 0.38)), // 使用规范弱铜细边。
                     FocusPolicy::Pass, // 正文容器不截获鼠标。
+                    Pickable::IGNORE,
                 ))
                 .with_children(|content| {
                     for page in ResourceMonitorPage::ALL {
@@ -144,6 +150,7 @@ fn spawn_resource_monitor_panel_with_font(
                             LineHeight::RelativeToFont(DIAGNOSTIC_LINE_HEIGHT), // 紧凑行高控制当前页总高度。
                             resource_monitor_text_node(page == ResourceMonitorPage::Overview), // 默认仅总览参与布局，其他页使用Display::None彻底退出排版。
                             FocusPolicy::Pass, // 报告文字不截获鼠标。
+                            Pickable::IGNORE,
                         )); // 完成当前分页正文实体。
                     } // 完成十份互斥正文创建。
                 }); // 完成统一正文分区。

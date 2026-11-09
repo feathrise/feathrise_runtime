@@ -2,6 +2,12 @@
 
 use bevy::prelude::*;
 
+/// 只记住上轮实际命中的少量控件，离开时局部清理；稳定帧不扫描全部三态实体。
+#[derive(Resource, Default)]
+pub(crate) struct UiInteractionTargets {
+    pub(crate) hovered: bevy::ecs::entity::EntityHashSet,
+}
+
 use crate::types::{NumericInputScrubButton, NumericValue}; // 拖动捕获保存按键职责和按下时数值快照。
 
 #[derive(Resource, Default, Debug)]

@@ -27,6 +27,9 @@ pub struct FpsDisplayPlugin;
 
 impl Plugin for FpsDisplayPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<feathrise_ui_widgets::UiInteractionPlugin>() {
+            app.add_plugins(feathrise_ui_widgets::UiInteractionPlugin);
+        }
         app.add_plugins(FrameTimeDiagnosticsPlugin::default());
         app.init_resource::<FpsDisplayFont>(); // 保留宿主预先提供的字体；不隐式读取原游戏字体目录。
         app.insert_resource(resources::FpsRefreshTimer(Timer::from_seconds(

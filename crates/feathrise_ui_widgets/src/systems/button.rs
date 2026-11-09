@@ -1,3 +1,4 @@
+use crate::UiInteraction;
 // 通用按钮视觉系统：只负责补齐三态颜色并响应Bevy交互状态。
 
 use crate::InteractionButton;
@@ -29,13 +30,13 @@ pub fn ensure_button_colors_system(mut commands: Commands, missing: MissingButto
 
 /// Drive shared button hover/pressed visuals.
 pub fn button_color_system(
-    mut query: Query<(&Interaction, &ButtonColors, &mut BackgroundColor), Changed<Interaction>>,
+    mut query: Query<(&UiInteraction, &ButtonColors, &mut BackgroundColor), Changed<UiInteraction>>,
 ) {
     for (interaction, colors, mut bg) in &mut query {
         bg.0 = match interaction {
-            Interaction::Pressed => colors.pressed,
-            Interaction::Hovered => colors.hovered,
-            Interaction::None => colors.normal,
+            UiInteraction::Pressed => colors.pressed,
+            UiInteraction::Hovered => colors.hovered,
+            UiInteraction::None => colors.normal,
         };
     }
 }

@@ -2,6 +2,7 @@
 //! 数值类型、消息、焦点与拖动捕获只有一份；主题库只提供视觉参数。
 pub mod components;
 pub mod helpers;
+mod interaction;
 pub mod messages;
 pub mod resources;
 mod systems;
@@ -11,6 +12,7 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 pub use components::*;
 pub use helpers::*;
+pub use interaction::UiInteractionPlugin;
 pub use messages::*;
 pub use resources::*;
 pub use systems::{
@@ -28,6 +30,9 @@ pub enum UiWidgetsSystemSet {
 pub struct UiWidgetsPlugin;
 impl Plugin for UiWidgetsPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<UiInteractionPlugin>() {
+            app.add_plugins(UiInteractionPlugin);
+        }
         app.init_resource::<ActiveNumericInput>()
             .init_resource::<ActiveNumericInputScrub>() // 所有界面共用一个指针捕获，不会各自持有一次拖动。
             .init_resource::<DefaultNumericInputPalette>()

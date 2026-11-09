@@ -58,7 +58,7 @@ fn setup(
     let target = images.add(image); // 唯一完整输出身份。
     let transform = Transform::from_xyz(0.0, 16.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z); // 竖直向下，真实雨向相机约定。
     let matrix =
-        Mat4::orthographic_rh(-8.0, 8.0, -8.0, 8.0, 32.0, 0.0) * transform.to_matrix().inverse(); // 与实际相机同一反向正交深度。
+        bevy::math::proj::orthographic(-8.0, 8.0, -8.0, 8.0, 32.0, 0.0) * transform.to_matrix().inverse(); // 与生产路径共用右手零到一反向正交深度。
     commands.insert_resource(RainOcclusionMap {
         image: target.clone(),
         world_to_rain: matrix,

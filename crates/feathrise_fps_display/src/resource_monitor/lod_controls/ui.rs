@@ -1,5 +1,6 @@
 //! F3 四档 LOD 控件的水墨铜木界面、输入与视觉同步。
 
+use feathrise_ui_widgets::UiInteraction;
 use bevy::prelude::*; // 引入UI实体创建、交互查询、颜色和文本类型。
 use bevy::ui::FocusPolicy; // 只有LOD按钮消费鼠标，容器和文字允许输入穿透。
 
@@ -30,11 +31,11 @@ pub(in crate::resource_monitor) struct LodControlButtonLabel {
     action: LodControlAction, // 标签与父按钮共享行为，切页后可刷新成对应档位名称。
 } // 完成按钮标签绑定。
 
-type LodControlInteractionData = (&'static LodControlButton, &'static Interaction);
-type ChangedLodControlInteractionFilter = Changed<Interaction>;
+type LodControlInteractionData = (&'static LodControlButton, &'static UiInteraction);
+type ChangedLodControlInteractionFilter = Changed<UiInteraction>;
 type LodControlVisualData = (
     &'static LodControlButton,
-    &'static Interaction,
+    &'static UiInteraction,
     &'static mut BackgroundColor,
     &'static mut BorderColor,
 );
@@ -61,6 +62,7 @@ pub(in crate::resource_monitor) fn spawn_lod_controls(
             BackgroundColor(Color::srgba(0.044, 0.036, 0.030, 0.72)), // 使用正文同系暗墨半透明底。
             BorderColor::all(Color::srgba(0.520, 0.380, 0.190, 0.44)), // 使用弱铜细边区分诊断控件。
             FocusPolicy::Pass,                                        // 根容器不消费鼠标。
+            Pickable::IGNORE,                                         // 现代拾取同样透传容器，仅由按钮消费。
         ))
         .with_children(|controls| {
             spawn_control_row(
@@ -98,6 +100,7 @@ fn spawn_control_row(
                 ..default()                         // 其余布局使用默认值。
             },
             FocusPolicy::Pass, // 行容器不消费鼠标。
+            Pickable::IGNORE,
         ))
         .with_children(|row| {
             row.spawn((
@@ -113,6 +116,7 @@ fn spawn_control_row(
                     ..default()           // 其余文字布局保持默认。
                 },
                 FocusPolicy::Pass, // 行标题不消费鼠标。
+                Pickable::IGNORE,
             )); // 完成行标题。
             for level in 0..LOD_LEVEL_COUNT {
                 spawn_action_button(row, font, action_for_level(level)); // 当前档位绑定本行确定性行为。
@@ -136,7 +140,7 @@ fn spawn_action_button(
     }; // 完成按行为选择稳定按钮宽度。
     parent
         .spawn((
-            Interaction::None, // 保留监视器的悬停与按压交互。
+            UiInteraction::None, // 保留监视器的悬停与按压交互。
             LodControlButton { action }, // 保存当前按钮行为供输入系统读取。
             Node {
                 width: Val::Px(button_width), // 使用稳定宽度避免状态文字切换时抖动。
@@ -161,6 +165,7 @@ fn spawn_action_button(
             },
             TextColor(Color::srgba(0.94, 0.88, 0.73, 0.96)), // 暗铜底上的浅米金文字。
             FocusPolicy::Pass,                               // 标签不建立第二个鼠标消费层。
+            Pickable::IGNORE,
         )); // 完成LOD操作按钮与标签。
 } // 完成单按钮创建。
 
@@ -178,7 +183,7 @@ pub(in crate::resource_monitor) fn handle_lod_control_interactions(
     } // 完成输入快速返回。
     let mut changed = false; // 本帧没有按下操作时不触发资源变更或报告刷新。
     for (button, interaction) in &button_q {
-        if *interaction != Interaction::Pressed {
+        if *interaction != UiInteraction::Pressed {
             continue; // 悬停和释放变化只用于视觉反馈，不修改LOD状态。
         } // 完成按下过滤。
         match button.action {
@@ -225,7 +230,7 @@ pub(in crate::resource_monitor) fn update_lod_control_ui(
         }; // 完成按钮选中状态推导。
         *background = BackgroundColor(if selected {
             Color::srgba(0.38, 0.24, 0.10, 0.94) // 开启或当前模式使用深铜底。
-        } else if *interaction == Interaction::Hovered {
+        } else if *interaction == UiInteraction::Hovered {
             Color::srgba(0.22, 0.16, 0.09, 0.90) // 未选中悬停按钮轻微提亮。
         } else {
             Color::srgba(0.055, 0.044, 0.035, 0.90) // 关闭或非当前模式使用暗墨木色。

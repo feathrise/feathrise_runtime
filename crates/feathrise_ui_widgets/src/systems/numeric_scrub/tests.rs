@@ -1,5 +1,6 @@
 //! 公共数字拖动映射的纯函数回归，避免启动窗口或布局系统。
 
+use crate::UiInteraction;
 use super::*; // 子模块可直接验证生产模块的私有换算入口。
 
 #[path = "ordered_tests.rs"]
@@ -43,9 +44,9 @@ fn overlapping_geometry_only_accepts_the_ui_hit_test_winner() {
         normalized: Some(Vec2::ZERO), // 像素位置对本次顶层仲裁并不重要。
         ..default()
     };
-    assert!(!pointer_targets_field(&Interaction::None, &cursor)); // 被顶层面板遮住的底层根不能截获输入。
-    assert!(pointer_targets_field(&Interaction::Hovered, &cursor)); // Bevy选中的顶层根才允许候选。
-    assert!(pointer_targets_field(&Interaction::Pressed, &cursor)); // 左键按下后的顶层根继续属于同一字段。
+    assert!(!pointer_targets_field(&UiInteraction::None, &cursor)); // 被顶层面板遮住的底层根不能截获输入。
+    assert!(pointer_targets_field(&UiInteraction::Hovered, &cursor)); // Bevy选中的顶层根才允许候选。
+    assert!(pointer_targets_field(&UiInteraction::Pressed, &cursor)); // 左键按下后的顶层根继续属于同一字段。
 }
 
 #[test]
@@ -244,7 +245,7 @@ fn tick_feedback(app: &mut App) {
 
 fn point_feedback(app: &mut App, root: Entity, x: f32) {
     app.world_mut().entity_mut(root).insert((
-        Interaction::Hovered,
+        UiInteraction::Hovered,
         RelativeCursorPosition {
             cursor_over: true,
             normalized: Some(Vec2::new(x / 120.0, 0.0)),

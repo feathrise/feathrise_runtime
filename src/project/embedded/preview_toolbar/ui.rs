@@ -1,5 +1,6 @@
 //! 可拖拽的紧凑预览HUD；直接覆盖游戏主视图，不占整行或调整游戏相机视口。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::components::*;
 use bevy::{camera::visibility::RenderLayers, prelude::*, ui::FocusPolicy};
 
@@ -16,7 +17,7 @@ pub(super) fn spawn(mut commands: Commands) {
         clear_color: ClearColorConfig::None,
         ..default()
     }, RenderLayers::none(), Name::new("工程预览工具条相机"))).id();
-    commands.spawn((ToolbarRoot, ToolbarPointer, Interaction::None, UiTargetCamera(camera),
+    commands.spawn((ToolbarRoot, ToolbarPointer, UiInteraction::None, UiTargetCamera(camera),
         Node { display: Display::None, position_type: PositionType::Absolute,
             top: px(12), left: percent(50), height: px(34), flex_shrink: 0.,
             align_items: AlignItems::Center, column_gap: px(4),
@@ -29,7 +30,7 @@ pub(super) fn spawn(mut commands: Commands) {
         Name::new("工程预览悬浮HUD")))
         .with_children(|toolbar| {
             // 六点抓手提供明确的移动入口；其绝对位置由hud模块维护，按钮点击不参加拖拽。
-            toolbar.spawn((Interaction::None, FocusPolicy::Block, ToolbarDragHandle, ToolbarPointer,
+            toolbar.spawn((UiInteraction::None, FocusPolicy::Block, ToolbarDragHandle, ToolbarPointer,
                 Node { width: px(16), height: px(26), flex_shrink: 0.,
                     flex_direction: FlexDirection::Column, row_gap: px(3),
                     align_items: AlignItems::Center, justify_content: JustifyContent::Center,
@@ -52,7 +53,7 @@ pub(super) fn spawn(mut commands: Commands) {
                 });
             for (action, label) in [(ToolbarAction::Return, "返回"),
                 (ToolbarAction::Grid, "显示网格"), (ToolbarAction::Collision, "显示碰撞网格")] {
-                toolbar.spawn((Interaction::None, FocusPolicy::Block, action, ToolbarPointer,
+                toolbar.spawn((UiInteraction::None, FocusPolicy::Block, action, ToolbarPointer,
                     Node { height: px(26), flex_shrink: 0.,
                         padding: UiRect::axes(px(9), px(0)), border: UiRect::all(px(1)),
                         align_items: AlignItems::Center, justify_content: JustifyContent::Center,

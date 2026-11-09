@@ -21,6 +21,7 @@ serde_json = "=1.0.154"
 sha2 = { version = "=0.11.0" } # 嵌入握手独立核对当前真实EXE，不复述宿主提供的构建身份。
 subsecond = { version = "=0.7.9", optional = true } # 与已验证dx固定版本一致；旧补丁库保留到进程退出。
 feathrise_editor_protocol = { version = "0.2.0", path = "crates/feathrise_editor_protocol" }
+feathrise_ui_widgets = { version = "0.2.0", path = "crates/feathrise_ui_widgets" } # 预览工具条与编辑器共用现代拾取三态。
 raw-window-handle = "=0.6.2"
 wgpu-hal = { version = "=30.0.1", features = ["vulkan"] }
 feathrise_scene = { version = "0.2.0", path = "crates/feathrise_scene", features = ["author_view"] }

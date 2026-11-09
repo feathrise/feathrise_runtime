@@ -1,5 +1,6 @@
 //! 无窗口定向回归：真正按钮处理、显示租约、返回意图和鼠标隔离；不冒充 GPU/实体鼠标验收。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::{components::*, resources::*, systems, ui};
 use crate::project::embedded::EmbeddedProjectState;
 use avian3d::debug_render::PhysicsGizmos;
@@ -34,9 +35,9 @@ fn enter(app: &mut App) {
 fn press(app: &mut App, action: ToolbarAction) {
     let entity = app.world_mut().query::<(Entity, &ToolbarAction)>().iter(app.world())
         .find_map(|(entity, current)| (*current == action).then_some(entity)).unwrap();
-    app.world_mut().entity_mut(entity).insert(Interaction::Pressed);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::Pressed);
     app.update();
-    app.world_mut().entity_mut(entity).insert(Interaction::None);
+    app.world_mut().entity_mut(entity).insert(UiInteraction::None);
     app.update();
 }
 
@@ -127,7 +128,7 @@ fn toolbar_mouse_cannot_reach_gameplay_and_f12_has_no_toolbar_action() {
     app.update();
     enter(&mut app);
     let root = app.world_mut().query_filtered::<Entity, With<ToolbarRoot>>().single(app.world()).unwrap();
-    app.world_mut().entity_mut(root).insert(Interaction::Hovered);
+    app.world_mut().entity_mut(root).insert(UiInteraction::Hovered);
     app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
     app.world_mut().resource_mut::<AccumulatedMouseMotion>().delta = Vec2::ONE;
     app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::F12);
@@ -145,7 +146,7 @@ fn official_input_and_ui_support_repeated_toolbar_clicks_without_leaking_a_drag(
     use bevy::{
         camera::{ComputedCameraValues, RenderTargetInfo, Viewport},
         input::{ButtonState, InputPlugin, mouse::MouseButtonInput},
-        window::{ExitCondition, PrimaryWindow, WindowPlugin},
+        window::{CursorMoved, ExitCondition, PrimaryWindow, WindowEvent, WindowPlugin},
     };
     // 真实InputPlugin/UiPlugin负责边沿、布局、命中和Interaction；不创建OS窗口或RenderApp。
     let mut app = App::new();
@@ -184,20 +185,27 @@ fn official_input_and_ui_support_repeated_toolbar_clicks_without_leaking_a_drag(
                 (*current == action && !node.is_empty()).then_some((entity, transform.translation))
             }).unwrap();
         app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(center));
-        app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window });
+        // 现代拾取读取 WindowEvent；与 InputPlugin 的按键消息同时投递原始窗口输入。
+        app.world_mut().write_message(WindowEvent::CursorMoved(CursorMoved { window, position: center, delta: None }));
+        let press = MouseButtonInput { button: MouseButton::Left, state: ButtonState::Pressed, window };
+        app.world_mut().write_message(press);
+        app.world_mut().write_message(WindowEvent::MouseButtonInput(press));
         app.update();
-        assert_eq!(app.world().get::<Interaction>(button), Some(&Interaction::Pressed));
+        assert_eq!(app.world().get::<UiInteraction>(button), Some(&UiInteraction::Pressed));
         let state = app.world().resource::<PreviewToolbarState>();
         assert_eq!((state.grid, state.collision), (grid, collision));
         assert!(!app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
         app.world_mut().get_mut::<Window>(window).unwrap().set_cursor_position(Some(Vec2::new(700., 300.)));
+        app.world_mut().write_message(WindowEvent::CursorMoved(CursorMoved { window, position: Vec2::new(700., 300.), delta: None }));
         app.update(); // 按住拖出UI后，仍不能让游戏接到该次按住。
         assert!(!app.world().resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left));
         assert!(app.world().resource::<ToolbarPointerInput>().capturing);
-        app.world_mut().write_message(MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window });
+        let release = MouseButtonInput { button: MouseButton::Left, state: ButtonState::Released, window };
+        app.world_mut().write_message(release);
+        app.world_mut().write_message(WindowEvent::MouseButtonInput(release));
         app.update();
-        assert_ne!(app.world().get::<Interaction>(button), Some(&Interaction::Pressed),
-            "真正松开必须由UiFocus解除Pressed，第二次点击同一按钮才能再次生效");
+        assert_ne!(app.world().get::<UiInteraction>(button), Some(&UiInteraction::Pressed),
+            "真正松开必须由现代拾取解除Pressed，第二次点击同一按钮才能再次生效");
         assert!(!app.world().resource::<ToolbarPointerInput>().capturing);
         assert!(app.world().resource::<Messages<MouseButtonInput>>().is_empty());
     }

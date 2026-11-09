@@ -33,6 +33,7 @@ pub(super) fn spawn_fps_text(mut commands: Commands, font: Res<FpsDisplayFont>) 
             ..default()                            // 不额外占用布局空间。
         },
         FocusPolicy::Pass, // 诊断文字不截获鼠标或键盘交互。
+        Pickable::IGNORE, // 现代拾取不读取 FocusPolicy，诊断层也必须显式透传至下层 UI 与世界。
         GlobalZIndex(100), // 位于普通 HUD 上层但低于 F3 资源监控面板。
     ));
 }

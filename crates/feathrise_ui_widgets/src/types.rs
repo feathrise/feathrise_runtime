@@ -3,6 +3,12 @@
 use crate::ButtonColors;
 use bevy::prelude::*;
 
+/// 拾取已完成后发布共享三态，输入隔离必须在此之后读取和清空本帧鼠标。
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub enum UiInteractionSystems {
+    Sync,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct UiButtonVisual {
     pub normal: Color,

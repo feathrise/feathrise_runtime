@@ -1,5 +1,6 @@
 //! 主题无关的按钮交互、数值输入、提交和拖动状态机。
 
+use crate::UiInteraction;
 mod button; // 通用按钮三态颜色初始化与交互视觉。
 mod numeric_input; // 数字输入焦点、键盘编辑和提交主循环。
 mod numeric_progress; // 专业属性框当前值进度填充自动同步。
@@ -204,7 +205,7 @@ fn sync_numeric_input_field_visuals(
     field_query: &mut Query<
         (
             &NumericInputFieldButton,
-            &Interaction,
+            &UiInteraction,
             &mut ButtonColors,
             &mut BackgroundColor,
             &mut BorderColor,
@@ -229,9 +230,9 @@ fn sync_numeric_input_field_visuals(
         colors.hovered = lighten_color(normal, 0.08);
         colors.pressed = lighten_color(normal, 0.16);
         background.0 = match interaction {
-            Interaction::Pressed => colors.pressed,
-            Interaction::Hovered => colors.hovered,
-            Interaction::None => colors.normal,
+            UiInteraction::Pressed => colors.pressed,
+            UiInteraction::Hovered => colors.hovered,
+            UiInteraction::None => colors.normal,
         };
         *border = BorderColor::all(border_color);
     }

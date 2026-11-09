@@ -1,5 +1,6 @@
 //! 显式离屏GPU验收：真实预览HUD按钮、模型三角线框与Pointer拖拽；只使用本轮内存夹具。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::{components::*, resources::PreviewToolbarState, systems};
 use crate::project::embedded::EmbeddedProjectState;
 use avian3d::debug_render::PhysicsGizmos;
@@ -21,10 +22,10 @@ use std::{fs::OpenOptions, path::Path, time::{Duration, Instant}};
 struct NextPress(Option<Entity>);
 
 // 无OS窗口的夹具在原interact之前投递一帧Interaction，真实业务系统负责状态和显示租约。
-fn inject_press(mut next: ResMut<NextPress>, mut buttons: Query<(Entity, &mut Interaction), With<ToolbarAction>>) {
+fn inject_press(mut next: ResMut<NextPress>, mut buttons: Query<(Entity, &mut UiInteraction), With<ToolbarAction>>) {
     let pressed = next.0.take();
     for (entity, mut interaction) in &mut buttons {
-        *interaction = if Some(entity) == pressed { Interaction::Pressed } else { Interaction::None };
+        *interaction = if Some(entity) == pressed { UiInteraction::Pressed } else { UiInteraction::None };
     }
 }
 

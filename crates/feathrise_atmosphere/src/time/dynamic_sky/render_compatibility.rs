@@ -73,7 +73,7 @@ mod tests {
     // 回归Bevy 0.19.1遗漏的“移除设置但全局大气仍存在”分支。
     use bevy::{
         // 测试只使用轻量ECS、公开大气值与主/渲染世界映射。
-        asset::AssetId, // 构造不需要真实GPU资产的失效散射介质身份。
+        asset::AssetId, // 构造不需要真实GPU资产的占位散射介质身份。
         math::Mat4,     // 构造最小大气世界变换。
         pbr::{AtmosphereSettings, ExtractedAtmosphere, GpuAtmosphereSettings}, // 建立有效与残留大气RenderWorld状态。
         prelude::{App, Camera3d, Update, Vec3}, // 运行一次普通调度并构造两台三维相机。
@@ -90,7 +90,7 @@ mod tests {
             inner_radius: 1.0,                   // 使用有限正半径模拟行星表面。
             outer_radius: 2.0,                   // 外半径大于内半径以保持语义合法。
             ground_albedo: Vec3::ONE,            // 中性地表反照率不影响清理判断。
-            medium: AssetId::invalid(),          // 清理发生在资源解析前，因此无需登记真实散射介质。
+            medium: AssetId::default(),          // 仅作占位；测试在资源解析前清理，不判断资产身份是否有效。
             world_to_atmosphere: Mat4::IDENTITY, // 单位变换足以代表已经提取的旧状态。
         } // 完成最小公开大气组件构造。
     } // 测试夹具结束。

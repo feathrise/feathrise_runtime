@@ -1,5 +1,6 @@
 //! 官方Pointer事件驱动HUD抓手观察器，核对DPI、UI缩放、边界与退出，不创建用户窗口。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::*;
 use bevy::{
     camera::{ComputedCameraValues, RenderTarget, RenderTargetInfo},
@@ -23,7 +24,7 @@ fn fixture(dpi: f32, scale: f32) -> (App, Entity, Entity, Entity, Entity) {
         Node { position_type: PositionType::Absolute, left: px(12), top: px(12), ..default() },
         ComputedNode { size: Vec2::new(300., 34.) * dpi * scale,
             inverse_scale_factor: 1.0 / (dpi * scale), ..default() })).id();
-    let handle = app.world_mut().spawn((ToolbarDragHandle, ToolbarPointer, Interaction::None, bevy::ui::FocusPolicy::Block,
+    let handle = app.world_mut().spawn((ToolbarDragHandle, ToolbarPointer, UiInteraction::None, bevy::ui::FocusPolicy::Block,
         Node::default(), BackgroundColor(Color::NONE), ChildOf(root)))
         .observe(drag_start).observe(drag).observe(drag_end).id();
     (app, window, camera, root, handle)

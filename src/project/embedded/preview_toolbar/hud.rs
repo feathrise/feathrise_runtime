@@ -1,5 +1,6 @@
 //! 悬浮HUD位置只属于当前进程；原生Pointer拖拽抓手，不改相机视口、作者文档或工程偏好。
 
+use feathrise_ui_widgets::UiInteraction;
 use super::{components::*, resources::ToolbarPointerInput, ui};
 use crate::project::embedded::EmbeddedProjectState;
 use bevy::{
@@ -75,7 +76,7 @@ pub(super) fn synchronize(
     mut hud: ResMut<ToolbarHudState>,
     pointer: Option<ResMut<ToolbarPointerInput>>,
     mut roots: Query<(&mut Node, &ComputedNode, &UiTargetCamera, &mut UiTransform), With<ToolbarRoot>>,
-    mut grips: Query<(&Interaction, &mut BackgroundColor), With<ToolbarDragHandle>>,
+    mut grips: Query<(&UiInteraction, &mut BackgroundColor), With<ToolbarDragHandle>>,
 ) {
     let focused = windows.single().map_or(true, |window| window.focused);
     if project.mode != Mode::Playing || !focused {
@@ -113,7 +114,7 @@ pub(super) fn synchronize(
     }
     for (interaction, mut background) in &mut grips {
         let color = if hud.dragging.is_some() { ui::SELECTED }
-            else if *interaction != Interaction::None { ui::HOVERED } else { Color::NONE };
+            else if *interaction != UiInteraction::None { ui::HOVERED } else { Color::NONE };
         background.set_if_neq(BackgroundColor(color));
     }
 }

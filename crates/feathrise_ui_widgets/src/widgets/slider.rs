@@ -1,5 +1,6 @@
 //! 通用滑块结构，布局与色板由调用侧提供。
 
+use crate::UiInteraction;
 use crate::{SliderPalette, SliderTick, SliderVisual};
 use bevy::prelude::*;
 use bevy::ui::{FocusPolicy, RelativeCursorPosition};
@@ -19,7 +20,7 @@ pub fn spawn_slider_with_palette<T: Component, H: Component>(
         .spawn((
             // 轨道实体 bundle。
             track_marker,                      // 挂载业务 marker。
-            Interaction::default(),            // 初始化交互状态，业务拖拽系统用它判断是否按下。
+            UiInteraction::default(),            // 初始化交互状态，业务拖拽系统用它判断是否按下。
             RelativeCursorPosition::default(), // 记录相对游标位置，兼容当前滑块拖拽系统。
             Node {
                 // 轨道布局节点。
@@ -78,6 +79,7 @@ pub fn spawn_slider_with_palette<T: Component, H: Component>(
                 },
                 BackgroundColor(palette.thumb), // 使用统一滑块手柄背景色。
                 FocusPolicy::Pass, // 手柄只负责视觉，鼠标命中继续传给父轨道，保证可以直接抓住手柄拖动。
+                Pickable::IGNORE, // 现代拾取后端忽略 FocusPolicy，显式把手柄命中交给轨道。
             ));
         });
 }

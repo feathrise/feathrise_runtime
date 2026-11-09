@@ -1,5 +1,7 @@
 //! 调用侧显式提供布局、颜色和阴影的通用按钮实体树。
+//! 装饰文字同时显式忽略现代拾取，避免后端不再读取 FocusPolicy 时遮挡父按钮。
 
+use crate::UiInteraction;
 use crate::InteractionButton;
 use crate::{ButtonShellStyle, TextButtonStyle};
 use bevy::prelude::*;
@@ -21,7 +23,7 @@ pub fn spawn_custom_text_button<C: Component>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 BorderColor::all(border_color),
@@ -31,6 +33,7 @@ pub fn spawn_custom_text_button<C: Component>(
                 btn.spawn((
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),
@@ -45,7 +48,7 @@ pub fn spawn_custom_text_button<C: Component>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 style.colors,
@@ -54,6 +57,7 @@ pub fn spawn_custom_text_button<C: Component>(
                 btn.spawn((
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),
@@ -78,7 +82,7 @@ pub fn spawn_custom_button<B: Bundle>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 BorderColor::all(border_color),
@@ -90,7 +94,7 @@ pub fn spawn_custom_button<B: Bundle>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 style.colors,
@@ -115,7 +119,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 BorderColor::all(border_color),
@@ -125,6 +129,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
                 btn.spawn((
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),
@@ -139,7 +144,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 style.colors,
@@ -148,6 +153,7 @@ pub fn spawn_custom_text_button_bundle<B: Bundle>(
                 btn.spawn((
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),
@@ -177,7 +183,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 BorderColor::all(border_color),
@@ -188,6 +194,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
                     text_marker,
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),
@@ -202,7 +209,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
             .spawn((
                 marker,
                 InteractionButton,
-                Interaction::default(),
+                UiInteraction::default(),
                 style.node,
                 BackgroundColor(normal),
                 style.colors,
@@ -212,6 +219,7 @@ pub fn spawn_custom_text_button_with_text_marker<C: Component, T: Component>(
                     text_marker,
                     Text::new(label),
                     FocusPolicy::Pass,
+                    Pickable::IGNORE,
                     TextFont {
                         font: font.into(),
                         font_size: style.font_size.into(),

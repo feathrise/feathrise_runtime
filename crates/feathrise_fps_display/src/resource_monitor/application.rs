@@ -1,5 +1,7 @@
 //! 应用诊断只在F3总览刷新时提供文字；共享面板不认识角色、阵营或技能类型。
 
+#[cfg(test)]
+use feathrise_ui_widgets::UiInteraction;
 use bevy::prelude::*;
 use crate::resources::{ResourceMonitorPage, ResourceMonitorRefreshTimer, ResourceMonitorState};
 
@@ -191,7 +193,7 @@ mod tests {
 
             bevy::ui::FocusPolicy::Block,
             ResourceMonitorGroupButton { group: ResourceMonitorGroup::OrdinaryGrass },
-            Interaction::Pressed,
+            UiInteraction::Pressed,
             BackgroundColor::default(),
             BorderColor::default(),
             Node::default(), // 与正式按钮相同，页签同步需要更新其布局显隐。

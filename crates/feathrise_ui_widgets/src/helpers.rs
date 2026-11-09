@@ -1,13 +1,19 @@
 //! 输入法判定、按钮交互及数值解析的主题无关纯函数。
 
+use crate::UiInteraction;
 use crate::{
     ButtonColors, NumericInputBoundaryMode, NumericInputSpec, NumericValue, NumericValueKind,
     UiButtonVisual,
 };
 use bevy::prelude::*;
 
-pub fn button_released(interaction: &Interaction, mouse: &ButtonInput<MouseButton>) -> bool {
-    *interaction == Interaction::Hovered && mouse.just_released(MouseButton::Left)
+pub fn button_released(interaction: &UiInteraction, mouse: &ButtonInput<MouseButton>) -> bool {
+    // 同帧完整点击会短暂投影为 Pressed；只接受本帧新按下的释放，不能重放旧 Pressed。
+    // 释放后又按住时仍属于下一次手势，不能提前执行上一次点击。
+    !mouse.pressed(MouseButton::Left)
+        && mouse.just_released(MouseButton::Left)
+        && (*interaction == UiInteraction::Hovered
+            || (*interaction == UiInteraction::Pressed && mouse.just_pressed(MouseButton::Left)))
 }
 
 /// 判断本帧普通键盘消息是否仍属于操作系统输入法组合过程。
@@ -43,7 +49,7 @@ pub fn button_visual(normal: Color, border: Option<Color>, text: Color) -> UiBut
 }
 
 pub fn apply_button_visual(
-    interaction: &Interaction,
+    interaction: &UiInteraction,
     bg: &mut BackgroundColor,
     border: Option<&mut BorderColor>,
     colors: &mut ButtonColors,
@@ -55,9 +61,9 @@ pub fn apply_button_visual(
     colors.hovered = visual.hovered;
     colors.pressed = visual.pressed;
     bg.0 = match interaction {
-        Interaction::Pressed => visual.pressed,
-        Interaction::Hovered => visual.hovered,
-        Interaction::None => visual.normal,
+        UiInteraction::Pressed => visual.pressed,
+        UiInteraction::Hovered => visual.hovered,
+        UiInteraction::None => visual.normal,
     };
     if let (Some(border), Some(border_color)) = (border, visual.border) {
         *border = BorderColor::all(border_color);
