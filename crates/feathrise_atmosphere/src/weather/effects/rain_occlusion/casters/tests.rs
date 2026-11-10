@@ -68,14 +68,14 @@ fn preview_layer_replacement_preserves_only_author_layers() {
 
 #[test] // 层重复发布、规划改名和改回普通名均须保持幂等。
 fn replanning_and_repeated_insert_preserve_other_layers() {
-    // 验证所有权撤销不会损失小地图等外部层。
+    // 验证所有权撤销不会损失小场景等外部层。
     let mut app = app(); // 安装观察器。
     let entity = app
         .world_mut()
         .spawn((
             // 源实体已有多个明确作者层。
             MeshMaterial3d::<StandardMaterial>::default(), // 标准建筑材质。
-            RenderLayers::from_layers(&[0, 5]),            // 正式世界与小地图都可见。
+            RenderLayers::from_layers(&[0, 5]),            // 正式世界与小场景都可见。
         ))
         .id(); // 记录待测试实体。
     flush(&mut app); // 首次自动接管。
@@ -92,7 +92,7 @@ fn replanning_and_repeated_insert_preserve_other_layers() {
     assert_eq!(
         app.world().get::<RenderLayers>(entity).unwrap(),
         &RenderLayers::from_layers(&[0, 5])
-    ); // 归还世界及小地图层。
+    ); // 归还世界及小场景层。
     app.world_mut().entity_mut(entity).remove::<Name>(); // 删除规划名恢复普通世界对象。
     flush(&mut app); // Name Remove 需读取移除后的最终状态。
     assert!(

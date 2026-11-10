@@ -63,7 +63,7 @@ pub struct VegetationMeshRenderPartStats {
 /// 一个布局层与原型组合在上一完整渲染帧中的PBR分箱快照。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VegetationMeshRenderTargetStats {
-    pub target: VegetationMeshRenderTarget, // 层和原型共同隔离旧实现、跨地图复用与热替换。
+    pub target: VegetationMeshRenderTarget, // 层和原型共同隔离旧实现、跨场景复用与热替换。
     pub opaque: VegetationMeshRenderPhaseStats, // 目标全部LOD与部件的Opaque3d合计。
     pub alpha_mask: VegetationMeshRenderPhaseStats, // 目标全部LOD与部件的AlphaMask3d合计。
     pub shadow: VegetationMeshRenderPhaseStats, // 目标全部LOD与部件的Shadow合计。

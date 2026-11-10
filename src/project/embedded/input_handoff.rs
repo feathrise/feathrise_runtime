@@ -20,7 +20,7 @@ pub(super) fn install(app: &mut App) {
 }
 
 pub(super) fn clear(world: &mut World) {
-    // 固定的输入资源清单；不遍历项目实体或地图。必须使用Messages::clear保留单调序号，
+    // 固定的输入资源清单；不遍历项目实体或场景。必须使用Messages::clear保留单调序号，
     // 不能换成默认Messages，否则项目现有MessageReader会错过交接后的真正新输入。
     if let Some(mut input) = world.get_resource_mut::<ButtonInput<KeyCode>>() {
         input.reset_all();

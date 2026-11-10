@@ -9,11 +9,11 @@ use super::{
 use bevy::prelude::*;
 use feathrise_editor_protocol::{Message, Mode};
 use feathrise_scene_core::input::EditorInputState;
-use feathrise_map_content::{ActiveDynamicMap, MapId, SparseHeightLiveOverride, TerrainId};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId, SparseHeightLiveOverride, TerrainId};
 use feathrise_scene::{
-    DynamicMapBoundaryPhase, DynamicMapBoundaryStatus, DynamicMapRuntimePhase,
-    DynamicMapRuntimeStatus, DynamicVegetationPhase, DynamicVegetationStatus, DynamicWaterPhase,
-    DynamicWaterStatus, MapPlacementRuntimePhase, MapPlacementRuntimeStatus, SubMapInstance,
+    DynamicSceneBoundaryPhase, DynamicSceneBoundaryStatus, DynamicSceneRuntimePhase,
+    DynamicSceneRuntimeStatus, DynamicVegetationPhase, DynamicVegetationStatus, DynamicWaterPhase,
+    DynamicWaterStatus, ScenePlacementRuntimePhase, ScenePlacementRuntimeStatus, SubsceneInstance,
 };
 use feathrise_scene_core::residency::InstanceResourceTable;
 use feathrise_scene_core::state::{LoadingProgress, PendingSceneTransition, ScenePhase, SceneStartupGate};
@@ -26,7 +26,7 @@ use std::{
 
 #[derive(Resource, Default)]
 pub(super) struct HeightSources {
-    map: Option<MapId>,
+    scene_id: Option<SceneId>,
     // 私有表不跨任务共享；单画布更新只改一个键，避免帧内Arc写时复制完整地形集合。
     sources: BTreeMap<TerrainId, SparseHeightLiveOverride>,
     cursor: Option<Entity>,
@@ -88,7 +88,7 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
     let patch_busy = super::hotpatch::busy(world);
     #[cfg(not(feature = "function_hotpatch"))]
     let patch_busy = false;
-    // 补丁装载至主App确认之间延后消费地图／模式命令，避免核包后又换代；画面、输入和模拟继续。
+    // 补丁装载至主App确认之间延后消费场景／模式命令，避免核包后又换代；画面、输入和模拟继续。
     if runtime.retired.is_none() && !patch_busy {
         for _ in 0..8 {
             let input = match runtime.transport.incoming.try_recv() {
@@ -139,7 +139,7 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
                     let terminal = matches!(message, Message::ApplyCodePatch { .. } | Message::Stop);
                     receive_control(world, runtime, message)?;
                     if runtime.stopping { return Ok(()); }
-                    // 同一帧入槽后也立即结束消费，不能让后续模式／地图消息越过刚开启的补丁事务。
+                    // 同一帧入槽后也立即结束消费，不能让后续模式／场景消息越过刚开启的补丁事务。
                     if terminal { break; }
                 }
             }
@@ -151,7 +151,7 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
     apply_mode(world, runtime)?;
     let editing = world.resource::<EmbeddedProjectState>().mode == Mode::Editing;
     let transitioning = world.resource::<EmbeddedProjectState>().transitioning;
-    world.resource_mut::<EditorInputState>().map_editor_open = editing
+    world.resource_mut::<EditorInputState>().scene_editor_open = editing
         || transitioning || runtime.native_handoff.is_some() || runtime.native_result.is_some();
     if !editing
         && !runtime.requested_return
@@ -258,7 +258,7 @@ fn publish_snapshot(world: &mut World, runtime: &mut Runtime) -> Result<(), Stri
             return Ok(());
         }
         if let Some(placements) = pending.value.placements.as_mut() {
-            match placements.verify(world, &pending.value.map_id) {
+            match placements.verify(world, &pending.value.scene_id) {
                 Ok(false) => return Ok(()),
                 Ok(true) => {
                     // 根源已完整验证；正式对象文档由增量入口接回，不再发资产Modified事件。
@@ -346,7 +346,7 @@ fn publish_snapshot(world: &mut World, runtime: &mut Runtime) -> Result<(), Stri
     }
     let pending = runtime.pending.take().unwrap();
     let value = pending.value;
-    let map_changed = world.resource::<ActiveDynamicMap>().map_id.as_ref() != Some(&value.map_id);
+    let scene_changed = world.resource::<ActiveDynamicScene>().scene_id.as_ref() != Some(&value.scene_id);
     // 根兼容高度直接替换；所有独立画布沿稳定对象路径由固定预算系统同步到实例资源。
     let old_height = world.remove_resource::<SparseHeightLiveOverride>();
     let old_sources = world.remove_resource::<HeightSources>();
@@ -354,18 +354,18 @@ fn publish_snapshot(world: &mut World, runtime: &mut Runtime) -> Result<(), Stri
     world.insert_resource(value.heights);
     world.insert_resource(value.height_bindings);
     world.insert_resource(HeightSources {
-        map: Some(value.map_id.clone()),
+        scene_id: Some(value.scene_id.clone()),
         ready: value.height_overrides.is_empty(),
         sources: value.height_overrides,
         ..default()
     });
-    if map_changed {
+    if scene_changed {
         world.resource_mut::<crate::project::ProjectViewOrigin>().0 = Vec3::from_array(value.spawn);
         world
-            .resource_mut::<ActiveDynamicMap>()
-            .select(value.map_id.clone());
+            .resource_mut::<ActiveDynamicScene>()
+            .select(value.scene_id.clone());
         let mut destination = world.resource_mut::<feathrise_portal::PortalDestination>();
-        destination.dynamic_map_id = Some(value.map_id.0.clone());
+        destination.dynamic_scene_id = Some(value.scene_id.0.clone());
         destination.spawn_pos = Some(Vec3::from_array(value.spawn));
         world.insert_resource(
             PendingSceneTransition::named(ScenePhase::Active, &value.name).with_fresh_world(),
@@ -432,9 +432,9 @@ fn poll_source_readiness(world: &World, runtime: &mut Runtime) {
 }
 
 pub(super) fn scene_ready(world: &World) -> bool {
-    let map = &world.resource::<ActiveDynamicMap>().map_id;
-    // 空工程也是明确可试玩的常驻 World；仅初始零修订且完全没有地图/加载意图时放行。
-    // 已加载地图变成缺失、加载失败或要求尚未采用的修订，都不能伪装为空工程绕过就绪门。
+    let map = &world.resource::<ActiveDynamicScene>().scene_id;
+    // 空工程也是明确可试玩的常驻 World；仅初始零修订且完全没有场景/加载意图时放行。
+    // 已加载场景变成缺失、加载失败或要求尚未采用的修订，都不能伪装为空工程绕过就绪门。
     if map.is_none() {
         return world.resource::<EmbeddedProjectState>().revision == 0
             && world.resource::<State<ScenePhase>>().get() == &ScenePhase::Idle
@@ -452,15 +452,15 @@ pub(super) fn scene_ready(world: &World) -> bool {
         return false;
     }
     if world
-        .get_resource::<DynamicMapRuntimeStatus>()
-        .is_none_or(|status| status.map_id != *map || status.phase != DynamicMapRuntimePhase::Ready)
+        .get_resource::<DynamicSceneRuntimeStatus>()
+        .is_none_or(|status| status.scene_id != *map || status.phase != DynamicSceneRuntimePhase::Ready)
     {
         return false;
     }
     if world
-        .get_resource::<MapPlacementRuntimeStatus>()
+        .get_resource::<ScenePlacementRuntimeStatus>()
         .is_none_or(|status| {
-            status.map_id != *map || status.phase != MapPlacementRuntimePhase::Ready
+            status.scene_id != *map || status.phase != ScenePlacementRuntimePhase::Ready
         })
     {
         return false;
@@ -468,7 +468,7 @@ pub(super) fn scene_ready(world: &World) -> bool {
     if world
         .get_resource::<DynamicVegetationStatus>()
         .is_some_and(|status| {
-            status.map_id == *map && status.phase != DynamicVegetationPhase::Ready
+            status.scene_id == *map && status.phase != DynamicVegetationPhase::Ready
         })
     {
         return false;
@@ -476,7 +476,7 @@ pub(super) fn scene_ready(world: &World) -> bool {
     if world
         .get_resource::<DynamicWaterStatus>()
         .is_some_and(|status| {
-            status.map_id == *map
+            status.scene_id == *map
                 && (!matches!(
                     status.phase,
                     DynamicWaterPhase::Ready | DynamicWaterPhase::Disabled
@@ -487,12 +487,12 @@ pub(super) fn scene_ready(world: &World) -> bool {
         return false;
     }
     if world
-        .get_resource::<DynamicMapBoundaryStatus>()
+        .get_resource::<DynamicSceneBoundaryStatus>()
         .is_some_and(|status| {
-            status.map_id == *map
+            status.scene_id == *map
                 && !matches!(
                     status.phase,
-                    DynamicMapBoundaryPhase::Ready | DynamicMapBoundaryPhase::Disabled
+                    DynamicSceneBoundaryPhase::Ready | DynamicSceneBoundaryPhase::Disabled
                 )
         })
     {
@@ -650,7 +650,7 @@ pub(super) fn restore_game_camera(
     if let Ok((mut current_transform, mut current_projection)) = cameras.get_mut(world, *entity) {
         *current_transform = *transform;
         *current_projection = projection.clone();
-    } // 切图后旧相机已退出时不把它的姿态套给新相机。
+    } // 切换场景后旧相机已退出时不把它的姿态套给新相机。
 }
 
 pub(super) fn camera(
@@ -705,7 +705,7 @@ pub(super) fn gameplay_tick(mut runtime: NonSendMut<Runtime>) {
 
 pub(super) fn heights(
     mut sources: ResMut<HeightSources>,
-    instances: Query<&SubMapInstance>,
+    instances: Query<&SubsceneInstance>,
     mut runtime: NonSendMut<Runtime>,
     mut table: ResMut<InstanceResourceTable<SparseHeightLiveOverride>>,
     mut root: ResMut<SparseHeightLiveOverride>,
@@ -742,7 +742,7 @@ pub(super) fn heights(
         let Ok(instance) = instances.get(entity) else {
             continue;
         };
-        if instance.path.root_map_id != *sources.map.as_ref().unwrap()
+        if instance.path.root_scene_id != *sources.scene_id.as_ref().unwrap()
             || !instance.path.instances.is_empty()
         {
             continue;
@@ -755,9 +755,9 @@ pub(super) fn heights(
         };
         // 原作者系统把当前对象放在root alias；写回实例表会更新停放槽而使真正GPU仍读取旧高度。
         let current = if target.as_ref().is_some_and(|target| target.instance() == Some(entity)
-            && target.applied_to(sources.map.as_ref().unwrap(), id)) { &mut *root }
+            && target.applied_to(sources.scene_id.as_ref().unwrap(), id)) { &mut *root }
             else { table.values.get_mut(&entity).unwrap() };
-        if current.map_id() != source.map_id() || current.revision() != source.revision() {
+        if current.scene_id() != source.scene_id() || current.revision() != source.revision() {
             retired.push(std::mem::replace(current, source.clone()));
         }
         let scan = sources.scan;
@@ -773,14 +773,14 @@ pub(super) fn heights(
 /// 实时雕刻只复制持久树根，叶模块在后台应用页差量；完整快照和实时页共享同一实例来源表。
 pub(super) fn height_preview_source(
     world: &World,
-    map: &MapId,
+    map: &SceneId,
     terrain: Option<&TerrainId>,
 ) -> Option<SparseHeightLiveOverride> {
-    if world.get_resource::<ActiveDynamicMap>()?.map_id.as_ref() != Some(map) { return None; }
+    if world.get_resource::<ActiveDynamicScene>()?.scene_id.as_ref() != Some(map) { return None; }
     match terrain {
         Some(id) => {
             let sources = world.get_resource::<HeightSources>()?;
-            (sources.map.as_ref() == Some(map)).then(|| sources.sources.get(id).cloned()).flatten()
+            (sources.scene_id.as_ref() == Some(map)).then(|| sources.sources.get(id).cloned()).flatten()
         }
         None => world.get_resource::<SparseHeightLiveOverride>().cloned(),
     }
@@ -789,17 +789,17 @@ pub(super) fn height_preview_source(
 /// 仅发布已在后台完成的持久根；返回旧根交给叶模块回收槽，禁止在帧内析构整片高度页。
 pub(super) fn publish_height_preview(
     world: &mut World,
-    map: &MapId,
+    map: &SceneId,
     terrain: Option<TerrainId>,
     source: SparseHeightLiveOverride,
 ) -> Result<Option<SparseHeightLiveOverride>, String> {
-    if world.get_resource::<ActiveDynamicMap>().and_then(|active|active.map_id.as_ref()) != Some(map)
-        || source.map_id().is_some_and(|owner|owner != map) {
-        return Err("实时高度发布的地图身份已改变".into());
+    if world.get_resource::<ActiveDynamicScene>().and_then(|active|active.scene_id.as_ref()) != Some(map)
+        || source.scene_id().is_some_and(|owner|owner != map) {
+        return Err("实时高度发布的场景身份已改变".into());
     }
     if let Some(id) = terrain {
         let mut sources = world.get_resource_mut::<HeightSources>().ok_or("实时高度缺少实例来源表")?;
-        if sources.map.as_ref() != Some(map) { return Err("实时高度实例来源尚未绑定当前地图".into()); }
+        if sources.scene_id.as_ref() != Some(map) { return Err("实时高度实例来源尚未绑定当前场景".into()); }
         if sources.sources.get(&id).is_some_and(|old|source.revision() <= old.revision()) {
             return Err("实时高度实例发布序号已经过期".into());
         }

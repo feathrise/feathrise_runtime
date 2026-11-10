@@ -10,8 +10,8 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use feathrise_map_content::{
-    MapId,
+use feathrise_scene_content::{
+    SceneId,
     embedded_author_preview::{AUTHOR_PREVIEW_FORMAT, AuthorPreview, decode},
 };
 
@@ -25,44 +25,44 @@ enum Value {
     Water(water::Prepared),
     ObjectPose(object_pose::Prepared),
 }
-pub(super) fn prepare(format: &str, bytes: &[u8], map: &MapId) -> Result<Prepared, String> {
+pub(super) fn prepare(format: &str, bytes: &[u8], map: &SceneId) -> Result<Prepared, String> {
     if format != AUTHOR_PREVIEW_FORMAT {
         return Err("作者局部预览格式不兼容".into());
     }
     let value = decode(bytes)?;
-    if value.map_id() != map {
-        return Err("作者局部预览正文地图与控制身份不一致".into());
+    if value.scene_id() != map {
+        return Err("作者局部预览正文场景与控制身份不一致".into());
     }
     let value = match value {
-        AuthorPreview::Extension {map_id,revision,domain,payload}=>Value::Extension(extension::AuthorDomainExtension {map:map_id,revision,domain,payload}),
+        AuthorPreview::Extension {scene_id,revision,domain,payload}=>Value::Extension(extension::AuthorDomainExtension {scene_id:scene_id,revision,domain,payload}),
         AuthorPreview::Mesh {
-            map_id,
+            scene_id,
             revision,
             value,
             committed,
-        } => Value::Mesh(mesh::prepare(map_id, revision, value, committed)?),
+        } => Value::Mesh(mesh::prepare(scene_id, revision, value, committed)?),
         AuthorPreview::Height {
-            map_id,
+            scene_id,
             terrain_id,
             revision,
             reset,
             tiles,
-        } => Value::Height(height::prepare(map_id, terrain_id, revision, reset, tiles)?),
+        } => Value::Height(height::prepare(scene_id, terrain_id, revision, reset, tiles)?),
         AuthorPreview::Water {
-            map_id,
+            scene_id,
             terrain_id,
             root,
             revision,
             definition,
             masks,
         } => Value::Water(water::prepare(
-            map_id, terrain_id, root, revision, definition, masks,
+            scene_id, terrain_id, root, revision, definition, masks,
         )?),
-        AuthorPreview::SubMapPose { map_id, revision, id, pose, active } =>
-            Value::ObjectPose(object_pose::Prepared { map:map_id, revision, active,
-                target:object_pose::Target::SubMap { id,pose } }),
-        AuthorPreview::TerrainPose { map_id, revision, id, pose, active } =>
-            Value::ObjectPose(object_pose::Prepared { map:map_id, revision, active,
+        AuthorPreview::SubscenePose { scene_id, revision, id, pose, active } =>
+            Value::ObjectPose(object_pose::Prepared { scene_id:scene_id, revision, active,
+                target:object_pose::Target::Subscene { id,pose } }),
+        AuthorPreview::TerrainPose { scene_id, revision, id, pose, active } =>
+            Value::ObjectPose(object_pose::Prepared { scene_id:scene_id, revision, active,
                 target:object_pose::Target::Terrain { id,pose } }),
     };
     Ok(Prepared { value })
@@ -126,7 +126,7 @@ impl State {
         // 保留当前唯一正文，不等待尚未发送的未来快照，也不阻断其它作者域的现有实时路径。
         if matches!(self.pending, Some(Value::ObjectPose(_))) {
             if !sources_settled { return Ok(false); }
-            if !sources_ready { return Err("整体姿态所依赖的已发布地图来源加载失败".into()); }
+            if !sources_ready { return Err("整体姿态所依赖的已发布场景来源加载失败".into()); }
         }
         let Some(pending) = self.pending.take() else {
             return Ok(true);

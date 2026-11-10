@@ -9,7 +9,7 @@ use super::types::{TreeLodLevel, TreeMeshPart}; // LOD 与树干/树冠身份由
 /// 单棵世界稳定树木的根实体。
 #[derive(Component, Clone, Copy, Debug, PartialEq)] // 根组件允许诊断读取稳定编号和当前碰撞代理。
 pub struct TreeInstance {
-    pub id: u16, // 地图内容表中的稳定编号，不随进出地图或相机移动变化。
+    pub id: u16, // 场景内容表中的稳定编号，不随进出场景或相机移动变化。
     pub collision_proxy: Option<Entity>, // 只保存当前近处碰撞子实体，不复制渲染实例数据。
 } // 完成树根运行状态定义。
 

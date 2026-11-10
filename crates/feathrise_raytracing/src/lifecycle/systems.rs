@@ -13,7 +13,7 @@ use bevy_solari::prelude::SolariLighting;
 use feathrise_scene_core::view::PrimarySceneView; // 只允许项目唯一玩法主相机取得Solari租约。
 use feathrise_environment::terrain_surface::{TerrainSurfaceMaterial, TerrainSurfaceMaterialOverride}; // 通用地表热更、Deferred租约与精确材质恢复。
 use feathrise_scene::{
-    DynamicMapRuntimeStatus, DynamicMapTerrainPrimitive,
+    DynamicSceneRuntimeStatus, DynamicSceneTerrainPrimitive,
 }; // 生命周期只读取两类目标的公共身份；动态植被、水和放置物完全不进入候选查询。
 use feathrise_settings::GraphicsRuntimeLeaseRegistry; // 释放本crate持有的明确运行时租约。
 use feathrise_scene_core::state::ScenePhase; // 只接受目录驱动的地形目标。 // 相机回退时移除本crate插入的Solari入口。
@@ -31,9 +31,9 @@ use crate::{
     },
 };
 
-use super::target::{unique_window_gameplay_camera, validated_target_root}; // 地图与相机目标共用不可混用入口。
+use super::target::{unique_window_gameplay_camera, validated_target_root}; // 场景与相机目标共用不可混用入口。
 
-/// 把F1请求、实际设备能力、获批地图目标和玩法相机收敛为唯一状态机入口。
+/// 把F1请求、实际设备能力、获批场景目标和玩法相机收敛为唯一状态机入口。
 #[allow(clippy::type_complexity)] // 唯一玩法窗口相机必须同时满足 Marker、Camera3d 与窗口目标三项资格。
 pub(crate) fn coordinate_lifecycle(
     request: Res<RaytracingPrototypeRequest>, // F1只写这一份非持久请求。
@@ -43,15 +43,15 @@ pub(crate) fn coordinate_lifecycle(
     dynamic_terrains: Query<
         &Mesh3d,
         Or<(
-            With<DynamicMapTerrainPrimitive>,
+            With<DynamicSceneTerrainPrimitive>,
             With<feathrise_scene::ClipmapRaytracingAnchor>,
         )>,
     >, // 只读真实源，不读移动环带。
-    dynamic_status: Res<DynamicMapRuntimeStatus>, // 动态地图必须保持完整Ready修订。
+    dynamic_status: Res<DynamicSceneRuntimeStatus>, // 动态场景必须保持完整Ready修订。
     cameras: Query<(Entity, &RenderTarget), (With<PrimarySceneView>, With<Camera3d>)>, // Marker身份之外再以目标类型排除纹理相机。
     time: Res<Time<Real>>, // 暂停玩法或打开F1也继续执行三十秒停止线。
     mut runtime: ResMut<RaytracingRuntime>, // 状态机与全部可撤销所有权。
-    clipmap_status: Option<Res<feathrise_scene::ClipmapRaytracingStatus>>, // 无真实源时显示后台阶段/失败，避免误称未支持地图。
+    clipmap_status: Option<Res<feathrise_scene::ClipmapRaytracingStatus>>, // 无真实源时显示后台阶段/失败，避免误称未支持场景。
 ) {
     let request_rose = request.enabled && !runtime.last_request_enabled;
     runtime.last_request_enabled = request.enabled;
@@ -95,7 +95,7 @@ pub(crate) fn coordinate_lifecycle(
     let Some(target_root) = target_root else {
         if runtime_has_session(&runtime) {
             runtime.request_rollback(
-                Some(RaytracingPrototypeBlocker::WaitingForSupportedMap),
+                Some(RaytracingPrototypeBlocker::WaitingForSupportedScene),
                 RollbackDisposition::RasterReady,
             );
         } else {
@@ -111,7 +111,7 @@ pub(crate) fn coordinate_lifecycle(
                         }),
                     }
                 } else {
-                    RaytracingPrototypeBlocker::WaitingForSupportedMap
+                    RaytracingPrototypeBlocker::WaitingForSupportedScene
                 },
             );
             runtime.transition(RaytracingPrototypeStage::RasterReady);
@@ -156,7 +156,7 @@ pub(crate) fn coordinate_lifecycle(
 
     if runtime.stage == RaytracingPrototypeStage::Failed {
         if runtime.failed_generation == Some(tracker.generation) {
-            return; // 同一地图代次硬失败后保持完整光栅，禁止逐帧自动重试。
+            return; // 同一场景代次硬失败后保持完整光栅，禁止逐帧自动重试。
         }
         runtime.failed_generation = None;
         runtime.blocker = None;
@@ -168,7 +168,7 @@ pub(crate) fn coordinate_lifecycle(
         RaytracingPrototypeStage::Unavailable | RaytracingPrototypeStage::RasterReady
     ) {
         runtime.generation = tracker.generation;
-        runtime.target = tracker.target; // 后续数量、预算、材质和F1全部读取同一地图级契约。
+        runtime.target = tracker.target; // 后续数量、预算、材质和F1全部读取同一场景级契约。
         runtime.root = Some(target_root);
         runtime.camera = Some(target_camera);
         runtime.blocker = None;
@@ -374,7 +374,7 @@ pub(crate) fn apply_pending_rollback(
     surface_overrides: Query<(
         Option<&MeshMaterial3d<TerrainSurfaceMaterial>>,
         &TerrainSurfaceMaterialOverride,
-    )>, // 只恢复仍由本事务精确持有的地表替代，不能覆盖地图已采用的新修订。
+    )>, // 只恢复仍由本事务精确持有的地表替代，不能覆盖场景已采用的新修订。
     mut leases: ResMut<GraphicsRuntimeLeaseRegistry>, // 释放后由设置crate精确恢复AA/HDR/预通道等作者状态。
     mut runtime: ResMut<RaytracingRuntime>,           // 一次取走并清空当前会话全部所有权。
 ) {
@@ -392,7 +392,7 @@ pub(crate) fn apply_pending_rollback(
     if runtime.visible_materials_activated {
         for prepared in &prepared_materials {
             let Ok(mut entity) = commands.get_entity(prepared.source_entity) else {
-                continue; // 切图或GLB热重建已销毁的旧源不需要也不能恢复。
+                continue; // 切换场景或GLB热重建已销毁的旧源不需要也不能恢复。
             };
             match &prepared.binding {
                 SourceMaterialBinding::Standard { source, .. } => {
@@ -404,7 +404,7 @@ pub(crate) fn apply_pending_rollback(
                     let Ok((current, material_override)) =
                         surface_overrides.get(prepared.source_entity)
                     else {
-                        continue; // 地图已撤销租约并采用新修订时，回退不得把旧作者句柄写回去。
+                        continue; // 场景已撤销租约并采用新修订时，回退不得把旧作者句柄写回去。
                     };
                     if !material_override.matches(source.id(), deferred.id()) {
                         continue; // 其他代次的精确租约不属于本事务。

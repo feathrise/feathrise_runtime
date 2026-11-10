@@ -2,40 +2,40 @@
 
 use bevy::{asset::RenderAssetUsages, ecs::system::SystemState, image::ImageSampler, prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
-use feathrise_map_content::{MapId, MapVegetationKind, TerrainId,
+use feathrise_scene_content::{SceneId, SceneVegetationKind, TerrainId,
     embedded_preview::{VEGETATION_PREVIEW_FORMAT, VegetationPreviewCanvas, decode_vegetation_preview}};
 use feathrise_scene::{DynamicBladeDraft, DynamicBladeDraftSnapshot, TerrainVegetationDrafts};
 use std::{collections::{BTreeMap, VecDeque}, sync::Arc};
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
 
 pub(super) struct Prepared {
-    map: MapId,
+    scene_id: SceneId,
     canvases: VecDeque<Canvas>,
 }
 
 #[cfg(test)]
 mod ownership_tests {
     use super::*;
-    fn snapshot(map: &MapId) -> DynamicBladeDraftSnapshot {
+    fn snapshot(map: &SceneId) -> DynamicBladeDraftSnapshot {
         DynamicBladeDraftSnapshot { source_revision:7,
-            definition:feathrise_map_content::MapVegetationAsset { schema_version:1,map_id:map.clone(),..default() },
+            definition:feathrise_scene_content::SceneVegetationAsset { schema_version:feathrise_scene_content::SCENE_SCHEMA_VERSION,scene_id:map.clone(),..default() },
             sources:BTreeMap::new(),densities:BTreeMap::new(),nonzero_layers:default() }
     }
     #[test]
     fn handback_releases_only_the_exact_published_source_even_when_revisions_match() {
         let mut app = App::new(); app.add_plugins(MinimalPlugins).init_resource::<DynamicBladeDraft>();
-        let map = MapId::parse("MAP-preview-ownership").unwrap();
+        let map = SceneId::parse("MAP-preview-ownership").unwrap();
         app.world_mut().resource_mut::<DynamicBladeDraft>().publish(snapshot(&map));
-        let owned = app.world().resource::<DynamicBladeDraft>().frozen_for_map(&map).unwrap();
+        let owned = app.world().resource::<DynamicBladeDraft>().frozen_for_scene(&map).unwrap();
         let mut state = State::default(); state.published.insert((map.clone(),None),owned.clone());
         app.world_mut().resource_mut::<DynamicBladeDraft>().publish(snapshot(&map));
-        let external = app.world().resource::<DynamicBladeDraft>().frozen_for_map(&map).unwrap();
+        let external = app.world().resource::<DynamicBladeDraft>().frozen_for_scene(&map).unwrap();
         assert!(!Arc::ptr_eq(&owned,&external));
         assert!(!state.clear_published(app.world_mut()).unwrap());
-        assert!(Arc::ptr_eq(&external,&app.world().resource::<DynamicBladeDraft>().frozen_for_map(&map).unwrap()));
+        assert!(Arc::ptr_eq(&external,&app.world().resource::<DynamicBladeDraft>().frozen_for_scene(&map).unwrap()));
         let mut state = State::default(); state.published.insert((map.clone(),None),external);
         assert!(!state.clear_published(app.world_mut()).unwrap());
-        assert!(app.world().resource::<DynamicBladeDraft>().for_map(&map).is_none());
+        assert!(app.world().resource::<DynamicBladeDraft>().for_scene(&map).is_none());
     }
 }
 struct Canvas {
@@ -46,10 +46,10 @@ struct Canvas {
     evidence: serde_json::Value,
 }
 
-pub(super) fn prepare(format: &str, bytes: &[u8], map: &MapId) -> Result<Prepared, String> {
+pub(super) fn prepare(format: &str, bytes: &[u8], map: &SceneId) -> Result<Prepared, String> {
     if format != VEGETATION_PREVIEW_FORMAT { return Err("植被预览格式不兼容".into()); }
     let batch = decode_vegetation_preview(bytes)?;
-    if &batch.map_id != map { return Err("植被预览正文与控制地图不一致".into()); }
+    if &batch.scene_id != map { return Err("植被预览正文与控制场景不一致".into()); }
     let mut canvases = VecDeque::new();
     for source in batch.canvases {
         #[cfg(feature = "validation")]
@@ -72,7 +72,7 @@ pub(super) fn prepare(format: &str, bytes: &[u8], map: &MapId) -> Result<Prepare
         canvases.push_back(Canvas { source, images, handles: BTreeMap::new(),
             #[cfg(feature = "validation")] evidence });
     }
-    Ok(Prepared { map: batch.map_id, canvases })
+    Ok(Prepared { scene_id: batch.scene_id, canvases })
 }
 
 #[derive(Default)]
@@ -80,7 +80,7 @@ pub(super) struct State {
     pending: Option<Prepared>,
     complete: Vec<(Option<TerrainId>, DynamicBladeDraftSnapshot)>,
     publisher: Option<SystemState<TerrainVegetationDrafts<'static>>>,
-    published: BTreeMap<(MapId, Option<TerrainId>), Arc<DynamicBladeDraftSnapshot>>,
+    published: BTreeMap<(SceneId, Option<TerrainId>), Arc<DynamicBladeDraftSnapshot>>,
     retired: Option<Task<()>>,
     #[cfg(feature = "validation")]
     evidence: Vec<serde_json::Value>,
@@ -111,7 +111,7 @@ impl State {
             let Some(((map, id), owned)) = self.published.pop_first() else { break; };
             let current = if let Some(id) = &id {
                 publisher.get_mut(world).map_err(|error|format!("植被预览清理上下文不可用：{error}"))?.shared(&map, id)
-            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_map(&map)) };
+            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_scene(&map)) };
             // 只有仍为本会话发布的确切Arc才清除；相同作者修订不能冒充外部系统的新来源。
             if current.as_ref().is_some_and(|value|Arc::ptr_eq(value, &owned)) {
                 if let Some(id) = id {
@@ -148,7 +148,7 @@ impl State {
             return Ok(false);
         }
         let publisher = self.publisher.get_or_insert_with(|| SystemState::new(world));
-        let ready = publisher.get_mut(world).map_err(|error|format!("植被预览目标上下文不可用：{error}"))?.ready(&pending.map,
+        let ready = publisher.get_mut(world).map_err(|error|format!("植被预览目标上下文不可用：{error}"))?.ready(&pending.scene_id,
             self.complete.iter().filter_map(|(id, _)| id.clone()));
         if !ready { return Ok(false); }
         // 全批资源存在才发布；根兼容来源与独立terrain来源在同一帧完成。
@@ -156,8 +156,8 @@ impl State {
         let ids = self.complete.iter().map(|(id,_)|id.clone()).collect::<Vec<_>>();
         for id in &ids {
             let previous = if let Some(id) = id {
-                publisher.get_mut(world).map_err(|error|format!("植被预览旧来源上下文不可用：{error}"))?.shared(&pending.map,id)
-            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_map(&pending.map)) };
+                publisher.get_mut(world).map_err(|error|format!("植被预览旧来源上下文不可用：{error}"))?.shared(&pending.scene_id,id)
+            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_scene(&pending.scene_id)) };
             if let Some(previous) = previous { retired.push(previous); }
         }
         let mut terrain = Vec::new();
@@ -165,23 +165,23 @@ impl State {
             if let Some(id) = id { terrain.push((id, snapshot)); }
             else {
                 let mut output = world.resource_mut::<DynamicBladeDraft>();
-                let density_only = output.for_map(&pending.map).is_some_and(|old|
+                let density_only = output.for_scene(&pending.scene_id).is_some_and(|old|
                     old.definition.layers == snapshot.definition.layers
-                    && snapshot.definition.layers.iter().all(|layer| layer.kind != MapVegetationKind::Mesh));
+                    && snapshot.definition.layers.iter().all(|layer| layer.kind != SceneVegetationKind::Mesh));
                 if density_only { output.publish_density(snapshot); } else { output.publish(snapshot); }
             }
         }
         if !terrain.is_empty() {
-            publisher.get_mut(world).map_err(|error|format!("植被预览发布上下文不可用：{error}"))?.publish(&pending.map, terrain)
+            publisher.get_mut(world).map_err(|error|format!("植被预览发布上下文不可用：{error}"))?.publish(&pending.scene_id, terrain)
                 .map_err(|_| "植被预览发布期间目标地形身份发生变化")?;
         }
         publisher.apply(world);
         for id in ids {
             let adopted = if let Some(id) = &id {
-                publisher.get_mut(world).map_err(|error|format!("植被预览采用上下文不可用：{error}"))?.shared(&pending.map,id)
-            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_map(&pending.map)) };
+                publisher.get_mut(world).map_err(|error|format!("植被预览采用上下文不可用：{error}"))?.shared(&pending.scene_id,id)
+            } else { world.get_resource::<DynamicBladeDraft>().and_then(|draft|draft.frozen_for_scene(&pending.scene_id)) };
             let adopted = adopted.ok_or("植被发布没有产生当前来源")?;
-            if let Some(old) = self.published.insert((pending.map.clone(),id),adopted) { retired.push(old); }
+            if let Some(old) = self.published.insert((pending.scene_id.clone(),id),adopted) { retired.push(old); }
         }
         self.pending = None;
         if retired.is_empty() { Ok(true) } else {
@@ -191,11 +191,11 @@ impl State {
     }
     #[cfg(feature = "validation")]
     pub(super) fn evidence(&self, world: &World) -> serde_json::Value {
-        use feathrise_scene::{SubMapInstance, TerrainObjectInstance, TerrainObjectAuthoringTarget};
+        use feathrise_scene::{SubsceneInstance, TerrainObjectInstance, TerrainObjectAuthoringTarget};
         use feathrise_scene_core::residency::InstanceResourceTable;
         let root = world.get_resource::<DynamicBladeDraft>();
         let map = self.published.keys().next().map(|(map,_)|map);
-        let root_revision = map.and_then(|map|root.as_ref()?.revision_for_map(map));
+        let root_revision = map.and_then(|map|root.as_ref()?.revision_for_scene(map));
         let canvases = self.evidence.iter().cloned().map(|mut evidence| {
             let terrain = evidence["terrain_id"].as_str();
             let Some(map) = map else { return evidence; };
@@ -205,13 +205,13 @@ impl State {
                 world.get_resource::<InstanceResourceTable<DynamicBladeDraft>>().and_then(|table|
                     table.values.iter().take(128).find_map(|(entity, draft)| {
                         let object = world.get::<TerrainObjectInstance>(*entity)?;
-                        let instance = world.get::<SubMapInstance>(*entity)?;
-                        (Some(object.definition.id.as_str()) == terrain && &instance.source_map_id == map
+                        let instance = world.get::<SubsceneInstance>(*entity)?;
+                        (Some(object.definition.id.as_str()) == terrain && &instance.source_scene_id == map
                             && instance.path.instances.is_empty()).then_some(draft)
                     }))
             };
-            evidence["draft_revision"] = serde_json::json!(draft.and_then(|draft|draft.revision_for_map(map)));
-            evidence["adopted_source_revision"] = serde_json::json!(draft.and_then(|draft|draft.for_map(map)).map(|snapshot|snapshot.source_revision));
+            evidence["draft_revision"] = serde_json::json!(draft.and_then(|draft|draft.revision_for_scene(map)));
+            evidence["adopted_source_revision"] = serde_json::json!(draft.and_then(|draft|draft.for_scene(map)).map(|snapshot|snapshot.source_revision));
             evidence
         }).collect::<Vec<_>>();
         serde_json::json!({"canvases":canvases, "root_draft_revision":root_revision})

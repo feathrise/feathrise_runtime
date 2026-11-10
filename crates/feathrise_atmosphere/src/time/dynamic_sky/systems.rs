@@ -12,7 +12,7 @@ use super::components::{DynamicSkyAtmosphere, DynamicSkyCameraRuntime}; // 私�
 use crate::weather::{
     WeatherAuthoringPreview, WeatherPreviewCamera, is_gameplay_scene, supports_camera_local_weather,
 }; // 动态天空与天气表现共享玩法及 F12 正交边界。
-use crate::{AuthoredSkyMode, AuthoredSkyboxRequest, AuthoredSkyboxStatus}; // 地图互斥模式只有在主 Cube 真正采用后才关闭动态回退。
+use crate::{AuthoredSkyMode, AuthoredSkyboxRequest, AuthoredSkyboxStatus}; // 场景互斥模式只有在主 Cube 真正采用后才关闭动态回退。
 
 /// 可被动态天空接管或正等待恢复的相机数据。
 type DynamicSkyCameraData = (
@@ -64,12 +64,12 @@ pub(in crate::time) fn sync_dynamic_sky(
         runtime,
     ) in &cameras
     {
-        let active = camera.is_none_or(|camera| camera.is_active); // 排除切图期间已停用的旧渲染视图。
+        let active = camera.is_none_or(|camera| camera.is_active); // 排除切换场景期间已停用的旧渲染视图。
         let eligible_preview =
             is_preview_camera && preview_active && supports_camera_local_weather(true, projection); // 只有 F12 透视天气预览取得动态天空。
         let eligible = gameplay && active && (is_gameplay_camera || eligible_preview); // 菜单与普通辅助相机永不接管。
         let authored_skybox_active = authored_request.is_some_and(|request| {
-            request.mode == AuthoredSkyMode::Skybox // 地图必须明确选择天空盒模式。
+            request.mode == AuthoredSkyMode::Skybox // 场景必须明确选择天空盒模式。
                 && authored_status.is_some_and(|status| status.visible_skybox_active) // 主 Cube 必须已完整采用或在安全热换中保留。
                 && skybox.is_some() // 防御延迟命令或外部移除，不让空背景关闭动态大气。
         });

@@ -1,19 +1,19 @@
 //! 原对象手柄的稳定根投影；索引随实体生命周期维护，多选使用原作者的分层pivot保留剪切。
 
 use bevy::prelude::*;
-use feathrise_map_content::{MapId, embedded_placement_preview::{
+use feathrise_scene_content::{SceneId, embedded_placement_preview::{
     MAX_PLACEMENT_PREVIEW_MEMBERS, PLACEMENT_PREVIEW_FORMAT, PlacementPreviewCommand, PlacementPreviewKind, PlacementPreviewFinalMember}};
-use feathrise_scene::{MapPlacementInstance, SubMapInstance};
+use feathrise_scene::{ScenePlacementInstance, SubsceneInstance};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Resource, Default)]
 struct RootIndex {
-    roots: BTreeMap<(MapId, String), BTreeSet<Entity>>,
-    reverse: BTreeMap<Entity, (MapId, String)>,
+    roots: BTreeMap<(SceneId, String), BTreeSet<Entity>>,
+    reverse: BTreeMap<Entity, (SceneId, String)>,
 }
-fn inserted(event: On<Insert<MapPlacementInstance>>, roots: Query<&MapPlacementInstance>, mut index: ResMut<RootIndex>) {
+fn inserted(event: On<Insert<ScenePlacementInstance>>, roots: Query<&ScenePlacementInstance>, mut index: ResMut<RootIndex>) {
     if let Ok(root) = roots.get(event.entity) {
-        let key = (root.map_id().clone(), root.id().to_owned());
+        let key = (root.scene_id().clone(), root.id().to_owned());
         if let Some(previous) = index.reverse.get(&event.entity).cloned()
             && previous != key {
             if let Some(roots) = index.roots.get_mut(&previous) { roots.remove(&event.entity); }
@@ -23,7 +23,7 @@ fn inserted(event: On<Insert<MapPlacementInstance>>, roots: Query<&MapPlacementI
         index.reverse.insert(event.entity, key);
     }
 }
-fn removed(event: On<Remove<MapPlacementInstance>>, mut index: ResMut<RootIndex>) {
+fn removed(event: On<Remove<ScenePlacementInstance>>, mut index: ResMut<RootIndex>) {
     if let Some(key) = index.reverse.remove(&event.entity) {
         if let Some(roots) = index.roots.get_mut(&key) { roots.remove(&event.entity); }
         if index.roots.get(&key).is_some_and(BTreeSet::is_empty) { index.roots.remove(&key); }
@@ -33,12 +33,12 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<RootIndex>().add_observer(inserted).add_observer(removed);
 }
 
-pub(super) fn decode(format: &str, bytes: &[u8], map: &MapId) -> Result<PlacementPreviewCommand, String> {
+pub(super) fn decode(format: &str, bytes: &[u8], map: &SceneId) -> Result<PlacementPreviewCommand, String> {
     if format != PLACEMENT_PREVIEW_FORMAT || bytes.len() > 256 * 1024 { return Err("对象预览格式或大小无效".into()); }
     let value: PlacementPreviewCommand = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
     match &value {
-        PlacementPreviewCommand::Begin { gesture, map_id, ids, kind, .. } => {
-            if *gesture == 0 || map_id != map || ids.is_empty() || ids.len() > MAX_PLACEMENT_PREVIEW_MEMBERS
+        PlacementPreviewCommand::Begin { gesture, scene_id, ids, kind, .. } => {
+            if *gesture == 0 || scene_id != map || ids.is_empty() || ids.len() > MAX_PLACEMENT_PREVIEW_MEMBERS
                 || (*kind == PlacementPreviewKind::Absolute && ids.len() != 1)
                 || ids.iter().any(|id| id.is_empty() || id.len() > 256)
                 || ids.iter().collect::<BTreeSet<_>>().len() != ids.len() {
@@ -72,30 +72,30 @@ fn exact_transform(value: Mat4) -> Result<Transform, String> {
     Ok(result)
 }
 
-/// 通过当前索引定向复核活动根；同来源子地图实例不能冒充父图作者对象。
-pub(crate) fn active_root(world: &World, map: &MapId, id: &str) -> Result<Entity, String> {
+/// 通过当前索引定向复核活动根；同来源子场景实例不能冒充父图作者对象。
+pub(crate) fn active_root(world: &World, map: &SceneId, id: &str) -> Result<Entity, String> {
     let roots = world.get_resource::<RootIndex>().and_then(|index| index.roots.get(&(map.clone(), id.to_owned())))
         .ok_or_else(|| format!("对象{id}的运行根尚未就绪"))?;
     let mut found = None;
     for &entity in roots {
-        if !world.get::<MapPlacementInstance>(entity).is_some_and(|root|root.is_active() && root.map_id() == map && root.id() == id) { continue; }
+        if !world.get::<ScenePlacementInstance>(entity).is_some_and(|root|root.is_active() && root.scene_id() == map && root.id() == id) { continue; }
         let mut parent = Some(entity);
         let mut admitted = true;
         for _ in 0..32 {
             let Some(current) = parent else { break; };
-            if world.get::<SubMapInstance>(current).is_some_and(|node| !node.path.instances.is_empty()) { admitted = false; break; }
+            if world.get::<SubsceneInstance>(current).is_some_and(|node| !node.path.instances.is_empty()) { admitted = false; break; }
             parent = world.get::<ChildOf>(current).map(ChildOf::parent);
         }
         if parent.is_some() { admitted = false; }
         if admitted && found.replace(entity).is_some() { return Err(format!("对象{id}存在重复活动根")); }
     }
-    found.ok_or_else(|| format!("对象{id}没有当前地图活动根"))
+    found.ok_or_else(|| format!("对象{id}没有当前场景活动根"))
 }
 
 struct Root { id: String, entity: Entity, parent: Option<Entity>, original: Transform, pivot: Option<Entity> }
 struct Pivot { parent: Option<Entity>, control: Entity, attach: Entity, cleanup: Entity }
 struct Gesture {
-    id: u64, sequence: u64, kind: PlacementPreviewKind, map: MapId,
+    id: u64, sequence: u64, kind: PlacementPreviewKind, scene_id: SceneId,
     pending: VecDeque<String>, roots: Vec<Root>, pivots: Vec<Pivot>,
     ended: bool, snapshot_started: bool,
     finishing: VecDeque<PlacementPreviewFinalMember>,
@@ -121,7 +121,7 @@ impl State {
             else { world.entity_mut(entity).remove::<ChildOf>(); }
         }
     }
-    pub(super) fn receive(&mut self, world: &mut World, map: &MapId, command: PlacementPreviewCommand) -> Result<(), String> {
+    pub(super) fn receive(&mut self, world: &mut World, map: &SceneId, command: PlacementPreviewCommand) -> Result<(), String> {
         #[cfg(feature = "validation")]
         { self.last_edge = Some(match &command {
             PlacementPreviewCommand::Begin { gesture, .. } => ("begin", *gesture, false),
@@ -133,7 +133,7 @@ impl State {
                 #[cfg(feature = "validation")]
                 { self.evidence_roots.clear(); }
                 if let Some(previous) = self.active.take() { cleanup(world, previous, false)?; }
-                self.active = Some(Gesture { id: gesture, sequence: 0, kind, map: map.clone(), pending: ids.into(),
+                self.active = Some(Gesture { id: gesture, sequence: 0, kind, scene_id: map.clone(), pending: ids.into(),
                     roots: Vec::new(), pivots: Vec::new(), ended: false, snapshot_started: false, finishing: VecDeque::new(), abandon_cursor: None });
             }
             PlacementPreviewCommand::Update { gesture, sequence, transform } => {
@@ -184,7 +184,7 @@ impl State {
         let Some(gesture) = self.active.as_mut() else { return Ok(true); };
         for _ in 0..32 {
             let Some(id) = gesture.pending.pop_front() else { break; };
-            let entity = active_root(world, &gesture.map, &id)?;
+            let entity = active_root(world, &gesture.scene_id, &id)?;
             let parent = world.get::<ChildOf>(entity).map(ChildOf::parent);
             let original = *world.get::<Transform>(entity).ok_or("对象运行根缺少变换")?;
             let pivot = if gesture.kind == PlacementPreviewKind::GroupDelta {
@@ -207,7 +207,7 @@ impl State {
             for root in &mut gesture.roots[cursor..end] {
                 if let Some(pivot) = root.pivot.take()
                     && world.get::<ChildOf>(root.entity).map(ChildOf::parent) == Some(pivot) {
-                    // 外部删除/切图时没有合法作者终值；只归还父级所有权，不写回旧initial。
+                    // 外部删除/切换场景时没有合法作者终值；只归还父级所有权，不写回旧initial。
                     if let Some(parent) = root.parent { world.entity_mut(root.entity).insert(ChildOf(parent)); }
                     else { world.entity_mut(root.entity).remove::<ChildOf>(); }
                 }
@@ -219,7 +219,7 @@ impl State {
             for _ in 0..32 {
                 let Some(member) = gesture.finishing.pop_front() else { break; };
                 let root = gesture.roots.iter_mut().find(|root| root.id == member.id).ok_or("对象结束出现未知成员")?;
-                if !world.get::<MapPlacementInstance>(root.entity).is_some_and(|instance|
+                if !world.get::<ScenePlacementInstance>(root.entity).is_some_and(|instance|
                     instance.is_active() && instance.id() == member.id) { return Err("对象结束时运行根已换代".into()); }
                 let local = exact_transform(matrix(member.local)?)?;
                 if let Some(pivot) = root.pivot.take() {
@@ -236,7 +236,7 @@ impl State {
         }
         // 正式候选采用后旧根身份退役；只清空本手势仍拥有的辅助层级，绝不动新根。
         if gesture.ended && gesture.snapshot_started && gesture.roots.iter().all(|root|
-            !world.get::<MapPlacementInstance>(root.entity).is_some_and(MapPlacementInstance::is_active)) {
+            !world.get::<ScenePlacementInstance>(root.entity).is_some_and(ScenePlacementInstance::is_active)) {
             let old = self.active.take().unwrap(); cleanup(world, old, true)?; return Ok(true);
         }
         Ok(gesture.pending.is_empty())
@@ -244,7 +244,7 @@ impl State {
     #[cfg(feature = "validation")]
     pub(super) fn evidence(&self, world: &World) -> serde_json::Value {
         let roots = self.evidence_roots.iter().filter_map(|entity| {
-            let root = world.get::<MapPlacementInstance>(*entity)?;
+            let root = world.get::<ScenePlacementInstance>(*entity)?;
             let local = world.get::<Transform>(*entity)?;
             let global = world.get::<GlobalTransform>(*entity)?;
             Some(serde_json::json!({"id":root.id(), "entity":entity.to_bits(), "active":root.is_active(),
@@ -271,7 +271,7 @@ fn spawn_pivot(world: &mut World, parent: Option<Entity>) -> Result<Pivot, Strin
 fn cleanup(world: &mut World, value: Gesture, restore_group: bool) -> Result<(), String> {
     for root in value.roots {
         if root.pivot.is_none() || world.get::<ChildOf>(root.entity).map(ChildOf::parent) != root.pivot { continue; }
-        if !restore_group && world.get::<MapPlacementInstance>(root.entity).is_some_and(MapPlacementInstance::is_active) {
+        if !restore_group && world.get::<ScenePlacementInstance>(root.entity).is_some_and(ScenePlacementInstance::is_active) {
             return Err("前一多选手势尚未由正式快照接回".into());
         }
         let mut entity = world.entity_mut(root.entity);
@@ -285,16 +285,16 @@ fn cleanup(world: &mut World, value: Gesture, restore_group: bool) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn gesture_fixture(count: usize) -> (App, MapId, Entity, Vec<Entity>, Vec<String>) {
+    fn gesture_fixture(count: usize) -> (App, SceneId, Entity, Vec<Entity>, Vec<String>) {
         let mut app = App::new(); install(&mut app);
-        let map = MapId::parse("MAP-preview").unwrap();
+        let map = SceneId::parse("MAP-preview").unwrap();
         let parent = app.world_mut().spawn((Transform::IDENTITY, GlobalTransform::IDENTITY)).id();
         let mut entities = Vec::new(); let mut ids = Vec::new();
         for index in 0..count {
             let id = format!("object-{index}");
             let record = serde_json::from_value(serde_json::json!({"id":id,"asset_path":"model.glb",
                 "translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]})).unwrap();
-            entities.push(app.world_mut().spawn((MapPlacementInstance::new(&map, &record),
+            entities.push(app.world_mut().spawn((ScenePlacementInstance::new(&map, &record),
                 Transform::IDENTITY, GlobalTransform::IDENTITY, ChildOf(parent))).id());
             ids.push(id);
         }
@@ -305,7 +305,7 @@ mod tests {
         let (mut app, map, parent, roots, ids) = gesture_fixture(65);
         let mut state = State::default();
         for gesture in [1, 2] {
-            state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture, map_id:map.clone(),
+            state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture, scene_id:map.clone(),
                 source_revision:gesture, ids:ids.clone(), kind:PlacementPreviewKind::GroupDelta }).unwrap();
             assert!(!state.advance(app.world_mut()).unwrap());
             assert!(!state.advance(app.world_mut()).unwrap());
@@ -322,7 +322,7 @@ mod tests {
             for entity in &roots {
                 assert_eq!(app.world().get::<ChildOf>(*entity).unwrap().parent(), parent);
                 assert_eq!(app.world().get::<Transform>(*entity).unwrap().translation.x, gesture as f32);
-                assert!(app.world().get::<MapPlacementInstance>(*entity).unwrap().is_active());
+                assert!(app.world().get::<ScenePlacementInstance>(*entity).unwrap().is_active());
             }
         }
     }
@@ -330,7 +330,7 @@ mod tests {
     fn explicit_authority_abandon_only_releases_owned_pivot_without_restoring_old_pose() {
         let (mut app, map, parent, roots, ids) = gesture_fixture(1);
         let mut state = State::default();
-        state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture:1, map_id:map.clone(),
+        state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture:1, scene_id:map.clone(),
             source_revision:1, ids, kind:PlacementPreviewKind::GroupDelta }).unwrap();
         assert!(state.advance(app.world_mut()).unwrap());
         app.world_mut().entity_mut(roots[0]).insert(Transform::from_translation(Vec3::X * 17.0));
@@ -344,7 +344,7 @@ mod tests {
     fn formal_adoption_does_not_reparent_a_root_already_taken_by_project_systems() {
         let (mut app, map, _, roots, ids) = gesture_fixture(1);
         let mut state = State::default();
-        state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture:1, map_id:map.clone(),
+        state.receive(app.world_mut(), &map, PlacementPreviewCommand::Begin { gesture:1, scene_id:map.clone(),
             source_revision:1, ids, kind:PlacementPreviewKind::GroupDelta }).unwrap();
         assert!(state.advance(app.world_mut()).unwrap());
         let owner = app.world_mut().spawn((Transform::IDENTITY, GlobalTransform::IDENTITY)).id();

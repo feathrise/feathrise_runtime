@@ -17,7 +17,7 @@ pub struct ResidentAssetEventReader<'w, 's, A: Asset> {
     cursor: Local<'s, MessageCursor<ResidentAssetEvent<A>>>,
     journal: Option<Res<'w, crate::residency::InstanceAssetJournal<A>>>,
     journal_cursor: Local<'s, u64>,
-    scope: Option<Res<'w, crate::residency::MapRuntimeScope>>,
+    scope: Option<Res<'w, crate::residency::SceneRuntimeScope>>,
 }
 
 impl<A: Asset> ResidentAssetEventReader<'_, '_, A> {

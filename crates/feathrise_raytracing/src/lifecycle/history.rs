@@ -70,8 +70,8 @@ pub(crate) fn reset_solari_history_on_discontinuity(
         }
         let slot = match profile.kind() {
             WorldCelestialLightKind::LegacyCombined => 0, // 固定 HN 场景单灯占兼容槽位。
-            WorldCelestialLightKind::Sun => 1,            // 动态地图太阳灯占固定太阳槽位。
-            WorldCelestialLightKind::Moon => 2,           // 动态地图月亮灯占固定月亮槽位。
+            WorldCelestialLightKind::Sun => 1,            // 动态场景太阳灯占固定太阳槽位。
+            WorldCelestialLightKind::Moon => 2,           // 动态场景月亮灯占固定月亮槽位。
         };
         current_celestial_lights[slot] = Some(celestial_snapshot(light, light_global, sun_disk)); // 任一灯的照度、颜色、方向或角直径都进入历史身份。
     }
@@ -80,8 +80,8 @@ pub(crate) fn reset_solari_history_on_discontinuity(
         rotation,
         target_size: camera.physical_target_size(),
         projection_bits: projection_bits(projection),
-        map_generation: runtime.generation,
-        celestial_lights: current_celestial_lights, // 固定槽位同时覆盖单灯固定场景和双灯动态地图。
+        scene_generation: runtime.generation,
+        celestial_lights: current_celestial_lights, // 固定槽位同时覆盖单灯固定场景和双灯动态场景。
     };
 
     let Some(mut previous) = previous else {
@@ -119,7 +119,7 @@ fn projection_bits(projection: &Projection) -> [u32; 16] {
 fn celestial_snapshot(
     light: &DirectionalLight,   // 当前时钟与天气合成后的光照参数。
     global: &GlobalTransform,   // Transform传播后的最终世界旋转。
-    sun_disk: Option<&SunDisk>, // 动态地图最终角直径由氛围系统写入同一光实体。
+    sun_disk: Option<&SunDisk>, // 动态场景最终角直径由氛围系统写入同一光实体。
 ) -> CelestialLightSnapshot {
     let color = light.color.to_linear();
     let (_, rotation, _) = global.to_scale_rotation_translation(); // 忽略不影响方向光的平移与缩放。
@@ -133,10 +133,10 @@ fn celestial_snapshot(
 
 fn history_discontinuity_reason(
     previous: &SolariHistoryState, // 上一帧已经提交给Solari历史的轻量身份。
-    current: &SolariHistoryState,  // 当前帧最终相机、地图与天体光身份。
+    current: &SolariHistoryState,  // 当前帧最终相机、场景与天体光身份。
 ) -> Option<SolariHistoryResetReason> {
-    if previous.map_generation != current.map_generation {
-        return Some(SolariHistoryResetReason::MapGenerationChanged); // 切图优先于同帧相机位置变化。
+    if previous.scene_generation != current.scene_generation {
+        return Some(SolariHistoryResetReason::SceneGenerationChanged); // 切换场景优先于同帧相机位置变化。
     }
     if previous.translation.distance(current.translation) > CAMERA_TELEPORT_DISTANCE_METERS {
         return Some(SolariHistoryResetReason::CameraTranslation); // 正常连续跟随不会累计成瞬移。
@@ -201,7 +201,7 @@ mod tests {
             rotation: Quat::IDENTITY,
             target_size: Some(UVec2::new(1920, 1080)),
             projection_bits: [0; 16],
-            map_generation: 7,
+            scene_generation: 7,
             celestial_lights: [
                 Some(CelestialLightSnapshot {
                     illuminance: 20_000.0,                            // 固定兼容灯测试基线照度。
@@ -239,7 +239,7 @@ mod tests {
         assert!(history_discontinuous(&previous, &resized));
 
         let mut regenerated = previous;
-        regenerated.map_generation += 1;
+        regenerated.scene_generation += 1;
         assert!(history_discontinuous(&previous, &regenerated));
     }
 
@@ -274,11 +274,11 @@ mod tests {
             Some(SolariHistoryResetReason::ProjectionChanged)
         );
 
-        let mut regenerated = previous; // 地图换代必须使用独立诊断原因。
-        regenerated.map_generation += 1; // 模拟切图或GLB热重载后的新代次。
+        let mut regenerated = previous; // 场景换代必须使用独立诊断原因。
+        regenerated.scene_generation += 1; // 模拟切换场景或GLB热重载后的新代次。
         assert_eq!(
             history_discontinuity_reason(&previous, &regenerated),
-            Some(SolariHistoryResetReason::MapGenerationChanged)
+            Some(SolariHistoryResetReason::SceneGenerationChanged)
         );
 
         let mut celestial_changed = previous; // 天体光单帧突变不依赖相机变化。
@@ -416,9 +416,9 @@ mod tests {
             direction: Vec3::new(1.0, 0.1, 0.0).normalize(), // 月亮位于东方低空而非天顶。
             angular_diameter_radians: 0.518_f32.to_radians(), // 月亮采用固定真实角直径。
         }; // 完成动态月亮快照。
-        let mut daytime = state(Vec3::ZERO); // 复用稳定相机、投影和地图代次。
+        let mut daytime = state(Vec3::ZERO); // 复用稳定相机、投影和场景代次。
         daytime.celestial_lights = [None, Some(sun), None]; // 白天只有太阳槽进入 Solari 光源集合。
-        let mut evening = daytime; // 日月交接不改变相机或地图身份。
+        let mut evening = daytime; // 日月交接不改变相机或场景身份。
         evening.celestial_lights = [None, None, Some(moon)]; // 夜间只把月亮写入固定月亮槽。
         assert_eq!(
             history_discontinuity_reason(&daytime, &evening), // 光源集合从太阳换到月亮必须丢弃旧直射历史。

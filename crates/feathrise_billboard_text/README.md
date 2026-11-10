@@ -33,7 +33,7 @@ Text2d (+ 装饰圆盘 Mesh2d) ─┤
 
 宿主消失或 TTL 到期的清理在 `PostUpdate` 文字更新中执行；固定槽位退休必须排在它之后，并让延迟实体销毁先落地，再停用相机、切回长期占位图，最后进入 `CameraUpdateSystems`。Bevy 也会检查停用相机的目标元数据，不能仅靠 `is_active = false` 留下已回收的 Image 句柄。退休仍只检查固定4个槽位，不增加相机或纹理分配。
 
-最终文字继续使用原有 Blend 软边。只有唯一活动 `BillboardCamera` 同时具备 `DeferredPrepass`、`MotionVectorPrepass` 和 `TemporalJitter` 时，插件才显示共享网格/纹理的 AlphaMask 引导子层；该层使用独立 RenderLayer，不进入小地图、角色预览或其他 Forward 相机。时间链关闭后，插件会隐藏全部引导并精确归还主相机原有 RenderLayers。工程启用外部 WorldUI 分流时可把 `BillboardColorExtension` 切到 `BILLBOARD_PROJECTION_UNJITTERED`，让输出分辨率合成避免再次叠加时间抖动。
+最终文字继续使用原有 Blend 软边。只有唯一活动 `BillboardCamera` 同时具备 `DeferredPrepass`、`MotionVectorPrepass` 和 `TemporalJitter` 时，插件才显示共享网格/纹理的 AlphaMask 引导子层；该层使用独立 RenderLayer，不进入小场景、角色预览或其他 Forward 相机。时间链关闭后，插件会隐藏全部引导并精确归还主相机原有 RenderLayers。工程启用外部 WorldUI 分流时可把 `BillboardColorExtension` 切到 `BILLBOARD_PROJECTION_UNJITTERED`，让输出分辨率合成避免再次叠加时间抖动。
 
 ## 快速开始
 

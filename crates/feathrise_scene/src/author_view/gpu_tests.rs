@@ -371,23 +371,23 @@ fn run_window_proof(builtin: bool, atmosphere: bool) {
 
 fn spawn_formal_builtin(world: &mut World) -> Entity {
     use bevy::ecs::system::RunSystemOnce;
-    use feathrise_map_content::{MapId, MapPlacementAssetTarget, MapPlacementRecord};
-    let target = MapPlacementAssetTarget::Cuboid {
+    use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementRecord};
+    let target = ScenePlacementAssetTarget::Cuboid {
         size_mm: [2000; 3], color_srgb: [204, 25, 13], roughness_milli: 700, collision: false,
     };
-    let record: MapPlacementRecord = serde_json::from_value(serde_json::json!({
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
         "id":"author-view-gpu-builtin", "asset_path":"", "asset_target":target,
         "translation":[0,0,0], "yaw_degrees":0, "scale":[1,1,1]
     })).unwrap();
     let root = world.spawn((
-        crate::MapPlacementInstance::new(&MapId::parse("MAP-author-view-gpu").unwrap(), &record),
+        crate::ScenePlacementInstance::new(&SceneId::parse("MAP-author-view-gpu").unwrap(), &record),
         Transform::IDENTITY, Visibility::Inherited,
     )).id();
     world.run_system_once(move |mut commands: Commands| {
         assert!(crate::spawn_builtin_placement_visual(&mut commands, root, target));
     }).unwrap();
     // 沿正式作者目标生成Mesh与StandardMaterial，必须实际带真实面边编码才覆盖本次缺失路径。
-    let visual = world.query_filtered::<&Mesh3d, With<crate::MapPlacementPrimitiveVisual>>()
+    let visual = world.query_filtered::<&Mesh3d, With<crate::ScenePlacementPrimitiveVisual>>()
         .single(world).unwrap();
     let mesh = world.resource::<Assets<Mesh>>().get(&visual.0).unwrap();
     assert!(mesh.attribute(crate::ATTRIBUTE_AUTHORING_WIRE).is_some());

@@ -1,6 +1,6 @@
-//! 主世界禁用的增量同步；保留RenderEntity及其GPU输出缓冲，暂停后台地图绘制与Compute。
+//! 主世界禁用的增量同步；保留RenderEntity及其GPU输出缓冲，暂停后台场景绘制与Compute。
 
-use crate::residency::ResidentMapEntity;
+use crate::residency::ResidentSceneEntity;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod tests;
@@ -31,7 +31,7 @@ fn clear_headless_changes(mut changes: ResMut<RenderPauseChanges>) {
 
 fn pause_render_entity(
     event: On<Insert<Disabled>>,
-    entities: Query<&RenderEntity, (With<ResidentMapEntity>, Allow<Disabled>)>,
+    entities: Query<&RenderEntity, (With<ResidentSceneEntity>, Allow<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {
     if let Ok(entity) = entities.get(event.entity) {
@@ -41,7 +41,7 @@ fn pause_render_entity(
 
 fn resume_render_entity(
     event: On<Remove<Disabled>>,
-    entities: Query<&RenderEntity, (With<ResidentMapEntity>, Allow<Disabled>)>,
+    entities: Query<&RenderEntity, (With<ResidentSceneEntity>, Allow<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {
     if let Ok(entity) = entities.get(event.entity) {
@@ -52,7 +52,7 @@ fn resume_render_entity(
 
 fn pause_new_render_entity(
     event: On<Insert<RenderEntity>>,
-    entities: Query<&RenderEntity, (With<ResidentMapEntity>, With<Disabled>)>,
+    entities: Query<&RenderEntity, (With<ResidentSceneEntity>, With<Disabled>)>,
     mut changes: ResMut<RenderPauseChanges>,
 ) {
     if let Ok(entity) = entities.get(event.entity) {

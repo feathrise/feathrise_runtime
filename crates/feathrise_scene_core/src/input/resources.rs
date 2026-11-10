@@ -36,20 +36,20 @@ impl Default for InputGateState {
 /// 作者自己的占用事实；由作者模块写入，应用适配不得覆盖作者现场。
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EditorInputState {
-    pub map_editor_open: bool,
+    pub scene_editor_open: bool,
     /// 只在确实显示跟随笔刷时隐藏系统鼠标；绝不据此锁定指针。
-    pub map_editor_custom_cursor_visible: bool,
+    pub scene_editor_custom_cursor_visible: bool,
 }
 
 /// 非UI安全事务的暂停原因；生产者登记状态，唯一暂停应用系统负责时间。
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct WorldPauseBlockers {
-    /// 地图正在替换碰撞，完成前不得推进模拟或物理。
-    pub map_collision_reload: bool,
+    /// 场景正在替换碰撞，完成前不得推进模拟或物理。
+    pub scene_collision_reload: bool,
 }
 
 impl WorldPauseBlockers {
     pub fn blocks_world(&self) -> bool {
-        self.map_collision_reload
+        self.scene_collision_reload
     }
 }

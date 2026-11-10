@@ -1,5 +1,5 @@
 //! 树木与灌木共享的固定周期风噪声生成。
-//! 【功能设计】该模块只在Startup生成一次固定 `512 × 512` RGBA8 图片；成本不随地图、实体或帧数增长。
+//! 【功能设计】该模块只在Startup生成一次固定 `512 × 512` RGBA8 图片；成本不随场景、实体或帧数增长。
 
 use bevy::asset::RenderAssetUsages; // 程序图片需要同时保留主世界资产身份并上传渲染世界。
 use bevy::image::{
@@ -25,10 +25,10 @@ const TREE_WIND_NOISE_CHANNELS: [(u32, u32); 4] = [
 /// 在Startup一次生成并登记共享噪声Image。
 /// 资源只在完整像素、采样器和Assets句柄全部成功构造后原子出现。
 pub(super) fn setup_tree_wind_noise_texture(
-    mut commands: Commands, // 完成后插入唯一公共资源供地图材质系统观察。
+    mut commands: Commands, // 完成后插入唯一公共资源供场景材质系统观察。
     mut images: ResMut<Assets<Image>>, // 程序图片登记必须留在主世界资产所有线程。
 ) {
-    // 固定批次不放入Update，避免任何地图重进或热重载重复生成四通道像素。
+    // 固定批次不放入Update，避免任何场景重进或热重载重复生成四通道像素。
     let handle = images.add(build_tree_wind_noise_image()); // 完整构造后一次取得强Image句柄。
     commands.insert_resource(TreeWindNoiseTexture(handle)); // 句柄有效后原子发布材质就绪门。
 } // 完成共享风噪声Startup登记。
@@ -85,7 +85,7 @@ fn periodic_value_noise(
     u: f32,         // 水平周期坐标，任意有限值都会回绕到零至一。
     v: f32,         // 垂直周期坐标，任意有限值都会回绕到零至一。
     frequency: u32, // 周期内格点数决定当前噪声空间尺度。
-    seed: u32,      // 固定种子保证跨进程和跨地图结果一致。
+    seed: u32,      // 固定种子保证跨进程和跨场景结果一致。
 ) -> f32 {
     // 内部调用全部使用非零常量，max仍防止未来测试或重构引入除零。
     let frequency = frequency.max(1); // 保证取模和网格缩放始终合法。
@@ -156,7 +156,7 @@ mod tests {
     fn tree_wind_noise_pixels_are_deterministic() {
         let first = build_tree_wind_noise_pixels(); // 生成第一份完整固定风噪声。
         let second = build_tree_wind_noise_pixels(); // 生成第二份相同输入风噪声。
-        assert_eq!(first, second); // 跨地图重进和重启依赖逐字节确定性。
+        assert_eq!(first, second); // 跨场景重进和重启依赖逐字节确定性。
         assert_eq!(
             first.len(),
             (TREE_WIND_NOISE_SIZE * TREE_WIND_NOISE_SIZE * 4) as usize

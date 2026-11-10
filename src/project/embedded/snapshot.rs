@@ -4,14 +4,14 @@ use super::{
     SceneSnapshot,
     asset_overlay::{Files, ReadEvidence, valid_path},
 };
-use feathrise_map_content::*;
+use feathrise_scene_content::*;
 use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) struct PreparedSnapshot {
     pub transaction: u64,
     pub revision: u64,
     pub generation: u64,
-    pub map_id: MapId,
+    pub scene_id: SceneId,
     pub name: String,
     pub spawn: [f32; 3],
     pub files: Arc<Files>,
@@ -38,15 +38,15 @@ pub(super) fn prepare(
 ) -> Result<PreparedSnapshot, String> {
     let snapshot: SceneSnapshot =
         serde_json::from_slice(bytes).map_err(|e| format!("作者快照无效：{e}"))?;
-    let id = MapId::parse(map)?;
+    let id = SceneId::parse(map)?;
     if snapshot.entry.id != id
         || snapshot.manifest.id != id
-        || snapshot.placements.map_id != id
-        || snapshot.portals.map_id != id
-        || snapshot.manifest.schema_version != MAP_SCHEMA_VERSION
+        || snapshot.placements.scene_id != id
+        || snapshot.portals.scene_id != id
+        || snapshot.manifest.schema_version != SCENE_SCHEMA_VERSION
         || !snapshot.manifest.is_data_driven()
     {
-        return Err("作者快照的地图、版本或运行类型不一致".into());
+        return Err("作者快照的场景、版本或运行类型不一致".into());
     }
     if !snapshot
         .manifest
@@ -57,17 +57,17 @@ pub(super) fn prepare(
         return Err("作者快照起始位置无效".into());
     }
     let mut files = snapshot.asset_overrides;
-    // 未保存目录只存在内存，保留本工程其他地图条目和正式路径。读取/编码均在后台。
-    let path = project.asset_root().join(MAP_CATALOG_ASSET_PATH);
-    let mut catalog: MapCatalogAsset =
+    // 未保存目录只存在内存，保留本工程其他场景条目和正式路径。读取/编码均在后台。
+    let path = project.asset_root().join(SCENE_CATALOG_ASSET_PATH);
+    let mut catalog: SceneCatalogAsset =
         serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-    if let Some(entry) = catalog.maps.iter_mut().find(|entry| entry.id == id) {
+    if let Some(entry) = catalog.scenes.iter_mut().find(|entry| entry.id == id) {
         *entry = snapshot.entry.clone();
     } else {
-        catalog.maps.push(snapshot.entry.clone());
+        catalog.scenes.push(snapshot.entry.clone());
     }
-    add_json(&mut files, MAP_CATALOG_ASSET_PATH.to_owned(), &catalog)?;
+    add_json(&mut files, SCENE_CATALOG_ASSET_PATH.to_owned(), &catalog)?;
     add_json(
         &mut files,
         snapshot.entry.manifest_path(),
@@ -80,8 +80,8 @@ pub(super) fn prepare(
     )?;
     add_json(&mut files, snapshot.entry.portals_path(), &snapshot.portals)?;
     if let Some(value) = snapshot.boundaries {
-        if value.map_id != id {
-            return Err("边界快照属于另一地图".into());
+        if value.scene_id != id {
+            return Err("边界快照属于另一场景".into());
         }
         add_json(
             &mut files,
@@ -94,8 +94,8 @@ pub(super) fn prepare(
         )?;
     }
     if let Some(value) = snapshot.surface {
-        if value.map_id != id {
-            return Err("地表快照属于另一地图".into());
+        if value.scene_id != id {
+            return Err("地表快照属于另一场景".into());
         }
         add_json(
             &mut files,
@@ -108,8 +108,8 @@ pub(super) fn prepare(
         )?;
     }
     if let Some(value) = snapshot.vegetation {
-        if value.map_id != id {
-            return Err("植被快照属于另一地图".into());
+        if value.scene_id != id {
+            return Err("植被快照属于另一场景".into());
         }
         // 密度纹理由作者的生产 KTX2 编码器提供；原始 R8 也交给同一个只读来源。
         for layer in &value.layers {
@@ -132,8 +132,8 @@ pub(super) fn prepare(
         )?;
     }
     if let Some(value) = snapshot.water {
-        if value.map_id != id {
-            return Err("水域快照属于另一地图".into());
+        if value.scene_id != id {
+            return Err("水域快照属于另一场景".into());
         }
         for layer in &value.layers {
             if let Some(source) = snapshot.water_masks.get(&layer.id) {
@@ -216,7 +216,7 @@ pub(super) fn prepare(
     if total > 128 * 1024 * 1024 {
         return Err("完整作者资产超过 128 MiB 传输预算；未采用部分结果".into());
     }
-    // 仅内容真正改变的路径触发生产热更；相机移动和纯摆放编辑不能让全部地图资源重载。
+    // 仅内容真正改变的路径触发生产热更；相机移动和纯摆放编辑不能让全部场景资源重载。
     let (paths, reload_paths) = changed_paths(&files, previous);
     let clear_vegetation = reload_paths.iter().any(|path| path == &snapshot.entry.manifest_path()
         || path == VEGETATION_PRESET_CATALOG_ASSET_PATH)
@@ -240,7 +240,7 @@ pub(super) fn prepare(
         transaction,
         revision,
         generation,
-        map_id: id,
+        scene_id: id,
         name: snapshot.manifest.display_name,
         spawn: snapshot.manifest.default_spawn,
         paths,
@@ -257,7 +257,7 @@ pub(super) fn prepare(
 }
 
 /// 绑定路径只从同批完整清单取得；任意笔刷路径不能授权其它地形或工程资产。
-fn height_path(manifest: &MapManifestAsset, terrain: Option<&TerrainId>) -> Result<Option<String>, String> {
+fn height_path(manifest: &SceneManifestAsset, terrain: Option<&TerrainId>) -> Result<Option<String>, String> {
     let descriptor = if let Some(id) = terrain {
         &manifest.terrains.as_ref().and_then(|terrains| terrains.iter().find(|terrain| terrain.id == *id))
             .ok_or("高度来源没有对应的地形对象")?.terrain
@@ -265,8 +265,8 @@ fn height_path(manifest: &MapManifestAsset, terrain: Option<&TerrainId>) -> Resu
     sparse_height_path(descriptor)
 }
 
-fn sparse_height_path(descriptor: &MapTerrainDescriptor) -> Result<Option<String>, String> {
-    if descriptor.kind != MapTerrainKind::SparseClipmap { return Ok(None); }
+fn sparse_height_path(descriptor: &SceneTerrainDescriptor) -> Result<Option<String>, String> {
+    if descriptor.kind != SceneTerrainKind::SparseClipmap { return Ok(None); }
     descriptor.height_path.as_ref().filter(|path| valid_path(path)).cloned().map(Some)
         .ok_or_else(|| "作者高度来源缺少规范的清单路径".into())
 }
@@ -275,9 +275,9 @@ fn sparse_height_path(descriptor: &MapTerrainDescriptor) -> Result<Option<String
 /// 它们不属于新快照的就绪依赖；实际新场景的依赖仍由生产场景就绪门核对。
 fn vegetation_sources_changed(files: &Files, previous: &Files, changed: &[String]) -> bool {
     let changed: std::collections::BTreeSet<_> = changed.iter().map(String::as_str).collect();
-    for (path, bytes) in files.iter().chain(previous.iter()).filter(|(path, _)| path.ends_with(".map_vegetation.json")) {
+    for (path, bytes) in files.iter().chain(previous.iter()).filter(|(path, _)| path.ends_with(".scene_vegetation.json")) {
         if changed.contains(path.as_str()) { return true; }
-        if let Ok(definition) = serde_json::from_slice::<MapVegetationAsset>(bytes) {
+        if let Ok(definition) = serde_json::from_slice::<SceneVegetationAsset>(bytes) {
             if definition.layers.iter().any(|layer| changed.contains(layer.density_source_path.as_str())
                 || changed.contains(layer.density_texture_path.as_str())) { return true; }
         }
@@ -287,9 +287,9 @@ fn vegetation_sources_changed(files: &Files, previous: &Files, changed: &[String
 
 fn water_sources_changed(files: &Files, previous: &Files, changed: &[String]) -> bool {
     let changed: std::collections::BTreeSet<_> = changed.iter().map(String::as_str).collect();
-    for (path, bytes) in files.iter().chain(previous.iter()).filter(|(path, _)| path.ends_with(".map_water.json")) {
+    for (path, bytes) in files.iter().chain(previous.iter()).filter(|(path, _)| path.ends_with(".scene_water.json")) {
         if changed.contains(path.as_str()) { return true; }
-        if let Ok(definition) = serde_json::from_slice::<MapWaterAsset>(bytes) {
+        if let Ok(definition) = serde_json::from_slice::<SceneWaterAsset>(bytes) {
             if definition.layers.iter().any(|layer| changed.contains(layer.mask_source_path.as_str())
                 || changed.contains(layer.mask_texture_path.as_str())) { return true; }
         }

@@ -11,15 +11,15 @@ use super::percent; // 复用父模块统一百分比保护。
 /// 格式化当前分页实际存在内容的独立GPU诊断段。
 pub(super) fn format_content_gpu_report(
     content_kinds: &[GpuBladeProfileSlot], // 分页模式正常只有一个稳定profile。
-    content_label: &'static str, // 页面身份可把互斥地图复用的零号profile显示为普通草或湿地草。
+    content_label: &'static str, // 页面身份可把互斥场景复用的零号profile显示为普通草或湿地草。
     lod_count: usize,            // 局部LOD规格决定实际显示的档数，不再固定截断到第四档。
     gpu_stats: &GpuBladeGpuReadbackStats, // 四类内容的真实GPU候选、存活与几何提交量。
     gpu_timing: &GpuBladeGpuTimingStats, // 四类内容的Compute、Draw和着色器调用量。
 ) -> String {
     if content_kinds.is_empty() {
-        return "草内容 无".to_string(); // 当前地图没有该页内容时不展开伪诊断。
+        return "草内容 无".to_string(); // 当前场景没有该页内容时不展开伪诊断。
     } // 完成空内容快速返回。
-    let lod_count = lod_count.clamp(4, gpu_stats.by_profile[0].rendered_instances_by_lod.len()); // 旧地图保留四列，扩展档只访问已分配诊断槽。
+    let lod_count = lod_count.clamp(4, gpu_stats.by_profile[0].rendered_instances_by_lod.len()); // 旧场景保留四列，扩展档只访问已分配诊断槽。
     let lod_labels = if lod_count == 4 {
         "近/中/远/超远".to_string()
     } else {

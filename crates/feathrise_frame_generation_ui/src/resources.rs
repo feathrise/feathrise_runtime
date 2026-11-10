@@ -52,7 +52,7 @@ impl UiFramePermission {
 } // 许可实现结束。
 #[derive(Resource, Default)] // 持有最近完整 GPU 图像，裸句柄消费期限由后端负责。
 pub struct UiCaptureResult {
-    // 单槽有界结果，不积累历史地图。
+    // 单槽有界结果，不积累历史场景。
     pub(crate) image: Option<UiFrame>, // 捕获完成前不会发布。
     pub(crate) scene_only: Option<(u32, Entity)>, // 仅后端成功接管真实帧合成时允许省略恢复。
 } // 捕获资源结束。

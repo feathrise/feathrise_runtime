@@ -241,7 +241,7 @@ fn renderer_transition(app: &mut App, matrix: Mat4, method: OpaqueRendererMethod
 #[ignore = "需要真实GPU；无游戏窗口，显式验证Bevy深度预通道和生产遮雨发布"]
 fn real_gpu_roof_depth_keeps_courtyard_open_and_clears_removed_roof() {
     // 不创建主相机，证明遮挡独立于玩家视野。
-    let mut app = App::new(); // 独立测试世界，不加载游戏或用户地图。
+    let mut app = App::new(); // 独立测试世界，不加载游戏或用户场景。
     app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {

@@ -36,7 +36,7 @@ impl MeshLodSettings {
             && (32.0..=4096.0).contains(&self.collision_safe_near_meters)
             && self.collision_max_error_meters.is_finite()
             && (0.0001..=0.25).contains(&self.collision_max_error_meters);
-        // 边界与共享作者MeshLodPolicy一致；偏好类型不依赖地图资产，避免渲染设置反向耦合。
+        // 边界与共享作者MeshLodPolicy一致；偏好类型不依赖场景资产，避免渲染设置反向耦合。
         Self {
             display_enabled: self.display_enabled && display_valid,
             max_error_pixels: if display_valid { self.max_error_pixels } else { defaults.max_error_pixels },

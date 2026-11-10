@@ -3,7 +3,7 @@
 //! Solari会为活动相机插入`SkipDeferredLighting`，因此Bevy标准Deferred PBR不会消费
 //! `EnvironmentMapLight`。本模块在不透明Forward覆盖与既有阴影兼容完成后、透明内容和RR之前，
 //! 复用同一MeshView环境贴图绑定，以加法方式只补回Deferred首表面的环境项。
-//! 0.20 的实时射线未命中与世界缓存不再重复累加天空，以保留地图独立的补光和反射强度。
+//! 0.20 的实时射线未命中与世界缓存不再重复累加天空，以保留场景独立的补光和反射强度。
 
 mod node; // Core3d主颜色上的原位加法节点。
 mod pipeline; // 复用MeshView环境贴图布局的全屏专用管线。

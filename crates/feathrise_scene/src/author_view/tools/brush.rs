@@ -2,7 +2,7 @@
 
 use bevy::{gizmos::config::GizmoConfigGroup, prelude::*};
 use feathrise_author_tools::{BrushPreview, BrushShape};
-use feathrise_map_content::MapId;
+use feathrise_scene_content::SceneId;
 
 use crate::ClipmapVegetationBrush;
 
@@ -11,7 +11,7 @@ use crate::ClipmapVegetationBrush;
 pub fn clipmap_brush(preview: &BrushPreview, revision: [u64; 3], missing_pages: [UVec4; 16]) -> Option<ClipmapVegetationBrush> {
     let surface = preview.clipmap.as_ref()?;
     Some(ClipmapVegetationBrush {
-        map_id: MapId(surface.map_id.clone()),
+        scene_id: SceneId(surface.scene_id.clone()),
         revision,
         missing_pages,
         center: Vec3::from_array(preview.center).xz(),
@@ -25,7 +25,7 @@ fn linear_color([r, g, b, a]: [f32; 4]) -> LinearRgba {
     LinearRgba::new(r, g, b, a)
 }
 
-/// 每个轮廓的线段数量固定，与地图、地形页及盖印距离无关。
+/// 每个轮廓的线段数量固定，与场景、地形页及盖印距离无关。
 pub fn draw_brush<T: GizmoConfigGroup>(gizmos: &mut Gizmos<T>, preview: &BrushPreview) {
     if preview.clipmap.is_some() {
         return; // 真实高度由现有 Clipmap GPU 材质绘制，不能重复显示悬空平圈。

@@ -1,7 +1,7 @@
 //! 通用静态网格LOD的单飞捕获、后台席位、上传信用与冷缓存。
 use super::{capture::Capture, types::*};
 use bevy::{asset::AssetId, prelude::*, tasks::Task};
-use feathrise_map_terrain::StaticMeshLod;
+use feathrise_terrain::StaticMeshLod;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(super) const TARGET_BUDGET: usize = 32;

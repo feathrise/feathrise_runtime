@@ -1,7 +1,7 @@
 # 场景基础契约共用一个底座，避免状态、视图、输入许可和驻留所有权分别发布。
 [package]
 name = "feathrise_scene_core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"

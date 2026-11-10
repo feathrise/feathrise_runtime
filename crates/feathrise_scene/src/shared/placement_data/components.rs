@@ -7,9 +7,9 @@ use std::sync::{
 
 use bevy::prelude::*;
 use crate::shared::authoring_version::AuthoringVersion; // 作者重施和正式批次采用是两个独立身份。
-use feathrise_map_content::{
-    MapId, MapPlacementAssetTarget, MapPlacementRecord, MapPlacementWaterSurface,
-}; // 根冻结地图、文件内目标与完整作者记录的非水结构证据，水数组由当前覆盖组件共同证明。
+use feathrise_scene_content::{
+    SceneId, ScenePlacementAssetTarget, ScenePlacementRecord, ScenePlacementWaterSurface,
+}; // 根冻结场景、文件内目标与完整作者记录的非水结构证据，水数组由当前覆盖组件共同证明。
 
 /// 共享批次门的内部状态；数值只写入同一`AtomicU8`，不得持久化或跨进程解释。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,7 +17,7 @@ use feathrise_map_content::{
 enum PlacementInstanceState {
     Pending = 0, // 当前隐藏正式候选可以参与同快照保存等待，但不能接受F12写回。
     Active = 1,  // 已原子采用正式根或当前作者会话精确预览可以接受作者写回。
-    Retired = 2, // 已换图、换代或取消的根仅等待有界清理，不能再提供保存证据。
+    Retired = 2, // 已切换场景、换代或取消的根仅等待有界清理，不能再提供保存证据。
 }
 
 /// 一批placement根共享的作者可见性门。
@@ -44,7 +44,7 @@ impl PlacementInstanceGate {
 
     pub(super) fn retire(&self) {
         self.0
-            .store(PlacementInstanceState::Retired as u8, Ordering::Release); // 换图、取消或替换时永久撤销本批保存与作者资格。
+            .store(PlacementInstanceState::Retired as u8, Ordering::Release); // 切换场景、取消或替换时永久撤销本批保存与作者资格。
     }
 
     fn is_active(&self) -> bool {
@@ -73,14 +73,14 @@ impl PlacementInstanceGate {
 /// 【功能设计】F12以稳定摆放ID直接定位正式实例根，不通过名称推断、
 /// 不逐帧扫描世界；ID字段保持私有，外部只能读取而不能破坏运行时身份。
 #[derive(Component, Clone, Debug)] // 字符串逐根保存，活动门则由同批全部根共享。
-pub struct MapPlacementInstance {
-    map_id: MapId,      // 同一稳定placement ID只在所属地图内有效，切图残留根不能串图证明。
+pub struct ScenePlacementInstance {
+    scene_id: SceneId,      // 同一稳定placement ID只在所属场景内有效，切换场景残留根不能串图证明。
     id: String,         // 私有字段阻止实例生命期中被属性面板意外改名。
     asset_path: String, // 冻结创建该可视根的GLB/GLTF作者来源。
-    asset_target: MapPlacementAssetTarget, // Scene0或Mesh/Primitive/Material数字组合必须参与保存证明。
+    asset_target: ScenePlacementAssetTarget, // Scene0或Mesh/Primitive/Material数字组合必须参与保存证明。
     building_preset_id: Option<String>,    // 建筑身份变化必须重建或重施根证据，普通资产保持None。
-    terrain_patch: Option<feathrise_map_content::MapPlacementTerrainPatch>, // 洞口与真实碰撞一起参与保存证明。
-    mesh_lod: Option<feathrise_map_content::MeshLodPolicy>, // 显式网格策略属于作者身份，换策略不能借用旧根证明。
+    terrain_patch: Option<feathrise_scene_content::ScenePlacementTerrainPatch>, // 洞口与真实碰撞一起参与保存证明。
+    mesh_lod: Option<feathrise_scene_content::MeshLodPolicy>, // 显式网格策略属于作者身份，换策略不能借用旧根证明。
     translation: [f32; 3], // 保存证明比较原始JSON平移，不用归一化后的Transform猜作者值。
     yaw_degrees: f32,      // 保存证明比较原始有限Y轴角度快照。
     scale: [f32; 3],       // 保存证明比较原始三轴缩放快照。
@@ -89,11 +89,11 @@ pub struct MapPlacementInstance {
     authoring_version: Option<AuthoringVersion>, // 初始版本浅借gate；同批热改独立换票据而不拆正式采用门。
 } // 结束显式摆放根身份组件。
 
-impl MapPlacementInstance {
+impl ScenePlacementInstance {
     /// 为当前作者会话的一条已校验摆放记录建立活动预览根身份。
-    pub fn new(map_id: &MapId, record: &MapPlacementRecord) -> Self {
+    pub fn new(scene_id: &SceneId, record: &ScenePlacementRecord) -> Self {
         Self {
-            map_id: map_id.clone(),                // 预览根只证明创建它的当前草稿地图。
+            scene_id: scene_id.clone(),                // 预览根只证明创建它的当前草稿场景。
             id: record.id.clone(),                 // 稳定记录ID与其余结构字段来自同一不可变快照。
             asset_path: record.asset_path.clone(), // 后续换资产必须重建预览，不能原地漂移证据。
             asset_target: record.asset_target,     // 保存、撤销与重新进图都必须恢复同一个子资产。
@@ -111,12 +111,12 @@ impl MapPlacementInstance {
 
     /// 为隐藏正式候选建立共享批次身份；只有整批原子采用后才会变为活动。
     pub(super) fn new_pending(
-        map_id: &MapId,
-        record: &MapPlacementRecord,
+        scene_id: &SceneId,
+        record: &ScenePlacementRecord,
         gate: PlacementInstanceGate,
     ) -> Self {
         Self {
-            map_id: map_id.clone(), // 正式候选的地图身份来自同一完整JSON修订。
+            scene_id: scene_id.clone(), // 正式候选的场景身份来自同一完整JSON修订。
             id: record.id.clone(),  // 根ID与场景句柄、变换和覆盖共享同一计划快照。
             asset_path: record.asset_path.clone(), // 保存门拒绝同ID但不同GLB来源的旧根。
             asset_target: record.asset_target, // 直接primitive不能借用同文件Scene0旧根的Ready信用。
@@ -132,18 +132,18 @@ impl MapPlacementInstance {
         }
     }
 
-    /// 返回与`MapPlacementRecord.id`完全一致的只读身份。
+    /// 返回与`ScenePlacementRecord.id`完全一致的只读身份。
     pub fn id(&self) -> &str {
         &self.id // 借用读取避免F12枚举实例时为每项分配新字符串。
     } // 完成摆放ID读取。
 
-    /// 返回创建该Scene0根时冻结的地图身份。
-    pub fn map_id(&self) -> &MapId {
-        &self.map_id // 保存与诊断只借用稳定身份，不复制字符串。
+    /// 返回创建该Scene0根时冻结的场景身份。
+    pub fn scene_id(&self) -> &SceneId {
+        &self.scene_id // 保存与诊断只借用稳定身份，不复制字符串。
     }
 
     /// 返回创建该根时冻结的Scene0或直接primitive目标。
-    pub fn asset_target(&self) -> MapPlacementAssetTarget {
+    pub fn asset_target(&self) -> ScenePlacementAssetTarget {
         self.asset_target // 视口只读取不可变目标来区分Scene层级命中与直接子资产命中。
     }
 
@@ -155,26 +155,26 @@ impl MapPlacementInstance {
 
     /// 更新同一内置摆放的作者快照，保留所属批次的采用与退役门。
     /// 【功能设计】属性热改不能用独立活动门替换正式共享门，否则旧批次退役后仍会冒充可编辑根。
-    pub fn with_updated_record(&self, record: &MapPlacementRecord) -> Option<Self> {
+    pub fn with_updated_record(&self, record: &ScenePlacementRecord) -> Option<Self> {
         if self.id != record.id || self.asset_path != record.asset_path
             || !self.asset_target.is_builtin() || !record.asset_target.is_builtin()
         {
             return None; // 切换记录或外部资产必须重建正式身份，不能借用本根原有信用。
         }
-        let mut updated = Self::new_pending(&self.map_id, record, self.gate.clone());
+        let mut updated = Self::new_pending(&self.scene_id, record, self.gate.clone());
         updated.previous_gate = self.previous_gate.clone();
         updated.authoring_version = Some(AuthoringVersion::default());
         Some(updated) // 保留正式采用/退役门，同时撤销旧作者版本的保存回收租约。
     }
 
     /// 仅变换热改复用真实运行根；资产、碰撞、赋水与LOD结构变化仍走正式候选。
-    pub fn with_updated_transform_record(&self, record: &MapPlacementRecord) -> Option<Self> {
+    pub fn with_updated_transform_record(&self, record: &ScenePlacementRecord) -> Option<Self> {
         if self.id != record.id || self.asset_path != record.asset_path
             || self.asset_target != record.asset_target || self.building_preset_id != record.building_preset_id
             || self.terrain_patch != record.terrain_patch || self.mesh_lod != record.mesh_lod {
             return None;
         }
-        let mut updated = Self::new_pending(&self.map_id, record, self.gate.clone());
+        let mut updated = Self::new_pending(&self.scene_id, record, self.gate.clone());
         updated.previous_gate = self.previous_gate.clone();
         updated.authoring_version = Some(AuthoringVersion::default());
         Some(updated)
@@ -201,22 +201,22 @@ impl MapPlacementInstance {
     }
 
     /// 显示与碰撞独立继承全局策略；建筑显示也使用该契约。
-    pub fn mesh_lod_policy(&self) -> feathrise_map_content::MeshLodPolicy {
+    pub fn mesh_lod_policy(&self) -> feathrise_scene_content::MeshLodPolicy {
         self.mesh_lod.unwrap_or_default()
     }
 
-    pub(crate) fn terrain_patch(&self) -> Option<&feathrise_map_content::MapPlacementTerrainPatch> {
+    pub(crate) fn terrain_patch(&self) -> Option<&feathrise_scene_content::ScenePlacementTerrainPatch> {
         self.terrain_patch.as_ref()
     }
 
     /// 当前根与草稿记录及实际水覆盖是否组成同一个完整作者快照。
     pub fn matches_record(
         &self,
-        map_id: &MapId,
-        record: &MapPlacementRecord,
-        water_surfaces: &[MapPlacementWaterSurface],
+        scene_id: &SceneId,
+        record: &ScenePlacementRecord,
+        water_surfaces: &[ScenePlacementWaterSurface],
     ) -> bool {
-        self.map_id == *map_id // 跨图同名placement首先失败关闭。
+        self.scene_id == *scene_id // 跨场景同名placement首先失败关闭。
             && self.id == record.id // 同图内稳定ID必须一致。
             && self.asset_path == record.asset_path // GLB/GLTF文件来源必须与草稿完全一致。
             && self.asset_target == record.asset_target // 文件内Scene0或子资产目标同样必须一致。
@@ -240,35 +240,35 @@ impl MapPlacementInstance {
     }
 } // 结束显式摆放根身份公开接口。
 
-impl PartialEq for MapPlacementInstance {
+impl PartialEq for ScenePlacementInstance {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id // 公开值相等语义保持为稳定记录ID，不把运行时批次指针泄漏给作者域。
     }
 }
 
-impl Eq for MapPlacementInstance {}
+impl Eq for ScenePlacementInstance {}
 
 #[cfg(test)]
 mod builtin_record_update_tests {
     use super::*;
 
-    fn record() -> MapPlacementRecord {
-        let mut record: MapPlacementRecord = serde_json::from_str(r#"{"id":"cube","asset_path":"","translation":[0,1,0],"yaw_degrees":0,"scale":[1,1,1]}"#).unwrap();
-        record.asset_target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+    fn record() -> ScenePlacementRecord {
+        let mut record: ScenePlacementRecord = serde_json::from_str(r#"{"id":"cube","asset_path":"","translation":[0,1,0],"yaw_degrees":0,"scale":[1,1,1]}"#).unwrap();
+        record.asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         record
     }
 
     #[test]
     fn builtin_record_update_keeps_the_formal_batch_gate_through_adoption_and_retirement() {
-        let map = MapId("MAP-cube".into());
+        let map = SceneId("MAP-cube".into());
         for active in [false, true] {
             let gate = PlacementInstanceGate::new(active);
-            let original = MapPlacementInstance::new_pending(&map, &record(), gate.clone());
+            let original = ScenePlacementInstance::new_pending(&map, &record(), gate.clone());
             assert_eq!(original.authoring_version(), original.clone().authoring_version());
-            assert_ne!(original.authoring_version(), MapPlacementInstance::new(&map, &record()).authoring_version());
+            assert_ne!(original.authoring_version(), ScenePlacementInstance::new(&map, &record()).authoring_version());
             let mut changed = record();
             changed.translation = [2.0, 3.0, 4.0];
-            changed.asset_target = MapPlacementAssetTarget::Cuboid {
+            changed.asset_target = ScenePlacementAssetTarget::Cuboid {
                 size_mm: [1000, 2000, 3000], color_srgb: [255, 64, 32],
                 roughness_milli: 350, collision: false,
             };
@@ -290,7 +290,7 @@ mod builtin_record_update_tests {
     #[test]
     fn builtin_record_update_rejects_other_records_and_external_asset_targets() {
         let source = record();
-        let instance = MapPlacementInstance::new(&MapId("MAP-cube".into()), &source);
+        let instance = ScenePlacementInstance::new(&SceneId("MAP-cube".into()), &source);
         let mut changed = source.clone();
         changed.id = "other-cube".into();
         assert!(instance.with_updated_record(&changed).is_none());
@@ -298,15 +298,15 @@ mod builtin_record_update_tests {
         changed.asset_path = "other.glb".into();
         assert!(instance.with_updated_record(&changed).is_none());
         changed = source;
-        changed.asset_target = MapPlacementAssetTarget::Scene0;
+        changed.asset_target = ScenePlacementAssetTarget::Scene0;
         assert!(instance.with_updated_record(&changed).is_none());
     }
 
     #[test]
     fn independent_preview_versions_cannot_borrow_same_id_ownership() {
-        let map = MapId("MAP-preview-versions".into());
-        let first = MapPlacementInstance::new(&map, &record());
-        let next = MapPlacementInstance::new(&map, &record());
+        let map = SceneId("MAP-preview-versions".into());
+        let first = ScenePlacementInstance::new(&map, &record());
+        let next = ScenePlacementInstance::new(&map, &record());
         assert_eq!(first, next, "既有公开值相等语义仍只比较稳定记录ID");
         assert_ne!(first.authoring_version(), next.authoring_version(), "同记录同值的新作者快照不能继承旧回收权");
         assert_eq!(first.authoring_version(), first.clone().authoring_version());
@@ -314,9 +314,9 @@ mod builtin_record_update_tests {
 
     #[test]
     fn carried_placement_keeps_old_activity_on_cancel_and_drops_it_after_adoption() {
-        let map = MapId("MAP-carry-gate".into());
+        let map = SceneId("MAP-carry-gate".into());
         let old = PlacementInstanceGate::new(true);
-        let source = MapPlacementInstance::new_pending(&map, &record(), old.clone());
+        let source = ScenePlacementInstance::new_pending(&map, &record(), old.clone());
         let failed = PlacementInstanceGate::new(false);
         let carried = source.carried_to(failed.clone()).unwrap();
         failed.retire();
@@ -339,31 +339,31 @@ mod rain_shelter_gate_tests {
     // 测试位于门所有权模块内。
     use super::*; // 直接使用正式pending/active/retired门。
     use feathrise_environment::rain_shelter::{RainShelterBox, RainShelterState}; // 正式CPU受雨数据。
-    use feathrise_map_content::ActiveDynamicMap; // 场景桥需要完整动态身份。
+    use feathrise_scene_content::ActiveDynamicScene; // 场景桥需要完整动态身份。
     use feathrise_scene_core::state::ScenePhase; // 当前正式场景。
 
     #[test] // 原子门变更没有Changed<Component>也必须即时反映。
     fn pending_active_retired_placement_controls_shelter_without_component_changes() {
         // 坏候选不能影响旧有效批次。
         let mut app = App::new(); // 不安装渲染或物理插件。
-        app.insert_resource(State::new(ScenePhase::Active)); // 活动地图与记录一致。
-        app.insert_resource(ActiveDynamicMap { map_id: Some(MapId("HN-01".into())) }); // 当前地图与两个placement批次身份一致。
+        app.insert_resource(State::new(ScenePhase::Active)); // 活动场景与记录一致。
+        app.insert_resource(ActiveDynamicScene { scene_id: Some(SceneId("HN-01".into())) }); // 当前场景与两个placement批次身份一致。
         app.add_plugins(crate::shared::rain_shelter::RainShelterPlugin); // 正式完整作者桥。
-        let record: MapPlacementRecord = serde_json::from_str(r#"{"id":"roof","asset_path":"maps/HN-01/roof.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]}"#).unwrap(); // 正式serde数据而非复制构造所有私有细节。
+        let record: ScenePlacementRecord = serde_json::from_str(r#"{"id":"roof","asset_path":"scenes/HN-01/roof.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]}"#).unwrap(); // 正式serde数据而非复制构造所有私有细节。
         let old_gate = PlacementInstanceGate::new(true); // 旧有效屋顶继续拥有活动权。
         let new_gate = PlacementInstanceGate::new(false); // 热更候选尚未原子采用。
         let old_root = app
             .world_mut()
-            .spawn(MapPlacementInstance::new_pending(
-                &MapId("HN-01".into()),
+            .spawn(ScenePlacementInstance::new_pending(
+                &SceneId("HN-01".into()),
                 &record,
                 old_gate.clone(),
             ))
             .id(); // 保留旧有效根。
         let new_root = app
             .world_mut()
-            .spawn(MapPlacementInstance::new_pending(
-                &MapId("HN-01".into()),
+            .spawn(ScenePlacementInstance::new_pending(
+                &SceneId("HN-01".into()),
                 &record,
                 new_gate.clone(),
             ))
@@ -415,10 +415,10 @@ mod rain_shelter_gate_tests {
 /// 标记直接由一条primitive摆放记录生成的唯一可视子实体。
 ///
 /// 【功能设计】直接primitive没有Scene0对象层级和`GltfMeshName`，中央视口只能
-/// 通过本标记命中其可视网格，再从祖先`MapPlacementInstance`恢复整条摆放记录；
+/// 通过本标记命中其可视网格，再从祖先`ScenePlacementInstance`恢复整条摆放记录；
 /// 该路径不会伪造Blender节点、网格水绑定或Scene0展开需求。
 #[derive(Component, Clone, Copy, Debug, Default)]
-pub struct MapPlacementPrimitiveVisual;
+pub struct ScenePlacementPrimitiveVisual;
 
 /// 内置参数网格的唯一可视子节点；父根只通过精确地址替换或切换它的碰撞。
 #[derive(Component)]
@@ -437,7 +437,7 @@ pub(super) struct PlacementStagingRoot;
 ///
 /// 【内部协调约定】场景运行时独占本组件的插入和移除；编辑器等外部系统
 /// 不得修改候选内容或自行改变其生命周期。该物理标记在单根结算后仍保留，
-/// 整批采用后按固定预算移除；外部作者系统必须改用`MapPlacementInstance::is_active`，
+/// 整批采用后按固定预算移除；外部作者系统必须改用`ScenePlacementInstance::is_active`，
 /// 不能以本标记是否存在推断正式身份。
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct PlacementPendingInstance;
@@ -447,7 +447,7 @@ pub struct PlacementPendingInstance;
 /// 保存预检只查询本标记与覆盖组件的交集，因此8192个普通placement不会在等待帧被反复扫描；
 /// 正式候选、编辑器预览及F12热改写侧必须与完整覆盖数组同批维护本标记。
 #[derive(Component, Clone, Copy, Debug, Default)]
-pub struct MapPlacementWaterEvidence;
+pub struct ScenePlacementWaterEvidence;
 
 /// 标记根在整个隐藏候选生命期中所属的代次/修订。
 ///
@@ -464,7 +464,7 @@ pub(super) struct PlacementPendingRevision {
 /// 事件直接定向到根上注册的observer，不需要全局消息资源；旧代次、已采用或已退役根
 /// 即使迟到触发，也会被observer按当前`PlacementPendingRevision`失败关闭。
 #[derive(EntityEvent, Clone, Copy, Debug)]
-pub(crate) struct MapPlacementProgressPulse {
+pub(crate) struct ScenePlacementProgressPulse {
     pub entity: Entity,
 }
 

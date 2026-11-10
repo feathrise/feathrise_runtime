@@ -16,9 +16,9 @@ fn brush() -> BrushPreview {
         flatten: false,
         color: [1., 0.5, 0., 1.],
         clipmap: Some(ClipmapBrushSurface {
-            map_id: "地图-a".into(),
+            scene_id: "场景-a".into(),
             terrain_id: Some("terrain-a".into()),
-            height_path: "maps/terrain-a.height.png".into(),
+            height_path: "scenes/terrain-a.height.png".into(),
             authoring_height_revision: 0,
         }),
     }
@@ -127,8 +127,8 @@ fn author_tools_roundtrip_all_semantics_and_explicit_empty_clear() {
 fn clipmap_brush_wire_contains_only_stable_author_identity() {
     let surface = serde_json::to_value(brush().clipmap.unwrap()).unwrap();
     assert_eq!(surface, serde_json::json!({
-        "map_id":"地图-a", "terrain_id":"terrain-a",
-        "height_path":"maps/terrain-a.height.png", "authoring_height_revision":0
+        "scene_id":"场景-a", "terrain_id":"terrain-a",
+        "height_path":"scenes/terrain-a.height.png", "authoring_height_revision":0
     }));
     for (field, value) in [
         ("revision", serde_json::json!([0, 7, u64::MAX])),
@@ -207,8 +207,8 @@ fn author_tools_reject_nonfinite_invalid_sizes_identities_colors_and_quaternions
         changed_brush(|brush| brush.rotation = [0., 0., 0., 100.]),
         changed_brush(|brush| brush.color[0] = -0.1),
         changed_brush(|brush| brush.color[3] = 1.1),
-        changed_brush(|brush| brush.clipmap.as_mut().unwrap().map_id.clear()),
-        changed_brush(|brush| brush.clipmap.as_mut().unwrap().map_id = "a".repeat(257)),
+        changed_brush(|brush| brush.clipmap.as_mut().unwrap().scene_id.clear()),
+        changed_brush(|brush| brush.clipmap.as_mut().unwrap().scene_id = "a".repeat(257)),
         changed_brush(|brush| brush.clipmap.as_mut().unwrap().terrain_id = Some(String::new())),
         changed_brush(|brush| brush.clipmap.as_mut().unwrap().height_path.clear()),
         changed_brush(|brush| brush.clipmap.as_mut().unwrap().height_path = "a\0b".into()),

@@ -1,6 +1,6 @@
 // atmosphere::weather：统一管理不绑定地域的自动天气、调试覆盖、存档快照和连续环境输出。
 
-pub mod climate; // 正式地图显式使用的天气区域、四季权重和局部气候配置。
+pub mod climate; // 正式场景显式使用的天气区域、四季权重和局部气候配置。
 mod components; // 体积雾相机、天体光和唯一有限雾体积的运行时所有权。
 pub mod constants; // 天气持续、过渡、晨雾与可玩亮度常量。
 mod effects; // 环境光照桥、玩法相机距离雾、世界视线动态云与单发射体GPU降雨表现域。
@@ -14,13 +14,13 @@ use bevy::prelude::*; // App、Plugin、Update和调度配置用于注册天气�
 use bevy::transform::TransformSystems; // 体积雾组件与分格 Transform 必须在本帧最终变换传播前落地。
 use bevy_hanabi::EffectSystems; // F1暂停雨丝单批预热必须排在Hanabi常规发射器tick与编译之后。
 
-pub use climate::{UNIFORM_CLIMATE_PROFILE, WeatherClimateProfile}; // 场景和扩展地图通过公开配置显式声明天气区域与概率修正。
+pub use climate::{UNIFORM_CLIMATE_PROFILE, WeatherClimateProfile}; // 场景和扩展场景通过公开配置显式声明天气区域与概率修正。
 pub use components::WeatherPreviewCamera; // F12等明确作者视口可主动加入天气表现，普通辅助相机仍保持隔离。
 // 时间动态天空与天气局部效果共享场景和F12投影边界。
 pub(crate) use effects::{is_gameplay_scene, supports_camera_local_weather};
 pub use messages::WeatherCommand; // 剧情、测试面板和工具通过顶层路径发送天气请求。
 pub use resources::{
-    DynamicMapWeatherClimate, WeatherAuthoringPreview, WeatherDebugOverride, WeatherOutput,
+    DynamicSceneWeatherClimate, WeatherAuthoringPreview, WeatherDebugOverride, WeatherOutput,
     WeatherState,
 }; // 外部系统通过顶层稳定路径访问天气资源。
 pub use types::{
@@ -38,7 +38,7 @@ impl Plugin for WeatherPlugin {
         app.init_resource::<WeatherState>() // 新游戏默认保持至少四游戏小时晴天。
             .init_resource::<WeatherDebugOverride>() // 调试模式默认关闭且预览为完整目标效果。
             .init_resource::<WeatherAuthoringPreview>() // F12关闭时保持无影响的纯视觉覆盖默认值。
-            .init_resource::<DynamicMapWeatherClimate>() // 动态清单就绪前不推进任何隐式局部气候。
+            .init_resource::<DynamicSceneWeatherClimate>() // 动态清单就绪前不推进任何隐式局部气候。
             .init_resource::<WeatherOutput>() // 插件安装首帧即可提供安全晴天输出。
             .add_message::<WeatherCommand>() // 注册剧情和调试工具共用的天气控制消息。
             .configure_sets(
@@ -57,7 +57,7 @@ impl Plugin for WeatherPlugin {
             .add_systems(
                 Update, // 命令、场景区域同步和自动推进共享同一推进阶段。
                 (
-                    simulation::sync_weather_region, // 先把当前玩法地图同步到其显式登记的天气区域。
+                    simulation::sync_weather_region, // 先把当前玩法场景同步到其显式登记的天气区域。
                     simulation::handle_weather_commands, // 再消费剧情、调试和重置随机序列命令。
                     simulation::advance_weather_state, // 最后按暂停感知虚拟时间推进自动天气。
                 )
@@ -80,7 +80,7 @@ impl Plugin for WeatherPlugin {
                     effects::sync_weather_cloud_curtain, // 世界视线云层跟随唯一视觉相机并按统一风场滚动。
                     effects::sync_weather_rain,          // 单个Hanabi发射体围绕玩法主相机复用。
                 )
-                    .in_set(WeatherSystemSet::ApplyEffects), // 主菜单与小地图通过标记和专属层保持隔离。
+                    .in_set(WeatherSystemSet::ApplyEffects), // 主菜单与小场景通过标记和专属层保持隔离。
             ) // 完成天气核心Update系统注册。
             .add_systems(
                 PostUpdate, // Hanabi在PostUpdate计算本帧GPU粒子初始化数量。

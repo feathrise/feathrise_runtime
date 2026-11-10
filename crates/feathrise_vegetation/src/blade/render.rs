@@ -95,7 +95,7 @@ impl Plugin for GpuBladePlugin {
         app.init_resource::<GpuBladeRenderStats>(); // 无 RenderApp 的逻辑测试也能读取稳定全零快照。
         app.init_resident_resource::<GpuBladeInteraction>(); // 公共默认提供微风和零足迹，消费者可按玩法覆盖。
         app.init_resident_resource::<GpuBladeProfiles>(); // 默认四槽使用同一中性 profile，内容层可显式替换。
-        app.init_resident_resource::<GpuBladeProfileBanks>(); // 动态批次默认为空，目录可按地图实际预设原子替换。
+        app.init_resident_resource::<GpuBladeProfileBanks>(); // 动态批次默认为空，目录可按场景实际预设原子替换。
         app.init_resident_resource::<GpuBladeRenderAssets>(); // 默认不要求外部纹理，消费者可运行时覆盖共享图集。
         app.init_resident_resource::<GpuBladeStreamingStats>(); // 无草地场景保持 Inactive 全零生命周期快照。
         app.add_plugins((

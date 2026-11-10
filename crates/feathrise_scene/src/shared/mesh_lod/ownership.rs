@@ -1,8 +1,8 @@
-//! 只认领明确地图静态来源；骨骼、形变、水体与已有专用LOD从祖先链排除。
+//! 只认领明确场景静态来源；骨骼、形变、水体与已有专用LOD从祖先链排除。
 use super::{resources::MeshLodRuntime, types::Owner};
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use feathrise_environment::vegetation::{VegetationMeshBatchNode, VegetationMeshLodNode};
-use feathrise_map_content::MapTerrainKind;
+use feathrise_scene_content::SceneTerrainKind;
 
 pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
     let mut cursor = entity;
@@ -20,14 +20,14 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
             || node.contains::<bevy::mesh::morph::MorphWeights>()
             || node.contains::<VegetationMeshLodNode>()
             || node.contains::<VegetationMeshBatchNode>()
-            || node.contains::<crate::shared::large_map::DynamicWaterSurface>()
+            || node.contains::<crate::shared::large_scene::DynamicWaterSurface>()
             || node
                 .get::<Name>()
                 .is_some_and(|name| name.as_str().starts_with("规划_"))
         {
             return None;
         }
-        if let Some(instance) = node.get::<crate::MapPlacementInstance>() {
+        if let Some(instance) = node.get::<crate::ScenePlacementInstance>() {
             if instance.is_terrain_patch() {
                 return None;
             }
@@ -42,15 +42,15 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
             if !instance.definition.enabled
                 || !matches!(
                     instance.definition.terrain.kind,
-                    MapTerrainKind::Gltf | MapTerrainKind::Heightfield
+                    SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield
                 )
             {
                 return None;
             }
             // 可雕刻GLB的隐藏输入保持原始身份，仅正式采用显示进入通用LOD。
-            if instance.definition.terrain.kind == MapTerrainKind::Heightfield
+            if instance.definition.terrain.kind == SceneTerrainKind::Heightfield
                 && world
-                    .get::<crate::DynamicMapTerrainPrimitive>(entity)
+                    .get::<crate::DynamicSceneTerrainPrimitive>(entity)
                     .is_none()
                 && world.get::<avian3d::prelude::Collider>(entity).is_none()
             {
@@ -60,12 +60,12 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
                 root: cursor,
                 policy: instance.definition.mesh_lod.unwrap_or_default(),
                 building: false,
-                active: active && node.contains::<crate::SubMapActive>(),
+                active: active && node.contains::<crate::SubsceneActive>(),
             });
         }
         cursor = node.get::<ChildOf>()?.parent();
     }
-    None // 层级过深或歧义时失败关闭，不把其他地图/角色认作静态网格。
+    None // 层级过深或歧义时失败关闭，不把其他场景/角色认作静态网格。
 }
 
 pub(super) fn hierarchy_changed(

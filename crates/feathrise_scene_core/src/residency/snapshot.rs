@@ -1,4 +1,4 @@
-//! 类型安全的地图资源暂停与恢复；大对象只移动所有权，公共Assets和服务不进入快照。
+//! 类型安全的场景资源暂停与恢复；大对象只移动所有权，公共Assets和服务不进入快照。
 
 use crate::residency::SceneResidencyRuntimeSet;
 use bevy::{
@@ -31,9 +31,9 @@ pub struct ResidentResourceSnapshot {
 }
 
 pub trait SceneResidencyAppExt {
-    /// 默认资源的活动槽始终存在；冷地图取得空基线，热地图取回原值。
+    /// 默认资源的活动槽始终存在；冷场景取得空基线，热场景取回原值。
     fn init_resident_resource<T: Resource + Default>(&mut self) -> &mut Self;
-    /// 可选资源在冷地图保持缺席，例如RTT相机；不能为了暂停而创建伪造占位对象。
+    /// 可选资源在冷场景保持缺席，例如RTT相机；不能为了暂停而创建伪造占位对象。
     fn register_optional_resident_resource<T: Resource>(&mut self) -> &mut Self;
     fn add_resident_systems<M>(
         &mut self,
@@ -92,7 +92,7 @@ impl SceneResidencyAppExt for App {
     }
 }
 
-/// 槽数由编译时插件集合限定；只移动固定数量资源，不扫描地图实体、历史或资产。
+/// 槽数由编译时插件集合限定；只移动固定数量资源，不扫描场景实体、历史或资产。
 pub fn take_resident_resources(world: &mut World) -> ResidentResourceSnapshot {
     if !world.contains_resource::<ResidentResourceRegistry>() {
         return ResidentResourceSnapshot::default();

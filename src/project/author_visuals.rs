@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     world_serialization::WorldInstanceReady,
 };
-use feathrise_map_content::author_visuals::*;
+use feathrise_scene_content::author_visuals::*;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::Arc,

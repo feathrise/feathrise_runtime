@@ -211,7 +211,7 @@ mod tests {
     use super::*; // 纯尺寸与偏移规则不需要创建 RenderApp 或 GPU 设备。
 
     #[test]
-    fn fixed_quality_ratios_map_1080p_to_even_internal_sizes() {
+    fn fixed_quality_ratios_scene_1080p_to_even_internal_sizes() {
         let output = UVec2::new(1920, 1080);
         assert_eq!(
             Fsr3Quality::Quality.render_size(output),

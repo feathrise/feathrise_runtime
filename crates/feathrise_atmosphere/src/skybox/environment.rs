@@ -131,7 +131,7 @@ pub(super) fn resolve_environment_maps(
     let diffuse_map = if scale == 0.0 {
         black_cube(shared, images) // 只关闭补光时不复制整张零图。
     } else if scale == 1.0 {
-        diffuse_source.clone() // 两值相同直接沿用离线辐照图，兼容旧单字段地图。
+        diffuse_source.clone() // 两值相同直接沿用离线辐照图，兼容旧单字段场景。
     } else {
         scaled_diffuse_cube(shared, images, diffuse_source, scale)? // 只派生低分辨率漫反射图。
     };

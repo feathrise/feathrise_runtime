@@ -1,6 +1,6 @@
 //! 通用地形地表的PBR扩展片元着色器。
-//! 【功能设计】HN-01保留固定八层兼容路径；动态地图使用每像素四槽索引与运行时长度存储表，
-//! 地图引用层数不进入管线变体。所有平铺和权重定位都使用世界坐标，不依赖Blender UV。
+//! 【功能设计】HN-01保留固定八层兼容路径；动态场景使用每像素四槽索引与运行时长度存储表，
+//! 场景引用层数不进入管线变体。所有平铺和权重定位都使用世界坐标，不依赖Blender UV。
 
 
 
@@ -14,7 +14,7 @@ import feathrise_environment::terrain_surface::shaders::wet_surface::evaluate_we
 import feathrise_environment::terrain_surface::shaders::wet_surface::wet_surface_noise;
 import feathrise_environment::terrain_surface::shaders::wet_surface::water_reflection_roughness;
 import feathrise_environment::terrain_surface::shaders::wet_surface::WATER_SURFACE_REFLECTANCE;
-@if(SPARSE_CLIPMAP) import feathrise_scene::maps::dynamic_map::clipmap::shaders::height as clipmap_height;
+@if(SPARSE_CLIPMAP) import feathrise_scene::scenes::dynamic_scene::clipmap::shaders::height as clipmap_height;
 @if(PREPASS_PIPELINE) import bevy_pbr::prepass::io::VertexOutput;
 @if(PREPASS_PIPELINE) import bevy_pbr::prepass::io::FragmentOutput;
 @if(PREPASS_PIPELINE) import bevy_pbr::deferred::functions::deferred_output;
@@ -272,23 +272,23 @@ fn sample_surface_weights(
     world_dx: vec2<f32>,
     world_dy: vec2<f32>,
 ) -> mat2x4<f32> {
-    var weights = mat2x4<f32>(vec4<f32>(0.0), vec4<f32>(0.0)); // 未使用层和地图外区域先归零。
-    let world_min = terrain_surface.world_bounds.xy; // 取得地图世界左下角。
-    let world_max = terrain_surface.world_bounds.zw; // 取得地图世界右上角。
+    var weights = mat2x4<f32>(vec4<f32>(0.0), vec4<f32>(0.0)); // 未使用层和场景外区域先归零。
+    let world_min = terrain_surface.world_bounds.xy; // 取得场景世界左下角。
+    let world_max = terrain_surface.world_bounds.zw; // 取得场景世界右上角。
     let world_extent = max(world_max - world_min, vec2<f32>(0.0001)); // 防御配置损坏导致除零。
     let uv = (world_xz - world_min) / world_extent; // HN-01正X/正Z与离线权重图正U/正V一致。
     let residual_index = min(u32(terrain_surface.counts.z + 0.5), 7u); // 小整数浮点安全恢复为数组编号。
     if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) {
-        weights[residual_index / 4u][residual_index % 4u] = 1.0; // 地图覆盖外只显示默认杂土，不从边缘纹素外推。
+        weights[residual_index / 4u][residual_index % 4u] = 1.0; // 场景覆盖外只显示默认杂土，不从边缘纹素外推。
         return weights; // 跳过所有正式纹理采样。
     }
     let sample_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)); // 精确端点保持在合法采样范围。
     let uv_dx = world_dx / world_extent; // 将每片元世界梯度转换为权重图归一化梯度。
     let uv_dy = world_dy / world_extent; // 完整mip链据此稳定过滤远景权重。
     let first = textureSampleGrad(weight_map_0, weight_sampler_0, sample_uv, uv_dx, uv_dy); // HN-01唯一权重纹理采样。
-    var second = vec4<f32>(0.0); // 单权重图地图不触碰内部零纹理采样。
+    var second = vec4<f32>(0.0); // 单权重图场景不触碰内部零纹理采样。
     if terrain_surface.counts.y > 1.5 {
-        second = textureSampleGrad(weight_map_1, weight_sampler_1, sample_uv, uv_dx, uv_dy); // 六至八层地图才读取第二张RGBA。
+        second = textureSampleGrad(weight_map_1, weight_sampler_1, sample_uv, uv_dx, uv_dy); // 六至八层场景才读取第二张RGBA。
     }
     let layer_count = min(u32(terrain_surface.counts.x + 0.5), 8u); // 钳制有效层数避免损坏uniform越界。
     for (var index = 0u; index < layer_count; index = index + 1u) {
@@ -313,7 +313,7 @@ fn sample_layer(
     var roughness = clamp(layer.pbr_and_texture.x, 0.0, 1.0); // 读取层感知粗糙度。
     var metallic = clamp(layer.pbr_and_texture.y, 0.0, 1.0); // 读取层金属度。
     if layer.pbr_and_texture.w > 0.5 {
-        let tile_meters = max(layer.pbr_and_texture.z, 0.01); // 防御错误地图参数造成除零。
+        let tile_meters = max(layer.pbr_and_texture.z, 0.01); // 防御错误场景参数造成除零。
         let tiled_uv = fract(world_xz / tile_meters); // 绝对世界X/Z提供跨primitive连续平铺。
         let tiled_dx = world_dx / tile_meters; // 显式世界梯度驱动数组纹理mip选择。
         let tiled_dy = world_dy / tile_meters; // 不需要Blender导出TEXCOORD属性。
@@ -520,12 +520,12 @@ fn sample_indexed_layer(
     world_dy: vec3<f32>,
     geometry_normal: vec3<f32>,
 ) -> IndexedLayerSample {
-    // 存储表自身长度是动态地图层数的精确 u32 权威，避免把任意层数往返经过 f32 uniform。
+    // 存储表自身长度是动态场景层数的精确 u32 权威，避免把任意层数往返经过 f32 uniform。
     let layer_count = max(arrayLength(&indexed_layers), 1u);
     let layer = indexed_layers[min(local_index, layer_count - 1u)];
     if layer.pbr_and_texture.w < 0.0 {
         return IndexedLayerSample(layer.base_color, vec4<f32>(1.0, layer.pbr_and_texture.x, layer.pbr_and_texture.y, 0.5), geometry_normal, 0.0);
-    } // 没有岩土贴图的地图使用显式纯参数回退，不索引不存在的纹理切片。
+    } // 没有岩土贴图的场景使用显式纯参数回退，不索引不存在的纹理切片。
     let tile_meters = max(layer.pbr_and_texture.z, 0.01);
     let slice = i32(layer.pbr_and_texture.w + 0.5);
     let flip_y = layer.normal_height_projection.w > 0.5;
@@ -691,7 +691,7 @@ fn apply_grass_micro_normal(
     strength: f32,
 ) -> vec3<f32> {
     let slope = variation_gradient * max(cell_meters, 1.0) * 2.2; // 把每米梯度恢复为格尺度无关坡度。
-    let perturbation = (terrain_surface.source_to_world * vec4<f32>(-slope.x, 0.0, -slope.y, 0.0)).xyz * max(strength, 0.0) * grass_weight; // 源噪声坡度跟随子地图朝向，非草土层不会得到扰动。
+    let perturbation = (terrain_surface.source_to_world * vec4<f32>(-slope.x, 0.0, -slope.y, 0.0)).xyz * max(strength, 0.0) * grass_weight; // 源噪声坡度跟随子场景朝向，非草土层不会得到扰动。
     return normalize(normal + perturbation); // Blender平滑网格法线仍是基础受光方向。
 }
 
@@ -702,7 +702,7 @@ fn fragment(
     @if(TERRAIN_SURFACE_PRIMITIVE_INDEX) @builtin(primitive_index) primitive_index: u32, // 光栅三角顺序与动态目标唯一TLAS代理的索引顺序严格一致。
 ) -> FragmentOutput {
     @if(SPARSE_CLIPMAP) if !clipmap_height::inside_surface(clipmap_height::source_position(in.world_position.xyz).xz) {
-        discard; // 有限新地图的主画面与阴影、深度通道使用同一世界边界。
+        discard; // 有限新场景的主画面与阴影、深度通道使用同一世界边界。
     }
     var geometry_in = in;
     @if(VERTEX_COLORS && VERTEX_UVS_B) if terrain_surface.volume_shading.x > 0.5 && terrain_surface.volume_shading.y > 0.5 { geometry_in.color = vec4<f32>(1.0); }
@@ -781,9 +781,9 @@ fn fragment(
         var potential = 0.0; // 无作者积水图时只有普遍湿润，不凭空制造水坑。
         let source_mask = terrain_surface.shading.y > 0.5;
         let bounds = select(surface_weather.bounds, terrain_surface.world_bounds, source_mask); // 每个来源使用自己的纹理范围，天气和时间仍共享父世界。
-        let extent = max(bounds.zw - bounds.xy, vec2<f32>(0.001)); // 无地图回退保持有限除法。
+        let extent = max(bounds.zw - bounds.xy, vec2<f32>(0.001)); // 无场景回退保持有限除法。
         let uv = (world_xz - bounds.xy) / extent; // 首尾纹素与作者世界端点一致。
-        if select(surface_weather.options.x, terrain_surface.shading.z, source_mask) > 0.5 && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0)) { // 地图外禁止Clamp导致遮罩延伸。
+        if select(surface_weather.options.x, terrain_surface.shading.z, source_mask) > 0.5 && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0)) { // 场景外禁止Clamp导致遮罩延伸。
             let size = vec2<f32>(textureDimensions(puddle_mask)); // R8首尾像素中心映射，避免半像素偏移。
             let mask_uv = (uv * (size - vec2<f32>(1.0)) + vec2<f32>(0.5)) / size; // 与作者R8端点约定一致。
             let mask_scale = (size - vec2<f32>(1.0)) / (size * extent); // 显式梯度支持距离Mip并防止导数均匀性错误。
@@ -822,7 +822,7 @@ fn fragment(
 
     @if(PREPASS_PIPELINE) var out = deferred_output(in, pbr_input); // 先生成完整标准Deferred字段，动态会话随后只重排已正式保留的元数据通道。
     @if(PREPASS_PIPELINE && TERRAIN_SURFACE_PRIMITIVE_INDEX && SPARSE_CLIPMAP) let write_raytracing_identity = terrain_surface.appearance.z > 0.5 && clipmap_height::raytracing_proxy_enabled();
-    @if(PREPASS_PIPELINE && TERRAIN_SURFACE_PRIMITIVE_INDEX && !SPARSE_CLIPMAP) let write_raytracing_identity = terrain_surface.appearance.z > 0.5; // 只有动态地图光追生命周期创建的非自发光会话副本发布三角身份。
+    @if(PREPASS_PIPELINE && TERRAIN_SURFACE_PRIMITIVE_INDEX && !SPARSE_CLIPMAP) let write_raytracing_identity = terrain_surface.appearance.z > 0.5; // 只有动态场景光追生命周期创建的非自发光会话副本发布三角身份。
     @if(PREPASS_PIPELINE && TERRAIN_SURFACE_PRIMITIVE_INDEX) if write_raytracing_identity {
         let surface_normal = normalize(pbr_input.N); // A槽保存当前平滑或F12平直模式后的最终地表法线。
         let deferred_flags = unpack_flags(out.deferred.a) | DEFERRED_FLAGS_DYNAMIC_TERRAIN_BIT; // 只使用Bevy未占用的第四位标记动态地形。

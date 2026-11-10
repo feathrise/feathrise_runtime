@@ -81,7 +81,7 @@ mod tests {
     #[test] // 晴天必须保持世界时间原有光照与天空，不引入可见偏色。
     fn clear_weather_produces_neutral_environment() {
         let output = WeatherOutput::default(); // 核心天气默认输出为完整晴天参数。
-        let modifiers = environment_modifiers(&output, true); // 模拟玩法地图中的晴天桥接。
+        let modifiers = environment_modifiers(&output, true); // 模拟玩法场景中的晴天桥接。
         assert_eq!(modifiers.direct_light_factor, 1.0); // 晴天保留完整天体直射光。
         assert_eq!(modifiers.ambient_light_factor, 1.0); // 晴天保留完整环境光。
         assert_eq!(modifiers.sky_brightness_factor, 1.0); // 晴天保留作者天空亮度。
@@ -112,7 +112,7 @@ mod tests {
     #[test] // 主菜单和加载阶段必须无条件恢复中性环境。
     fn non_gameplay_scene_resets_environment_to_neutral() {
         let output = WeatherOutput {
-            direct_light_factor: 0.18, // 模拟离开大雨玩法地图时仍保留恶劣天气输出。
+            direct_light_factor: 0.18, // 模拟离开大雨玩法场景时仍保留恶劣天气输出。
             ..default()                // 其余连续天气通道保持晴天默认值。
         }; // 从晴天结构构造有效输出。
         let modifiers = environment_modifiers(&output, false); // 菜单阶段请求中性修正。

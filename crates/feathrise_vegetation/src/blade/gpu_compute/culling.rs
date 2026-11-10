@@ -6,7 +6,7 @@ use bevy::render::render_resource::{BindingResource, ShaderType, UniformBuffer};
 use bevy::render::renderer::{RenderDevice, RenderQueue}; // 启动时创建缓冲并在每帧写入当前玩法相机平面。
 use bevy::render::view::ExtractedView; // 只读取已经同步到渲染世界的本帧玩法视图。
 
-use crate::components::GpuBladeView; // 排除小地图、阴影和辅助相机，草地Compute只跟随唯一玩法视图。
+use crate::components::GpuBladeView; // 排除小场景、阴影和辅助相机，草地Compute只跟随唯一玩法视图。
 
 const INACTIVE_HALF_SPACE_DISTANCE: f32 = 1.0e30; // 非法或无穷远平面替换为永远通过的有限正距离，避免GPU传播Infinity或NaN。
 const GRASS_VIEW_MODE_DISABLED: f32 = 0.0; // 无视图或多视图时连六平面、投影LOD与近镜头避让都保守禁用。
@@ -335,7 +335,7 @@ mod tests {
             Vec3::new(46.0, 104.0, 220.0), // 三级常驻半径严格递增。
             2.0,                           // 子级外沿安全余量。
             Vec2::new(8.0, 16.0),          // 近中两段稳定过渡宽度。
-        )); // 公共测试显式提供纯数值配置，不依赖任何项目地图预设。
+        )); // 公共测试显式提供纯数值配置，不依赖任何项目场景预设。
         let thresholds = screen_space.lod_pixel_thresholds(); // 四项分别描述远中与中近交叉段。
         let residency = screen_space.lod_residency_radii(); // 近中远窗口与外沿安全边距必须严格有序。
         let residency_transitions = screen_space.lod_residency_transition_widths(); // 近中两个子级必须使用正宽过渡。

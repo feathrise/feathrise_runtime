@@ -38,7 +38,7 @@ pub(crate) fn extract_fsr3_views(
             {
                 Some(value) // 先过滤上游确定会拒绝的深度与视野参数，避免低分辨率主通道后才失败。
             }
-            _ => None, // 正交、非法投影、UI、地图和预览相机保持作者路径。
+            _ => None, // 正交、非法投影、UI、场景和预览相机保持作者路径。
         };
         if camera.is_active
             && hdr

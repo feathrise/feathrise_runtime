@@ -14,7 +14,7 @@ pub struct LandscapeKindRuntimeStats {
     pub render_nodes: usize,         // 当前四档LOD子节点总量。
     pub max_render_nodes: usize,     // 硬上限全部实例存在时的四档节点预算。
     pub placement_grid_spacing_m: u32, // 离线候选网格米制间距。
-    pub all_map_resident: bool,      // 本轮固定数量足够小，全部随HN-01常驻。
+    pub all_scene_resident: bool,      // 本轮固定数量足够小，全部随HN-01常驻。
     pub shadow_end_m: f32,           // 当前类别最远投影LOD的退出距离。
     pub collision_proxies: usize,    // 玩家附近实际驻留的简化碰撞数量。
     pub collision_eligible_instances: usize, // 离线标记为中大型可阻挡岩石的总数。
@@ -22,7 +22,7 @@ pub struct LandscapeKindRuntimeStats {
     pub material_assets: usize,      // 当前四档实际共享材质数量；第四档可复用最低源材质。
     pub hardware_batch_budget: usize, // 四档共享网格/材质的理论主渲染批次上限。
     pub materials_ready: bool,       // 四档网格与材质全部解码并完成校准后才为真。
-    pub asset_ready_ms: f64,         // 从进入地图发起加载到四档原子就绪的会话耗时。
+    pub asset_ready_ms: f64,         // 从进入场景发起加载到四档原子就绪的会话耗时。
     pub generated_ultra_proxy: bool, // 第四档是否由加载期代码从最低源网格生成而非外部GLB。
     pub lod_vertex_counts: [u64; 4], // 高、中、低、超低四档唯一Mesh的真实顶点数。
     pub lod_index_counts: [u64; 4],  // 高、中、低、超低四档唯一Mesh的真实索引数。
@@ -36,10 +36,10 @@ pub struct LandscapeKindRuntimeStats {
     pub geometry_lod_reduces: bool,  // 四档顶点量是否真实递减，动态代理成功后两类均应为true。
 } // 完成单类固定景观诊断快照。
 
-/// 当前地图灌木与岩石的聚合诊断资源。
-#[derive(Resource, Clone, Debug, Default, PartialEq)] // 非HN-01地图保持全零并防止继承旧样本。
+/// 当前场景灌木与岩石的聚合诊断资源。
+#[derive(Resource, Clone, Debug, Default, PartialEq)] // 非HN-01场景保持全零并防止继承旧样本。
 pub struct LandscapeRuntimeStats {
-    pub map_code: &'static str,           // 当前固定景观所属地图编号。
+    pub scene_code: &'static str,           // 当前固定景观所属场景编号。
     pub shrub: LandscapeKindRuntimeStats, // 灌木固定实例、风材质和资产成本。
     pub rock: LandscapeKindRuntimeStats,  // 岩石固定实例、碰撞与资产成本。
-} // 完成地图级固定景观诊断资源。
+} // 完成场景级固定景观诊断资源。

@@ -5,17 +5,17 @@
 
 fn clipmap_center(level: u32) -> vec2<f32> { // 与地形 stable_world_xz 使用相同的全局观察中心吸附。
     let step = blade_clipmap.grid.xy * exp2(f32(level)); // 每级按自身格距吸附。
-    let lo = blade_clipmap.map_bounds.xy; // 世界网格原点。
+    let lo = blade_clipmap.scene_bounds.xy; // 世界网格原点。
     return lo + floor((blade_clipmap.view.xy - lo) / step + vec2<f32>(0.5)) * step; // 粗级固定格点，中心可在源外。
 } // 完成固定时间的层中心计算。
 
 fn clipmap_vertex_height(vertex: vec3<f32>) -> vec2<f32> { // xy 为真实世界 X/Z，z 为该顶点的几何采样级。
     let p = vertex.xy; // 只对已选中的三角面三个顶点取高。
-    if any(p < blade_clipmap.map_bounds.xy) || any(p > blade_clipmap.map_bounds.zw) { return vec2<f32>(0.0, 1.0); } // 保持地形地图外顶点的零高度规则。
-    let boundary=stitch_boundary_height(p,blade_clipmap.map_bounds);if boundary.y>0.5{return boundary;}
+    if any(p < blade_clipmap.scene_bounds.xy) || any(p > blade_clipmap.scene_bounds.zw) { return vec2<f32>(0.0, 1.0); } // 保持地形场景外顶点的零高度规则。
+    let boundary=stitch_boundary_height(p,blade_clipmap.scene_bounds);if boundary.y>0.5{return boundary;}
     let level = u32(min(vertex.z, blade_clipmap.options.x)); // 父页不足时与地形同样钳到最高页级。
     let scale = exp2(f32(level)); // 逻辑父页格距。
-    let logical = clamp((p - blade_clipmap.map_bounds.xy) / blade_clipmap.grid.xy, vec2<f32>(0.0), blade_clipmap.grid.zw) / scale; // 作者格坐标。
+    let logical = clamp((p - blade_clipmap.scene_bounds.xy) / blade_clipmap.grid.xy, vec2<f32>(0.0), blade_clipmap.grid.zw) / scale; // 作者格坐标。
     let counts = vec2<u32>(ceil(blade_clipmap.grid.zw / (256.0 * scale))); // 每级实际页数。
     var offset = 0u; // 各级按 Z 页数紧凑纵向排列。
     for (var i = 0u; i < level; i += 1u) { offset += u32(ceil(blade_clipmap.grid.w / (256.0 * exp2(f32(i))))); } // 与地形页表偏移相同。
@@ -23,7 +23,7 @@ fn clipmap_vertex_height(vertex: vec3<f32>) -> vec2<f32> { // xy 为真实世界
     let key = (tile.x | (tile.y << 16u)) + 1u; // 零保留为空槽，实际tile坐标不受图集layer重排影响。
     if any(blade_clipmap.missing_pages[level] == vec4<u32>(key)) { return vec2<f32>(0.0); } // 仅拒绝依赖缺失页的三角，不让新页请求清空整片草。
     let entry = textureLoad(blade_clipmap_table, vec2<i32>(i32(tile.x), i32(tile.y + offset)), 0); // 同一完整页表。
-    if entry.x == 0u { return vec2<f32>(stitch_height(p,0.0,blade_clipmap.map_bounds), 1.0); }
+    if entry.x == 0u { return vec2<f32>(stitch_height(p,0.0,blade_clipmap.scene_bounds), 1.0); }
     let size = vec2<i32>(textureDimensions(blade_clipmap_atlas, 0)); // 当前正式页一般为 257²。
     let local = (logical - vec2<f32>(tile) * 256.0) * vec2<f32>(size - vec2<i32>(1)) / 256.0; // 与地形线性采样的 texel 中心规则相同。
     let a = clamp(vec2<i32>(floor(local)), vec2<i32>(0), size - vec2<i32>(1)); // 左下整数 texel。
@@ -38,13 +38,13 @@ fn clipmap_vertex_height(vertex: vec3<f32>) -> vec2<f32> { // xy 为真实世界
         let h11 = textureLoad(blade_clipmap_atlas, b, layer, 0).r; // 右上。
         raw = mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y); // 精确恢复地形顶点的线性纹理高度。
     } // 完成页内线性采样。
-    return vec2<f32>(stitch_height(p,bitcast<f32>(entry.y) + raw * bitcast<f32>(entry.z),blade_clipmap.map_bounds), 1.0);
+    return vec2<f32>(stitch_height(p,bitcast<f32>(entry.y) + raw * bitcast<f32>(entry.z),blade_clipmap.scene_bounds), 1.0);
 } // 完成单个地形顶点高度读取。
 
 fn clipmap_vertex(local: vec2<f32>, level: u32, fine: bool) -> vec3<f32> { // 重建地形模板的实际 X/Z 和采样级。
     let sample_level = level - select(0u, 1u, fine && level > 0u); // 内缘顶点使用上一细层中心和 Mip。
     let step = blade_clipmap.grid.xy * exp2(f32(level)); // 局部位置仍使用当前模板缩放。
-    return vec3<f32>(stitch_position(local * step + clipmap_center(sample_level),blade_clipmap.map_bounds), f32(sample_level));
+    return vec3<f32>(stitch_position(local * step + clipmap_center(sample_level),blade_clipmap.scene_bounds), f32(sample_level));
 } // 完成无高度读取的顶点重建。
 
 fn clipmap_corner(local: vec2<f32>, level: u32, inner: vec2<i32>) -> vec3<f32> { // 常规整点和矩形洞口角点的 UV_1 标记。
@@ -149,7 +149,7 @@ fn sample_clipmap_surface(p: vec2<f32>) -> vec2<f32> { // 根按实际位置交�
 // 隐藏包络只确定跨界密度对应的表面层，绝不能替代洞内草根的真实三维承托。
 fn sample_clipmap_envelope(p:vec2<f32>)->vec2<f32> {
     var nearest=vec2<f32>(0.0); // 收敛角落可有多个投影面，与地形深度缓冲同取最高有效正面。
-    if any(p < blade_clipmap.map_bounds.xy) || any(p > blade_clipmap.map_bounds.zw) { return vec2<f32>(0.0); } // 地图外不生成草。
+    if any(p < blade_clipmap.scene_bounds.xy) || any(p > blade_clipmap.scene_bounds.zw) { return vec2<f32>(0.0); } // 场景外不生成草。
     let band_count = min(u32(blade_clipmap.options.z), 16u); // 作者编译硬门之外再防御损坏uniform。
     for (var band_index = 0u; band_index < band_count; band_index += 1u) { // 可变边界不能再由固定64半格公式反推级别。
         let level = u32(blade_clipmap.options.w) + band_index; // 相邻环带倍率逐级翻倍。
@@ -169,7 +169,7 @@ fn sample_clipmap_envelope(p:vec2<f32>)->vec2<f32> {
         } // 完成固定局部邻格 Z 检查。
         if stitches_active() {
             for(var candidate=1u;candidate<16u;candidate+=1u) {
-                let source=stitch_candidate(p,blade_clipmap.map_bounds,step,clipmap_center(level),candidate);
+                let source=stitch_candidate(p,blade_clipmap.scene_bounds,step,clipmap_center(level),candidate);
                 if (candidate%4u>0u&&abs(source.x-p.x)<0.000001)||(candidate/4u>0u&&abs(source.y-p.y)<0.000001){continue;}
                 if all(abs(source-p)<vec2<f32>(0.000001)){continue;}
                 let inverse_cell=vec2<i32>(floor((source-clipmap_center(level))/step));
@@ -208,7 +208,7 @@ struct GrassPatch { // 保持与主世界GpuBladePatch相同的416字节动态un
     view_lod_pixel_thresholds_ext: array<vec4<f32>, 2>,
     view_lod_residency_radii_ext: vec4<f32>,
     view_lod_residency_transitions_ext: vec4<f32>,
-    view_lod_metadata: vec4<f32>, // x为实际档数；零继承旧地图三/四档标志。
+    view_lod_metadata: vec4<f32>, // x为实际档数；零继承旧场景三/四档标志。
     source_to_world: mat4x4<f32>,
     world_to_source: mat4x4<f32>,
 } // 完成与Rust ShaderType一致的候选窗口输入布局。
@@ -660,7 +660,7 @@ fn projected_reference_pixels_at(root:vec3<f32>)->f32 {
 
 fn uses_patch_view_lod_config() -> bool { // 允许同一视图内不同profile使用各自的LOD标定。
     return grass_patch.view_lod_metadata.x > 0.0; // 单档也能启用局部配置，不能用第四半径作为开关。
-} // 完成不会影响既有地图窗口的内容级配置开关。
+} // 完成不会影响既有场景窗口的内容级配置开关。
 
 fn quality_density_multiplier() -> f32 { // 返回不会突破作者最终概率的全局植被密度倍率。
     return clamp(grass_view_culling.quality_multipliers.x, 0.0, 1.0); // 零允许未来完全关闭，一严格保持当前内容基线。
@@ -677,7 +677,7 @@ fn quality_view_distance_multiplier() -> f32 { // 返回作者草窗和常驻半
 fn content_lod_pixel_thresholds() -> vec4<f32> { // 返回当前内容远中与中近屏幕阈值。
     return select(
         grass_view_culling.lod_pixel_thresholds, // 旧窗口和主内容继续使用玩法视图集中规格。
-        grass_patch.view_lod_pixel_thresholds,   // 混合草种地图可为当前窗口提供独立标定。
+        grass_patch.view_lod_pixel_thresholds,   // 混合草种场景可为当前窗口提供独立标定。
         uses_patch_view_lod_config(),
     ) * quality_lod_threshold_multiplier(); // 全局画质同时缩放继承值与内容局部标定。
 } // 完成两段屏幕阈值读取。
@@ -716,7 +716,7 @@ fn content_camera_fade_distances() -> vec2<f32> { // 返回镜头穿入当前内
     ); // 完成当前内容近镜头避让选择。
 } // 完成整株避让距离读取。
 
-// 每候选最多检查七次父簇，不随地图或实例规模增加单候选工作量。
+// 每候选最多检查七次父簇，不随场景或实例规模增加单候选工作量。
 fn content_lod_count() -> u32 {
     if (uses_patch_view_lod_config()) {
         return clamp(u32(grass_patch.view_lod_metadata.x), 1u, 8u);
@@ -946,10 +946,10 @@ fn sample_surface_height(root_world: vec2<f32>) -> vec2<f32> {
     } // 完成固定平面回退。
     let world_min = grass_patch.height_world.xy; // 读取高度纹理世界最小X/Z角。
     let world_max = grass_patch.height_world.zw; // 读取高度纹理世界最大X/Z角。
-    let inside = all(root_world >= world_min) && all(root_world <= world_max); // 地图边界继续使用闭区间判定。
-    if (!inside) { // 地图外候选不得生成草。
+    let inside = all(root_world >= world_min) && all(root_world <= world_max); // 场景边界继续使用闭区间判定。
+    if (!inside) { // 场景外候选不得生成草。
         return vec2<f32>(grass_patch.origin_extent.y, 0.0); // 返回回退高度和无效标记。
-    } // 完成地图外严格禁种。
+    } // 完成场景外严格禁种。
     let dimensions_u32 = textureDimensions(grass_height_cells, 0); // 读取实际高度单元纹理尺寸。
     let dimensions = vec2<f32>(dimensions_u32); // 转为浮点供世界到单元坐标换算。
     let cell_size = (world_max - world_min) / dimensions; // 每个RGBA纹素对应一个地形单元。
@@ -993,9 +993,9 @@ fn density_with_gain(raw:f32)->f32 {
     return clamp(raw*max(grass_patch.lod_density.w,0.0),0.0,1.0)*quality_density_multiplier();
 }
 fn sample_r8_density(root_world:vec2<f32>,world_rect:vec4<f32>)->f32 {
-    let control_min = grass_patch.density_control_world.xy; // 读取地图层可选受控种植区最小X/Z角。
-    let control_max = grass_patch.density_control_world.zw; // 读取地图层可选受控种植区最大X/Z角。
-    let control_enabled = all(control_max > control_min); // 默认零范围表示旧地图无需额外裁剪。
+    let control_min = grass_patch.density_control_world.xy; // 读取场景层可选受控种植区最小X/Z角。
+    let control_max = grass_patch.density_control_world.zw; // 读取场景层可选受控种植区最大X/Z角。
+    let control_enabled = all(control_max > control_min); // 默认零范围表示旧场景无需额外裁剪。
     if (control_enabled && !(all(root_world >= control_min) && all(root_world <= control_max))) {
         return 0.0; // 首轮受控栖息地之外严格禁种，但不修改原始密度图内容。
     } // 完成可选世界受控区快速拒绝。
@@ -1004,8 +1004,8 @@ fn sample_r8_density(root_world:vec2<f32>,world_rect:vec4<f32>)->f32 {
     if any(world_max<=world_min) {return 0.0;}
     let inside = all(root_world >= world_min) && all(root_world <= world_max); // 密度图边界继续使用闭区间判定。
     if (!inside) { // 密度世界矩形外严格禁种。
-        return 0.0; // 返回严格零概率避免地图外漏草。
-    } // 完成密度地图外分支。
+        return 0.0; // 返回严格零概率避免场景外漏草。
+    } // 完成密度场景外分支。
     let dimensions_u32 = textureDimensions(grass_density_map, 0); // 读取实际密度图片尺寸。
     let maximum_pixel_u32 = dimensions_u32 - vec2<u32>(1u); // 最大世界端点对应最后一个合法纹素。
     let normalized_world = clamp( // 把世界草根映射到零到一纹理范围。
@@ -1180,7 +1180,7 @@ fn classify_and_compact( // 主分类入口必须在Rust清零状态后、AlphaM
     var depth_bucket_index = 0u; // 默认无效线程归零但不会参与桶计数或实例写入。
     var compact_root = vec3<f32>(0.0); // Naga 29 Vulkan 兼容：局部位置用向量，避免给 Function 结构变量继承 Storage 成员 Offset。
     var compact_appearance = 0u; // 独立 u32 保留原外观全部位，依赖修复后可恢复局部结构而不改变实例 ABI。
-    var compact_surface_normal = 0u; // 倾斜普通网格复用三维草叶的表面基底，水平地图保持原零编码。
+    var compact_surface_normal = 0u; // 倾斜普通网格复用三维草叶的表面基底，水平场景保持原零编码。
 
     if (candidate_is_valid) { // 只有合法候选编号才执行世界草格与纹理逻辑。
         let half_grid = (f32(grid_side) - 1.0) * 0.5; // 端点式奇数网格以中央候选为世界中心。
@@ -1284,14 +1284,14 @@ fn classify_and_compact( // 主分类入口必须在Rust清零状态后、AlphaM
             } else { // 兼容单圈继续保持每候选独立伯努利选择。
                 density_survives = !probability_rejects( // 使用旧独立密度哈希决定是否生草。
                     hash_unit(density_seed ^ 0x165667b1u), // 每个真实草根拥有独立且世界稳定的随机值。
-                    density_probability, // 使用最近纹素和地图级增益后的最终概率。
+                    density_probability, // 使用最近纹素和场景级增益后的最终概率。
                 ); // 完成兼容候选密度阶段。
             } // 完成正式与兼容密度选择分流。
         } // 完成按距离短路的密度采样。
 
         if (density_survives) { // 密度淘汰候选不再读取高度纹理。
             let surface = sample_surface_height(root_world); // 每个密度存活候选只读取一次真实地形四角。
-            surface_survives = surface.y >= 0.5; // 地图内或固定平面候选才允许写入紧凑实例。
+            surface_survives = surface.y >= 0.5; // 场景内或固定平面候选才允许写入紧凑实例。
             if (surface_survives) { // 只有真实地表存在时才有意义计算相机到草叶线段的三维距离。
                 let camera_keep_probability = camera_proximity_keep_probability(root_world, surface.x); // 高空俯视返回一，镜头穿入草冠才在半米内逐株避让。
                 surface_survives = !probability_rejects( // 使用独立稳定随机值让避让边缘由完整草株稀疏恢复。

@@ -1,24 +1,24 @@
 //! 显式实例隐藏候选的分帧生成、完整复验、原子采用与采用后标记清理。
 
 use feathrise_scene_core::residency::InstanceQuery; // 实例实体查询只借用当前来源域。
-use feathrise_scene_core::residency::{InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use bevy::asset::{DependencyLoadState, LoadState, RecursiveDependencyLoadState}; // 子网格与原材质三层加载状态共同决定候选资格。
 use bevy::prelude::*; // 候选实体生成、场景根强持有、容器显隐与固定预算标记清理。
-use feathrise_map_content::MapId; // 候选容器名称继续使用重建系统已解析的当前地图身份。
+use feathrise_scene_content::SceneId; // 候选容器名称继续使用重建系统已解析的当前场景身份。
 use avian3d::prelude::{RigidBody, RigidBodyDisabled}; // 所有内置盒共享禁用候选刚体，采用/退役只切换一次物理门。
 
 use crate::BuildingVegetationClearanceState; // 建筑候选与显式实例在同一原子采用点发布正式净空。
-use crate::shared::large_map::DynamicWaterMeshOverrides; // 候选根携带当前JSON快照，World ready后空覆盖直通、非空覆盖进入单根队列。
+use crate::shared::large_scene::DynamicWaterMeshOverrides; // 候选根携带当前JSON快照，World ready后空覆盖直通、非空覆盖进入单根队列。
 
 use super::super::building_placement_collision; // 建筑正式根与F12预览共用真实网格静态碰撞。
 use super::super::components::{
-    MapPlacementInstance, MapPlacementPrimitiveVisual, MapPlacementWaterEvidence,
+    ScenePlacementInstance, ScenePlacementPrimitiveVisual, ScenePlacementWaterEvidence,
     PlacementBuildingCollisionGeneration, PlacementInstanceGate, PlacementPendingInstance,
     PlacementPendingRevision, PlacementStagingRoot,
 }; // 候选批次通过共享门保持作者身份原子切换。
 use super::super::direct_primitive_requires_skinning; // 编辑器与正式候选共用完全相同的蒙皮安全判定。
 use super::super::resources::{
-    MapPlacementRuntimePhase, MapPlacementRuntimeState, MapPlacementRuntimeStatus,
+    ScenePlacementRuntimePhase, ScenePlacementRuntimeState, ScenePlacementRuntimeStatus,
     PendingPlacementPlan, PlacementActiveBatch, PlacementStaging,
 }; // 候选构建游标、联合Ready信用与公开运行时状态。
 use super::fail_revision; // 候选身份或容器失效时沿用整份修订失败语义。
@@ -36,9 +36,9 @@ pub(super) fn advance_placement_candidate(
     commands: &mut Commands,
     asset_server: &AssetServer, // 单primitive在生成前非阻塞确认网格及原材质完整Ready。
     primitive_meshes: &Assets<Mesh>, // 已采用Mesh只做常数次属性查询，禁止裸生成蒙皮primitive。
-    map_id: &MapId,
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    scene_id: &SceneId,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     building_clearances: &mut BuildingVegetationClearanceState,
     container_visibilities: &mut InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
     reusable_roots: &PlacementReuseInputs,
@@ -48,7 +48,7 @@ pub(super) fn advance_placement_candidate(
         let gate = PlacementInstanceGate::new(false); // 候选根从创建到整批采用前共享同一个关闭作者门。
         let root = commands
             .spawn((
-                Name::new(format!("地图显式实例候选_{map_id}")),
+                Name::new(format!("场景显式实例候选_{scene_id}")),
                 PlacementStagingRoot,
                 Transform::IDENTITY,
                 Visibility::Hidden,
@@ -135,7 +135,7 @@ fn primitive_assets_ready(
 fn spawn_ready_placement(
     commands: &mut Commands,
     primitive_meshes: &Assets<Mesh>, // 直接primitive在任何调用路径中都必须先通过顶点布局复验。
-    map_id: &MapId,
+    scene_id: &SceneId,
     plan: &PendingPlacementPlan,
     staging_root: Entity,
     gate: &PlacementInstanceGate,
@@ -144,10 +144,10 @@ fn spawn_ready_placement(
 ) -> Result<(Entity, bool), String> {
     if plan.record.asset_target.is_builtin() {
         let root = commands.spawn((
-            Name::new(format!("地图立方体_{}", plan.record.id)),
+            Name::new(format!("场景立方体_{}", plan.record.id)),
             plan.transform,
             Visibility::Inherited,
-            MapPlacementInstance::new_pending(map_id, &plan.record, gate.clone()),
+            ScenePlacementInstance::new_pending(scene_id, &plan.record, gate.clone()),
             PlacementPendingInstance,
             PlacementPendingRevision { generation, revision },
             ChildOf(staging_root),
@@ -157,10 +157,10 @@ fn spawn_ready_placement(
     }
     if let Some(primitive_asset) = plan.primitive.as_ref() {
         let (mesh, primitive) = match plan.record.asset_target {
-            feathrise_map_content::MapPlacementAssetTarget::Primitive {
+            feathrise_scene_content::ScenePlacementAssetTarget::Primitive {
                 mesh, primitive, ..
             } => (mesh, primitive),
-            feathrise_map_content::MapPlacementAssetTarget::Scene0 | feathrise_map_content::MapPlacementAssetTarget::Cuboid { .. } | feathrise_map_content::MapPlacementAssetTarget::EditableCuboid { .. } | feathrise_map_content::MapPlacementAssetTarget::EditableMesh { .. } => {
+            feathrise_scene_content::ScenePlacementAssetTarget::Scene0 | feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { .. } => {
                 unreachable!("直接primitive句柄必须对应primitive作者目标")
             }
         };
@@ -176,10 +176,10 @@ fn spawn_ready_placement(
             )); // 任何Mesh3d实体生成前终止，避免GPU校验错误退出应用。
         } // 静态primitive继续走唯一可视子实体路径。
         let mut root_commands = commands.spawn((
-            Name::new(format!("地图子资产实例_{}", plan.record.id)),
+            Name::new(format!("场景子资产实例_{}", plan.record.id)),
             plan.transform,
             Visibility::Inherited, // 候选期继承隐藏容器，整批采用后自动同时显示。
-            MapPlacementInstance::new_pending(map_id, &plan.record, gate.clone()),
+            ScenePlacementInstance::new_pending(scene_id, &plan.record, gate.clone()),
             PlacementPendingInstance,
             PlacementPendingRevision {
                 generation,
@@ -202,8 +202,8 @@ fn spawn_ready_placement(
                 .observe(super::super::settlement::on_placement_building_collision_ready);
         }
         root_commands.with_child((
-            Name::new(format!("地图子资产_Mesh{mesh}_Primitive{primitive}")),
-            MapPlacementPrimitiveVisual, // 直接网格没有Scene0层级，视口据此只选择所属完整placement根。
+            Name::new(format!("场景子资产_Mesh{mesh}_Primitive{primitive}")),
+            ScenePlacementPrimitiveVisual, // 直接网格没有Scene0层级，视口据此只选择所属完整placement根。
             Mesh3d(primitive_asset.mesh.clone()), // 直接引用完整验证过的精确子网格。
             MeshMaterial3d(primitive_asset.material.clone()), // 保留预览选择时冻结的原/std材质。
             Transform::IDENTITY,         // 与单体预览一致，不继承源Scene0节点变换。
@@ -213,10 +213,10 @@ fn spawn_ready_placement(
     } else {
         let has_water_surfaces = !plan.record.water_surfaces.is_empty();
         let mut root_commands = commands.spawn((
-            Name::new(format!("地图实例_{}", plan.record.id)),
+            Name::new(format!("场景实例_{}", plan.record.id)),
             WorldAssetRoot(plan.scene.clone()),
             plan.transform,
-            MapPlacementInstance::new_pending(map_id, &plan.record, gate.clone()),
+            ScenePlacementInstance::new_pending(scene_id, &plan.record, gate.clone()),
             DynamicWaterMeshOverrides::new(plan.record.water_surfaces.clone()), // 空数组也保留热改入口，新值不复制World实例。
             PlacementPendingInstance,
             PlacementPendingRevision {
@@ -238,7 +238,7 @@ fn spawn_ready_placement(
                 .observe(super::super::settlement::on_placement_building_collision_ready);
         }
         if has_water_surfaces {
-            root_commands.insert(MapPlacementWaterEvidence); // 保存等待只查询全图最多256项非空水体根。
+            root_commands.insert(ScenePlacementWaterEvidence); // 保存等待只查询全图最多256项非空水体根。
         }
         let entity = root_commands
             .observe(super::super::settlement::on_placement_instance_ready) // 实例完成只写门标记，下一Update再与赋水结果合并结算。
@@ -253,8 +253,8 @@ fn spawn_placement_batch(
     commands: &mut Commands,
     asset_server: &AssetServer,
     primitive_meshes: &Assets<Mesh>, // 每个计划最多查询一个已经Ready的Mesh资产。
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     reusable_roots: &PlacementReuseInputs,
 ) -> Result<(), String> {
     let active = state.active.as_ref();
@@ -265,7 +265,7 @@ fn spawn_placement_batch(
     let mut next_plan = staging.next_plan; // 子资产等待时只停在当前精确计划，不跳过生成顺序。
     while next_plan < end {
         let plan = &pending.plans[next_plan];
-        if let Some((entity, ready)) = reuse::reuse_placement(commands, &pending.map_id, plan, staging, active, reusable_roots) {
+        if let Some((entity, ready)) = reuse::reuse_placement(commands, &pending.scene_id, plan, staging, active, reusable_roots) {
             if ready { staging.ready_roots.insert(entity); }
             staging.roots.push(entity);
             next_plan += 1;
@@ -279,7 +279,7 @@ fn spawn_placement_batch(
         let (entity, immediately_ready) = spawn_ready_placement(
             commands,
             primitive_meshes, // 生成函数自身仍执行最终蒙皮安全门，不能依赖调用方约定。
-            &pending.map_id,
+            &pending.scene_id,
             plan,
             staging.root,
             &staging.gate,
@@ -305,8 +305,8 @@ fn spawn_placement_batch(
 /// 所有场景都已排入且实例化完成后，分帧复验根表并以O(1)批次门原子采用。
 pub(super) fn finish_placement_candidate(
     commands: &mut Commands,
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     building_clearances: &mut BuildingVegetationClearanceState,
     container_visibilities: &mut InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
 ) {
@@ -314,7 +314,7 @@ pub(super) fn finish_placement_candidate(
     let Some(staging) = state.staging.as_mut() else {
         return;
     };
-    status.phase = MapPlacementRuntimePhase::Building;
+    status.phase = ScenePlacementRuntimePhase::Building;
     status.detail = format!(
         "正在隐藏生成显式实例：已排入{}/{}，就绪{}/{}，复验{}/{}",
         staging.next_plan,
@@ -360,21 +360,21 @@ pub(super) fn finish_placement_candidate(
         status.advance_progress(); // 最终根表复验按固定预算推进，长事务持续提供真实heartbeat。
     }
     if end < staging.total_instances {
-        return; // 大地图跨多帧完成稳定Ready证明，候选和活动门仍保持关闭。
+        return; // 大场景跨多帧完成稳定Ready证明，候选和活动门仍保持关闭。
     }
     let (generation, revision, staging_root) = (staging.generation, staging.revision, staging.root); // 释放候选借用后核对当前输入事务。
     let pending_matches = state.pending.as_ref().is_some_and(|pending| {
         pending.generation == generation
             && pending.revision == revision
-            && state.active_map_id.as_ref() == Some(&pending.map_id)
+            && state.active_scene_id.as_ref() == Some(&pending.scene_id)
     });
     if !pending_matches {
         fail_revision(
             state,
             status,
-            "显式实例候选完成时地图或修订身份已经换代".to_owned(),
+            "显式实例候选完成时场景或修订身份已经换代".to_owned(),
         );
-        return; // 换图或新JSON修订绝不能采用刚完成复验的旧批次。
+        return; // 切换场景或新JSON修订绝不能采用刚完成复验的旧批次。
     }
     if state
         .pending
@@ -399,12 +399,12 @@ pub(super) fn finish_placement_candidate(
         );
         return; // 容器被外部删除时保留旧完整活动批次并发布可见失败。
     }
-    let adopted_map_id = state
+    let adopted_scene_id = state
         .pending
         .as_ref()
         .expect("候选根必须对应完整计划")
-        .map_id
-        .clone(); // 先保留有界地图身份，计划与Scene集合随后整体移入退役槽。
+        .scene_id
+        .clone(); // 先保留有界场景身份，计划与Scene集合随后整体移入退役槽。
     let staging = state.staging.take().expect("候选已经满足完整采用门");
     state.terrain_patch_active = state
         .pending
@@ -443,10 +443,10 @@ pub(super) fn finish_placement_candidate(
         marker_cleanup_cursor: 0,
     });
     state.failure_logged_revision = None;
-    status.phase = MapPlacementRuntimePhase::Ready;
+    status.phase = ScenePlacementRuntimePhase::Ready;
     status.revision = status.revision.wrapping_add(1);
     building_clearances.set_formal_layered(
-        adopted_map_id.clone(),           // 净空只服务本次原子采用的地图。
+        adopted_scene_id.clone(),           // 净空只服务本次原子采用的场景。
         status.revision,                  // 与公开placement采用修订保持同一提交点。
         staging.building_preset_revision, // 后台消费者可拒绝旧目录派生结果。
         staging.building_clearances,      // Arc完整移交，不复制全部四边形。
@@ -454,7 +454,7 @@ pub(super) fn finish_placement_candidate(
     );
     status.advance_progress(); // 原子采用是本候选最后一次真实进展。
     status.placement_count = staging.total_instances;
-    status.detail = format!("地图{adopted_map_id}显式实例已原子应用");
+    status.detail = format!("场景{adopted_scene_id}显式实例已原子应用");
     info!(
         "{}：{}项，修订{}",
         status.detail, status.placement_count, status.revision
@@ -464,7 +464,7 @@ pub(super) fn finish_placement_candidate(
 /// 已采用批次的物理Pending标记只做固定预算清理；公开作者身份已经由共享门同时切换。
 pub(crate) fn cleanup_active_placement_markers(
     mut commands: Commands,
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
 ) {
     let Some(active) = state.active.as_mut() else {
         return;

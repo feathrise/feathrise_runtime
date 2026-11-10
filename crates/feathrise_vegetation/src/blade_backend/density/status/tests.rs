@@ -92,7 +92,7 @@ fn rejection_keeps_fallback_visible_and_despawn_resets_status() {
     ); // F3必须明确显示失败而不是无限等待。
     assert_eq!(rejected.adopted_window_count(), 0); // 拒绝从不伪造窗口采用身份。
 
-    app.world_mut().despawn(window); // 模拟地图离场回收可见叶片窗。
+    app.world_mut().despawn(window); // 模拟场景离场回收可见叶片窗。
     app.update(); // 发布离场后的空快照。
     let unbound = *app.world().resource::<VegetationBladeAdoptionStatus>(); // 读取离场状态。
     assert_eq!(unbound.phase(), VegetationBladeAdoptionPhase::Unbound); // 后台拒绝记录不冒充可见绑定。

@@ -20,7 +20,7 @@ pub(super) mod active {
         pub sender: mpsc::SyncSender<Request>,
         pub receiver: mpsc::Receiver<Outcome>,
         pub stop: Arc<AtomicBool>,
-        pub map_generation: Arc<AtomicU64>,
+        pub scene_generation: Arc<AtomicU64>,
         pub worker: Option<JoinHandle<()>>,
         pub in_flight: Option<Request>,
         pub reply: Option<(Outcome, u64)>,

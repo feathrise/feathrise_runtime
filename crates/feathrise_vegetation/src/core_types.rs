@@ -51,7 +51,7 @@ impl fmt::Display for VegetationWeight {
 /// 一个消费者显式提供的稳定候选落点。
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExplicitVegetationPlacement {
-    pub instance_id: u64,     // 地图稳定ID用于存档、代理滞回和局部脏区重算。
+    pub instance_id: u64,     // 场景稳定ID用于存档、代理滞回和局部脏区重算。
     pub transform: Transform, // 完整平移、旋转和缩放由内容生成器决定。
     pub density: f32,         // 零至一的单点需求允许项目侧保留稀疏概率。
 }

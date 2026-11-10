@@ -13,9 +13,9 @@ use bevy::ecs::schedule::ApplyDeferred;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
 
-use crate::shared::large_map::{DynamicWaterMeshOverrideStatus, DynamicWaterMeshOverrides};
+use crate::shared::large_scene::{DynamicWaterMeshOverrideStatus, DynamicWaterMeshOverrides};
 use crate::shared::placement_data::{
-    MapPlacementRuntimeState, MapPlacementRuntimeStatus, complete_world_asset_invalidation,
+    ScenePlacementRuntimeState, ScenePlacementRuntimeStatus, complete_world_asset_invalidation,
     observe_world_asset_event, world_asset_event_is_relevant,
 };
 
@@ -57,7 +57,7 @@ fn event_asset_id(event: &AssetEvent<WorldAsset>) -> AssetId<WorldAsset> {
 
 fn synchronize_placement_message_gate(
     index: &WorldAssetLifecycleIndex,
-    state: &mut MapPlacementRuntimeState,
+    state: &mut ScenePlacementRuntimeState,
 ) -> bool {
     let safe_caught_up = index.events_caught_up();
     let changed = state.world_asset_events_caught_up != safe_caught_up;
@@ -71,8 +71,8 @@ fn collect_world_asset_lifecycle_events(
     messages: Res<Messages<AssetEvent<WorldAsset>>>,
     frame_count: Res<FrameCount>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
-    mut placement_state: Option<ResMut<MapPlacementRuntimeState>>,
-    mut placement_status: Option<ResMut<MapPlacementRuntimeStatus>>,
+    mut placement_state: Option<ResMut<ScenePlacementRuntimeState>>,
+    mut placement_status: Option<ResMut<ScenePlacementRuntimeStatus>>,
 ) {
     let missed = cursor.missed_messages(&messages);
     if missed != 0 && index.record_missed_messages(missed) {
@@ -83,7 +83,7 @@ fn collect_world_asset_lifecycle_events(
             state.world_asset_events_caught_up = false;
         }
         if let Some(status) = placement_status.as_deref_mut() {
-            status.phase = crate::shared::placement_data::MapPlacementRuntimePhase::Failed;
+            status.phase = crate::shared::placement_data::ScenePlacementRuntimePhase::Failed;
             status.detail = format!(
                 "WorldAsset生命周期消息丢失{missed}条；请重启编辑器后减少同帧Scene热更突发"
             );
@@ -141,8 +141,8 @@ fn collect_world_asset_lifecycle_events(
 fn process_world_asset_root_invalidations(
     mut commands: Commands,
     mut index: ResMut<WorldAssetLifecycleIndex>,
-    mut placement_state: Option<ResMut<MapPlacementRuntimeState>>,
-    mut placement_status: Option<ResMut<MapPlacementRuntimeStatus>>,
+    mut placement_state: Option<ResMut<ScenePlacementRuntimeState>>,
+    mut placement_status: Option<ResMut<ScenePlacementRuntimeStatus>>,
     frame_count: Res<FrameCount>,
 ) {
     index.resolve_provisional_modifications(
@@ -196,7 +196,7 @@ fn register_inserted_mesh_override_root(
 /// `WorldAssetRoot`后插入或替换时把既有覆盖组件迁到新资产桶。
 fn register_inserted_world_asset_root(
     insert: On<Insert<WorldAssetRoot>>,
-    roots: Query<&WorldAssetRoot, Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::MapPlacementInstance>)>>,
+    roots: Query<&WorldAssetRoot, Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::ScenePlacementInstance>)>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
     mut commands: Commands,
 ) {
@@ -230,7 +230,7 @@ fn fail_registration_if_full(
 
 fn unregister_discarded_world_asset_root(
     discard: On<Discard<WorldAssetRoot>>,
-    roots: Query<(), Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::MapPlacementInstance>)>>,
+    roots: Query<(), Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::ScenePlacementInstance>)>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
 ) {
     if roots.contains(discard.entity) {

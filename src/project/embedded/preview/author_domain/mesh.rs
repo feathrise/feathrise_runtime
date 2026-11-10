@@ -1,11 +1,11 @@
 //! 有界点边面幽灵沿用原构网格与材质；正式根只临时遮蔽，碰撞及玩法状态不改。
 use bevy::prelude::*;
-use feathrise_map_content::{
-    MapId, MapPlacementAssetTarget, embedded_author_preview::MeshPreview,
+use feathrise_scene_content::{
+    SceneId, ScenePlacementAssetTarget, embedded_author_preview::MeshPreview,
 };
-use feathrise_scene::MapPlacementInstance;
+use feathrise_scene::ScenePlacementInstance;
 pub(super) struct Prepared {
-    map: MapId,
+    scene_id: SceneId,
     // 与显式验收的 evidence 一致；普通构建不保存仅用于报告的修订号副本。
     #[cfg(feature = "validation")]
     revision: u64,
@@ -13,7 +13,7 @@ pub(super) struct Prepared {
     committed: bool,
 }
 pub(super) fn prepare(
-    map: MapId,
+    scene_id: SceneId,
     _revision: u64,
     value: Option<MeshPreview>,
     committed: bool,
@@ -51,9 +51,9 @@ pub(super) fn prepare(
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
             }
             let color = match value.target {
-                MapPlacementAssetTarget::Cuboid { color_srgb, .. }
-                | MapPlacementAssetTarget::EditableCuboid { color_srgb, .. }
-                | MapPlacementAssetTarget::EditableMesh { color_srgb, .. } => color_srgb,
+                ScenePlacementAssetTarget::Cuboid { color_srgb, .. }
+                | ScenePlacementAssetTarget::EditableCuboid { color_srgb, .. }
+                | ScenePlacementAssetTarget::EditableMesh { color_srgb, .. } => color_srgb,
                 _ => return Err("网格预览颜色来源不兼容".into()),
             };
             Ok((
@@ -69,7 +69,7 @@ pub(super) fn prepare(
         })
         .transpose()?;
     Ok(Prepared {
-        map,
+        scene_id,
         #[cfg(feature = "validation")]
         revision: _revision,
         value,
@@ -86,14 +86,14 @@ pub(super) fn install(app: &mut App) {
     app.add_observer(external_visibility);
 }
 struct Active {
-    map: MapId,
+    scene_id: SceneId,
     id: String,
     root: Entity,
     parent: Option<Entity>,
     ghost: Entity,
     original: Visibility,
     ticket: u64,
-    target: MapPlacementAssetTarget,
+    target: ScenePlacementAssetTarget,
     committed: bool,
     handoff: bool,
 }
@@ -115,9 +115,9 @@ impl State {
             .get::<OwnedVisibility>(active.root)
             .is_some_and(|owner| owner.0 == active.ticket)
             && world
-                .get::<MapPlacementInstance>(active.root)
+                .get::<ScenePlacementInstance>(active.root)
                 .is_some_and(|root| {
-                    root.is_active() && root.map_id() == &active.map && root.id() == active.id
+                    root.is_active() && root.scene_id() == &active.scene_id && root.id() == active.id
                 })
             && world.get::<ChildOf>(active.root).map(ChildOf::parent) == active.parent;
         if owned {
@@ -145,10 +145,10 @@ impl State {
             }
             return Ok(());
         };
-        let root = super::super::placement::active_root(world, &value.map, &source.placement_id)?;
+        let root = super::super::placement::active_root(world, &value.scene_id, &source.placement_id)?;
         let parent = world.get::<ChildOf>(root).map(ChildOf::parent);
         if self.active.as_ref().is_some_and(|active| {
-            active.root != root || active.map != value.map || active.id != source.placement_id
+            active.root != root || active.scene_id != value.scene_id || active.id != source.placement_id
         }) {
             self.release(world);
         }
@@ -210,7 +210,7 @@ impl State {
             world.entity_mut(root).insert(OwnedVisibility(self.ticket));
             *world.get_mut::<Visibility>(root).unwrap() = Visibility::Hidden;
             self.active = Some(Active {
-                map: value.map,
+                scene_id: value.scene_id,
                 id: source.placement_id,
                 root,
                 parent,
@@ -236,17 +236,17 @@ impl State {
         let owner_current = world
             .get::<OwnedVisibility>(active.root)
             .is_some_and(|owner| owner.0 == active.ticket);
-        let map_current = world
-            .get_resource::<feathrise_map_content::ActiveDynamicMap>()
-            .and_then(|map| map.map_id.as_ref())
-            == Some(&active.map);
+        let scene_current = world
+            .get_resource::<feathrise_scene_content::ActiveDynamicScene>()
+            .and_then(|map| map.scene_id.as_ref())
+            == Some(&active.scene_id);
         let adopted = active.committed
             && active.handoff
-            && super::super::placement::active_root(world, &active.map, &active.id)
+            && super::super::placement::active_root(world, &active.scene_id, &active.id)
                 .ok()
-                .and_then(|entity| world.get::<MapPlacementInstance>(entity))
+                .and_then(|entity| world.get::<ScenePlacementInstance>(entity))
                 .is_some_and(|root| root.asset_target() == active.target);
-        if !owner_current || !map_current || adopted || world.get_entity(active.ghost).is_err() {
+        if !owner_current || !scene_current || adopted || world.get_entity(active.ghost).is_err() {
             self.release(world);
         }
     }

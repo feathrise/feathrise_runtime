@@ -1,7 +1,7 @@
 // 天气距离雾：在世界时间完成当帧天空颜色后，仅同步玩法主相机的连续雾效。
 
 use bevy::prelude::*; // DistanceFog、FogFalloff、ClearColor与ECS查询来自Bevy预导入。
-use feathrise_scene_core::view::PrimarySceneView; // 只给玩法主相机添加雾，小地图与菜单相机不匹配。
+use feathrise_scene_core::view::PrimarySceneView; // 只给玩法主相机添加雾，小场景与菜单相机不匹配。
 use feathrise_scene_core::state::ScenePhase; // 菜单和加载状态用于关闭可能残留的玩法相机雾。
 
 use super::{is_gameplay_scene, supports_camera_local_weather}; // 与云雨体积共享玩法场景和F12正交测绘边界。
@@ -39,7 +39,7 @@ pub(crate) fn apply_weather_fog(
             Option<&Projection>,       // F12正交测绘视图不应用以相机欧氏距离计算的雾。
             Option<&mut DistanceFog>,  // 已接管相机原地更新，不逐帧重建组件。
         ),
-        Or<(With<PrimarySceneView>, With<WeatherPreviewCamera>)>, // 菜单、小地图和普通辅助相机保持隔离。
+        Or<(With<PrimarySceneView>, With<WeatherPreviewCamera>)>, // 菜单、小场景和普通辅助相机保持隔离。
     >,
 ) {
     let gameplay_scene = is_gameplay_scene(scene.as_deref()); // 先确定残留相机是否仍允许显示天气。
@@ -121,7 +121,7 @@ fn distance_fog(profile: WeatherFogProfile) -> DistanceFog {
         falloff: FogFalloff::Linear {
             start: profile.start, // 连续天气决定开始积雾距离。
             end: profile.end,     // 连续天气决定达到最大雾量距离。
-        }, // 线性雾便于按地图米制尺度直接控制可玩视距。
+        }, // 线性雾便于按场景米制尺度直接控制可玩视距。
     } // 返回可直接插入玩法相机的距离雾组件。
 } // 结束距离雾组件构造。
 
@@ -199,7 +199,7 @@ mod tests {
         app.insert_resource(ClearColor(Color::srgb(0.2, 0.3, 0.5))); // 提供世界时间最终天空色。
         app.add_systems(Update, apply_weather_fog); // 只注册被测距离雾系统。
         let gameplay_camera = app.world_mut().spawn(PrimarySceneView).id(); // 生成玩法主相机标记实体。
-        let auxiliary_camera = app.world_mut().spawn_empty().id(); // 生成不带标记的小地图或菜单相机替身。
+        let auxiliary_camera = app.world_mut().spawn_empty().id(); // 生成不带标记的小场景或菜单相机替身。
         app.update(); // 执行天气雾同步并应用延迟组件插入。
         assert!(app.world().get::<DistanceFog>(gameplay_camera).is_some()); // 玩法主相机必须获得距离雾。
         assert!(app.world().get::<DistanceFog>(auxiliary_camera).is_none()); // 普通相机实体不得被天气接管。
@@ -267,7 +267,7 @@ mod tests {
     fn menu_state_disables_fog_on_stale_gameplay_camera() {
         let mut app = App::new(); // 使用最小ECS世界模拟场景切换清理间隙。
         let output = WeatherOutput {
-            visibility: 0.35, // 保留离开玩法地图前的薄雾能见度。
+            visibility: 0.35, // 保留离开玩法场景前的薄雾能见度。
             ..default()       // 其余天气通道保持晴天默认值。
         }; // 从晴天结构构造薄雾输出。
         app.insert_resource(output); // 写入仍保留的恶劣天气输出。

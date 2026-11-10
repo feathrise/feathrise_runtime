@@ -13,7 +13,7 @@ fn invalid_water_ranges_clear_previously_active_properties() {
     let mut cases = vec![RainWaterMask {
         active: false,
         ..valid.clone()
-    }]; // 停雨或切图必须禁用。
+    }]; // 停雨或切换场景必须禁用。
     cases.push(RainWaterMask {
         bounds: Vec4::new(0.0, 0.0, 256.0, 512.0),
         ..valid.clone()

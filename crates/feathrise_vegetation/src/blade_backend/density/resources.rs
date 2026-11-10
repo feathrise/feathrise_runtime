@@ -13,7 +13,7 @@ use super::gpu_compose::VegetationGpuCompetitionInput; // 正式候选携带尚�
 
 /// 仅请求GPU逐字节校验、但不绑定任何可见叶片窗口的层集合。
 ///
-/// 地图迁移可以先提交正式源与竞争作业，完整回读通过后只进入内部缓存；
+/// 场景迁移可以先提交正式源与竞争作业，完整回读通过后只进入内部缓存；
 /// 未挂[`super::VegetationBladeLayer`]的旧窗口继续使用已经验收的直接密度资产。
 #[derive(Clone, Debug, Default, Resource)]
 pub struct VegetationBladeValidationLayers {
@@ -24,14 +24,14 @@ impl VegetationBladeValidationLayers {
     /// 原子替换当前只校验层集合。
     pub fn replace(
         &mut self,
-        layers: impl IntoIterator<Item = VegetationLayerId>, // 消费地图可传数组、向量或稳定集合。
+        layers: impl IntoIterator<Item = VegetationLayerId>, // 消费场景可传数组、向量或稳定集合。
     ) {
         self.layers = layers.into_iter().collect(); // BTreeSet同时去重并固定GPU串行顺序。
     }
 
-    /// 清除地图会话留下的只校验层。
+    /// 清除场景会话留下的只校验层。
     pub fn clear(&mut self) {
-        self.layers.clear(); // 已通过内部缓存可继续存在，但不再阻止其他地图绑定集合。
+        self.layers.clear(); // 已通过内部缓存可继续存在，但不再阻止其他场景绑定集合。
     }
 
     /// 返回当前稳定只校验层迭代器。

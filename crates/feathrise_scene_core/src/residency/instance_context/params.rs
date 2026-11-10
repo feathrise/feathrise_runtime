@@ -2,12 +2,12 @@
 
 use bevy::{ecs::{component::Mutable, system::SystemParam}, prelude::*};
 use std::ops::{Deref, DerefMut};
-use super::{InstanceResourceTable, MapRuntimeScope};
+use super::{InstanceResourceTable, SceneRuntimeScope};
 
 #[derive(SystemParam)]
 pub struct InstanceRes<'w, T: Resource> {
     root: Res<'w, T>,
-    scope: Option<Res<'w, MapRuntimeScope>>,
+    scope: Option<Res<'w, SceneRuntimeScope>>,
     instances: Option<Res<'w, InstanceResourceTable<T>>>,
 }
 
@@ -28,7 +28,7 @@ impl<T: Resource> Deref for InstanceRes<'_, T> {
     fn deref(&self) -> &T {
         if let Some(instance) = self.scope.as_deref().and_then(|scope| scope.instance) {
             self.instances.as_deref().and_then(|table| table.values.get(&instance))
-                .expect("执行子地图域系统前必须完整初始化上下文")
+                .expect("执行子场景域系统前必须完整初始化上下文")
         } else { &self.root }
     }
 }
@@ -36,7 +36,7 @@ impl<T: Resource> Deref for InstanceRes<'_, T> {
 #[derive(SystemParam)]
 pub struct InstanceResMut<'w, T: Resource<Mutability = Mutable>> {
     root: ResMut<'w, T>,
-    scope: Option<Res<'w, MapRuntimeScope>>,
+    scope: Option<Res<'w, SceneRuntimeScope>>,
     instances: Option<ResMut<'w, InstanceResourceTable<T>>>,
 }
 
@@ -45,7 +45,7 @@ impl<T: Resource<Mutability = Mutable>> Deref for InstanceResMut<'_, T> {
     fn deref(&self) -> &T {
         if let Some(instance) = self.scope.as_deref().and_then(|scope| scope.instance) {
             self.instances.as_deref().and_then(|table| table.values.get(&instance))
-                .expect("执行子地图域系统前必须完整初始化上下文")
+                .expect("执行子场景域系统前必须完整初始化上下文")
         } else { &self.root }
     }
 }
@@ -54,7 +54,7 @@ impl<T: Resource<Mutability = Mutable>> DerefMut for InstanceResMut<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         if let Some(instance) = self.scope.as_deref().and_then(|scope| scope.instance) {
             self.instances.as_deref_mut().and_then(|table| table.values.get_mut(&instance))
-                .expect("执行子地图域系统前必须完整初始化上下文")
+                .expect("执行子场景域系统前必须完整初始化上下文")
         } else { &mut self.root }
     }
 }

@@ -1,4 +1,4 @@
-//! 整体地形/子地图姿态直接进入原生产覆盖源；列表只在单飞后台改一项，原实例图负责真实根采用。
+//! 整体地形/子场景姿态直接进入原生产覆盖源；列表只在单飞后台改一项，原实例图负责真实根采用。
 
 use bevy::{
     asset::AssetId,
@@ -6,9 +6,9 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use feathrise_map_content::{
-    ActiveDynamicMap, MapContentRegistry, MapId, MapInstanceAuthorPreview, MapInstanceId,
-    MapInstancePlacement, MapInstanceTransform, MapManifestAsset, MapTerrainObject, TerrainId,
+use feathrise_scene_content::{
+    ActiveDynamicScene, SceneContentRegistry, SceneId, SceneInstanceAuthorPreview, SceneInstanceId,
+    SceneInstancePlacement, SceneInstanceTransform, SceneManifestAsset, SceneTerrainObject, TerrainId,
     TerrainObjectTransform,
 };
 use feathrise_scene::{
@@ -21,9 +21,9 @@ use std::sync::Arc;
 mod tests;
 
 pub(super) enum Target {
-    SubMap {
-        id: MapInstanceId,
-        pose: Option<MapInstanceTransform>,
+    Subscene {
+        id: SceneInstanceId,
+        pose: Option<SceneInstanceTransform>,
     },
     Terrain {
         id: TerrainId,
@@ -31,42 +31,42 @@ pub(super) enum Target {
     },
 }
 pub(super) struct Prepared {
-    pub map: MapId,
+    pub scene_id: SceneId,
     pub revision: u64,
     pub active: bool,
     pub target: Target,
 }
 
-/// 两个不可变数组足以验证实际清单来源，不复制目录或整个地图正文。
+/// 两个不可变数组足以验证实际清单来源，不复制目录或整个场景正文。
 #[derive(Clone)]
 struct Sources {
-    handle: AssetId<MapManifestAsset>,
-    instances: Arc<[MapInstancePlacement]>,
-    terrains: Option<Arc<[MapTerrainObject]>>,
+    handle: AssetId<SceneManifestAsset>,
+    instances: Arc<[SceneInstancePlacement]>,
+    terrains: Option<Arc<[SceneTerrainObject]>>,
 }
-fn sources(world: &World, map: &MapId) -> Result<Sources, String> {
+fn sources(world: &World, map: &SceneId) -> Result<Sources, String> {
     if world
-        .get_resource::<ActiveDynamicMap>()
-        .and_then(|active| active.map_id.as_ref())
+        .get_resource::<ActiveDynamicScene>()
+        .and_then(|active| active.scene_id.as_ref())
         != Some(map)
     {
-        return Err("整体姿态预览已不属于活动地图".into());
+        return Err("整体姿态预览已不属于活动场景".into());
     }
     let handles = world
-        .get_resource::<MapContentRegistry>()
+        .get_resource::<SceneContentRegistry>()
         .and_then(|registry| registry.handles(map))
-        .ok_or("整体姿态预览缺少正式地图来源")?;
+        .ok_or("整体姿态预览缺少正式场景来源")?;
     let manifest = world
-        .get_resource::<Assets<MapManifestAsset>>()
+        .get_resource::<Assets<SceneManifestAsset>>()
         .and_then(|assets| assets.get(&handles.manifest))
         .ok_or("整体姿态预览的正式清单尚未采用")?;
     Ok(Sources {
         handle: handles.manifest.id(),
-        instances: manifest.sub_maps.clone(),
+        instances: manifest.subscenes.clone(),
         terrains: manifest.terrains.clone(),
     })
 }
-fn same_terrains(a: &Option<Arc<[MapTerrainObject]>>, b: &Option<Arc<[MapTerrainObject]>>) -> bool {
+fn same_terrains(a: &Option<Arc<[SceneTerrainObject]>>, b: &Option<Arc<[SceneTerrainObject]>>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => Arc::ptr_eq(a, b),
         (None, None) => true,
@@ -81,15 +81,15 @@ impl Sources {
     }
 }
 struct Published {
-    map: MapId,
+    scene_id: SceneId,
     source: Sources,
     revision: u64,
-    instances: Arc<[MapInstancePlacement]>,
-    terrains: Option<Arc<[MapTerrainObject]>>,
+    instances: Arc<[SceneInstancePlacement]>,
+    terrains: Option<Arc<[SceneTerrainObject]>>,
 }
 impl Published {
-    fn owns(&self, preview: &MapInstanceAuthorPreview) -> bool {
-        preview.map_id.as_ref() == Some(&self.map)
+    fn owns(&self, preview: &SceneInstanceAuthorPreview) -> bool {
+        preview.scene_id.as_ref() == Some(&self.scene_id)
             && preview.revision == self.revision
             && Arc::ptr_eq(&preview.instances, &self.instances)
             && same_terrains(&preview.terrains, &self.terrains)
@@ -98,18 +98,18 @@ impl Published {
 struct Completion {
     value: Prepared,
     source: Sources,
-    instances: Arc<[MapInstancePlacement]>,
-    terrains: Option<Arc<[MapTerrainObject]>>,
+    instances: Arc<[SceneInstancePlacement]>,
+    terrains: Option<Arc<[SceneTerrainObject]>>,
     publish: bool,
 }
 fn prepare_lists(
     value: Prepared,
     source: Sources,
-    mut instances: Arc<[MapInstancePlacement]>,
-    mut terrains: Option<Arc<[MapTerrainObject]>>,
+    mut instances: Arc<[SceneInstancePlacement]>,
+    mut terrains: Option<Arc<[SceneTerrainObject]>>,
 ) -> Result<Completion, String> {
     let publish = match &value.target {
-        Target::SubMap {
+        Target::Subscene {
             id,
             pose: Some(pose),
         } => {
@@ -118,7 +118,7 @@ fn prepare_lists(
             let row = rows
                 .iter_mut()
                 .find(|row| &row.id == id)
-                .ok_or("子地图姿态目标尚未进入当前正式来源")?;
+                .ok_or("子场景姿态目标尚未进入当前正式来源")?;
             row.transform = *pose;
             true
         }
@@ -134,14 +134,14 @@ fn prepare_lists(
                 return Err("地形姿态目标不存在或已禁用".into());
             }
             // 按住时只发原单目标Transform覆盖；结束后才让原实例图接回权威姿态。
-            // 这样下一目标可继续拖动，不必等待完整地图快照，也不每次鼠移复制地形定义。
+            // 这样下一目标可继续拖动，不必等待完整场景快照，也不每次鼠移复制地形定义。
             if !value.active {
                 let rows = Arc::make_mut(terrains.as_mut().unwrap());
                 rows.iter_mut().find(|row| &row.id == id).unwrap().transform = *pose;
             }
             !value.active
         }
-        Target::SubMap { pose: None, .. } | Target::Terrain { pose: None, .. } => {
+        Target::Subscene { pose: None, .. } | Target::Terrain { pose: None, .. } => {
             if value.active {
                 return Err("活动整体姿态不能缺少原作者姿态".into());
             }
@@ -158,16 +158,16 @@ fn prepare_lists(
 }
 
 struct TerrainCredit {
-    map: MapId,
+    scene_id: SceneId,
     id: TerrainId,
     pose: TerrainObjectTransform,
     source: Sources,
     /// 发布时记住实际旧定义；清单观察晚于实例采用时也能识别接回，不能误记新定义。
-    definition: Arc<MapTerrainObject>,
+    definition: Arc<SceneTerrainObject>,
 }
 impl TerrainCredit {
     fn owns(&self, preview: &TerrainObjectTransformPreview) -> bool {
-        preview.pose.as_ref() == Some(&(self.map.clone(), self.id.clone(), self.pose))
+        preview.pose.as_ref() == Some(&(self.scene_id.clone(), self.id.clone(), self.pose))
     }
 }
 #[derive(Default)]
@@ -180,7 +180,7 @@ pub(super) struct State {
     garbage: Option<Task<()>>,
     queries: Option<SystemState<TerrainObjectQueries<'static, 'static>>>,
     #[cfg(feature = "validation")]
-    last: Option<(MapId, u64, bool, String)>,
+    last: Option<(SceneId, u64, bool, String)>,
     #[cfg(feature = "validation")]
     actual: Option<Entity>,
 }
@@ -195,14 +195,14 @@ impl State {
         if self.busy() || value.revision == 0 {
             return Err("整体姿态超过单飞准备预算或缺少有效修订".into());
         }
-        let source = sources(world, &value.map)?;
+        let source = sources(world, &value.scene_id)?;
         let existing = world
-            .get_resource::<MapInstanceAuthorPreview>()
+            .get_resource::<SceneInstanceAuthorPreview>()
             .ok_or("原实例作者覆盖资源未安装")?;
         let owned = self.published.as_ref().filter(|credit| {
-            credit.map == value.map && credit.source.same(&source) && credit.owns(existing)
+            credit.scene_id == value.scene_id && credit.source.same(&source) && credit.owns(existing)
         });
-        if existing.map_id.is_some() && owned.is_none() {
+        if existing.scene_id.is_some() && owned.is_none() {
             return Err("实例作者覆盖已由另一来源接管".into());
         }
         let (instances, terrains) = owned.map_or_else(
@@ -218,9 +218,9 @@ impl State {
     fn terrain_source(
         &mut self,
         world: &mut World,
-        map: &MapId,
+        map: &SceneId,
         id: &TerrainId,
-    ) -> Result<Option<(Entity, Arc<MapTerrainObject>)>, String> {
+    ) -> Result<Option<(Entity, Arc<SceneTerrainObject>)>, String> {
         let query = self.queries.get_or_insert_with(|| SystemState::new(world));
         let query = query
             .get(world)
@@ -236,8 +236,8 @@ impl State {
         let query = self.queries.get_or_insert_with(|| SystemState::new(world));
         let query = query.get(world).map_err(|error| format!("整体姿态活动根查询失败：{error}"))?;
         Ok(match &value.value.target {
-            Target::Terrain { id, pose: Some(_) } => query.instance(&value.value.map, id).is_some(),
-            Target::SubMap { id, pose: Some(_) } => query.sub_map_instance(&value.value.map, id).is_some(),
+            Target::Terrain { id, pose: Some(_) } => query.instance(&value.value.scene_id, id).is_some(),
+            Target::Subscene { id, pose: Some(_) } => query.subscene_instance(&value.value.scene_id, id).is_some(),
             _ => true,
         })
     }
@@ -248,20 +248,20 @@ impl State {
             {
                 preview.pose = None;
             }
-            self.retired_terrain = Some(credit); // 换图后可能持有旧清单最后一份Arc，下一帧复用唯一回收槽。
+            self.retired_terrain = Some(credit); // 切换场景后可能持有旧清单最后一份Arc，下一帧复用唯一回收槽。
         }
     }
     fn clear_published(&mut self, world: &mut World) {
         let Some(credit) = self.published.take() else {
             return;
         };
-        let old = if let Some(mut preview) = world.get_resource_mut::<MapInstanceAuthorPreview>()
+        let old = if let Some(mut preview) = world.get_resource_mut::<SceneInstanceAuthorPreview>()
             && credit.owns(&preview)
         {
             let revision = preview.revision.wrapping_add(1);
             Some(std::mem::replace(
                 &mut *preview,
-                MapInstanceAuthorPreview {
+                SceneInstanceAuthorPreview {
                     revision,
                     ..default()
                 },
@@ -302,7 +302,7 @@ impl State {
         let Some(value) = self.ready.as_ref() else {
             return Ok(true);
         };
-        if !sources(world, &value.value.map).is_ok_and(|now| value.source.same(&now)) {
+        if !sources(world, &value.value.scene_id).is_ok_and(|now| value.source.same(&now)) {
             let retired = self.ready.take();
             self.garbage = Some(AsyncComputeTaskPool::get().spawn(async move {
                 drop(retired);
@@ -319,8 +319,8 @@ impl State {
             let previous = self
                 .terrain
                 .as_ref()
-                .filter(|old| old.map != value.value.map || &old.id != id)
-                .map(|old| (old.map.clone(), old.id.clone(), old.pose));
+                .filter(|old| old.scene_id != value.value.scene_id || &old.id != id)
+                .map(|old| (old.scene_id.clone(), old.id.clone(), old.pose));
             if let Some((map, id, pose)) = previous {
                 if self
                     .terrain_source(world, &map, &id)?
@@ -335,11 +335,11 @@ impl State {
         #[cfg(feature = "validation")]
         {
             self.last = Some((
-                value.value.map.clone(),
+                value.value.scene_id.clone(),
                 value.value.revision,
                 value.value.active,
                 match &value.value.target {
-                    Target::SubMap { id, .. } => format!("sub-map:{}", id.as_str()),
+                    Target::Subscene { id, .. } => format!("subscene:{}", id.as_str()),
                     Target::Terrain { id, .. } => format!("terrain:{}", id.as_str()),
                 },
             ));
@@ -349,12 +349,12 @@ impl State {
                 id,
                 pose: Some(pose),
             } => {
-                let (_, definition) = self.terrain_source(world, &value.value.map, id)?
+                let (_, definition) = self.terrain_source(world, &value.value.scene_id, id)?
                     .ok_or("整体地形活动根在同一采用帧内失去身份")?;
                 world.resource_mut::<TerrainObjectTransformPreview>().pose =
-                    Some((value.value.map.clone(), id.clone(), *pose));
+                    Some((value.value.scene_id.clone(), id.clone(), *pose));
                 if let Some(old) = self.terrain.replace(TerrainCredit {
-                    map: value.value.map.clone(),
+                    scene_id: value.value.scene_id.clone(),
                     id: id.clone(),
                     pose: *pose,
                     source: value.source.clone(),
@@ -367,12 +367,12 @@ impl State {
                 self.clear_terrain(world);
                 self.clear_published(world);
             }
-            Target::SubMap { pose: None, .. } => self.clear_published(world),
+            Target::Subscene { pose: None, .. } => self.clear_published(world),
             _ => {}
         }
         if value.publish {
-            let mut preview = world.resource_mut::<MapInstanceAuthorPreview>();
-            if preview.map_id.is_some()
+            let mut preview = world.resource_mut::<SceneInstanceAuthorPreview>();
+            if preview.scene_id.is_some()
                 && self
                     .published
                     .as_ref()
@@ -383,15 +383,15 @@ impl State {
             let revision = preview.revision.wrapping_add(1).max(1);
             let old = std::mem::replace(
                 &mut *preview,
-                MapInstanceAuthorPreview {
-                    map_id: Some(value.value.map.clone()),
+                SceneInstanceAuthorPreview {
+                    scene_id: Some(value.value.scene_id.clone()),
                     revision,
                     instances: value.instances.clone(),
                     terrains: value.terrains.clone(),
                 },
             );
             let previous = self.published.replace(Published {
-                map: value.value.map.clone(),
+                scene_id: value.value.scene_id.clone(),
                 source: value.source.clone(),
                 revision,
                 instances: value.instances.clone(),
@@ -412,23 +412,23 @@ impl State {
     }
     fn reconcile(&mut self, world: &mut World) -> Result<(), String> {
         let changed = self.published.as_ref().is_some_and(|credit| {
-            !sources(world, &credit.map).is_ok_and(|now| credit.source.same(&now))
+            !sources(world, &credit.scene_id).is_ok_and(|now| credit.source.same(&now))
         });
         if changed { self.clear_published(world); }
         if let Some((map, id, pose, definition, source_changed)) =
             self.terrain.as_ref().map(|credit| {
                 (
-                    credit.map.clone(),
+                    credit.scene_id.clone(),
                     credit.id.clone(),
                     credit.pose,
                     credit.definition.clone(),
-                    !sources(world, &credit.map).is_ok_and(|now| credit.source.same(&now)),
+                    !sources(world, &credit.scene_id).is_ok_and(|now| credit.source.same(&now)),
                 )
             })
         {
             let active = world
-                .get_resource::<ActiveDynamicMap>()
-                .and_then(|active| active.map_id.as_ref())
+                .get_resource::<ActiveDynamicScene>()
+                .and_then(|active| active.scene_id.as_ref())
                 == Some(&map);
             let object = self.terrain_source(world, &map, &id)?;
             if !active
@@ -462,10 +462,10 @@ impl State {
             TerrainId::parse(id)
                 .ok()
                 .and_then(|id| query.instance(map, &id))
-        } else if let Some(id) = target.strip_prefix("sub-map:") {
-            MapInstanceId::parse(id)
+        } else if let Some(id) = target.strip_prefix("subscene:") {
+            SceneInstanceId::parse(id)
                 .ok()
-                .and_then(|id| query.sub_map_instance(map, &id))
+                .and_then(|id| query.subscene_instance(map, &id))
         } else {
             None
         };
@@ -475,13 +475,13 @@ impl State {
     pub(super) fn evidence(&self, world: &World) -> serde_json::Value {
         // 采用时沿原稳定地址表记住根；截图只读这一个实体，不为验收扫描完整游戏World。
         let actual=self.actual.and_then(|entity|{
-            let instance=world.get::<feathrise_scene::SubMapInstance>(entity)?;
-            if self.last.as_ref().is_none_or(|(map,_,_,_)|map!=&instance.path.root_map_id)
-                || world.get::<feathrise_scene::SubMapActive>(instance.batch).is_none(){return None;}
+            let instance=world.get::<feathrise_scene::SubsceneInstance>(entity)?;
+            if self.last.as_ref().is_none_or(|(map,_,_,_)|map!=&instance.path.root_scene_id)
+                || world.get::<feathrise_scene::SubsceneActive>(instance.batch).is_none(){return None;}
             Some(serde_json::json!({"entity":entity.to_bits(),"path":instance.path.to_string(),
                 "local":world.get::<Transform>(entity).map(|pose|pose.to_matrix().to_cols_array()),
                 "world":world.get::<GlobalTransform>(entity).map(|pose|pose.to_matrix().to_cols_array())}))
         });
-        serde_json::json!({"source":"production-MapInstanceAuthorPreview-and-TerrainObjectTransformPreview","last":self.last,"actual":actual})
+        serde_json::json!({"source":"production-SceneInstanceAuthorPreview-and-TerrainObjectTransformPreview","last":self.last,"actual":actual})
     }
 }

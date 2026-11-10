@@ -3,7 +3,7 @@
 mod incremental_planning; // 八千记录分帧、换代取消与Scene轮询预算使用独立大规模夹具。
 mod author_preview_ownership; // 真实正式候选采用与退役不能吞掉独立作者根或解除其逐根遮蔽。
 
-use feathrise_scene_core::residency::{InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use super::*; // 直接验证私有候选辅助函数和组件生命期。
 use bevy::asset::AssetPlugin;
 use bevy::world_serialization::{WorldAsset, WorldInstance, WorldSerializationPlugin};
@@ -11,27 +11,27 @@ use bevy::world_serialization::{WorldAsset, WorldInstance, WorldSerializationPlu
 const TEST_BUILDING_PRESET_REVISION: u64 = 17; // 候选夹具固定到同一建筑目录快照。
 
 #[test]
-fn placement_container_without_scene_scope_is_retired_with_its_map() {
+fn placement_container_without_scene_scope_is_retired_with_its_scene() {
     use bevy::state::app::StatesPlugin;
-    use feathrise_scene_core::residency::{ResidentMapEntity, SceneResidencyActivity};
+    use feathrise_scene_core::residency::{ResidentSceneEntity, SceneResidencyActivity};
     use crate::shared::scene_residency::{close_resident_scene, mark_resident_document_open, ResidentScenes};
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
         .init_state::<ScenePhase>()
-        .init_resource::<ActiveDynamicMap>()
+        .init_resource::<ActiveDynamicScene>()
         .init_resource::<Assets<Image>>();
     crate::shared::scene_residency::install(&mut app);
     crate::register_resident_scene_root::<PlacementStagingRoot>(&mut app);
     app.world_mut().resource_mut::<SceneResidencyActivity>().enabled = true;
-    let map = MapId::parse("MAP-empty-placement-lifetime").unwrap();
-    app.world_mut().resource_mut::<ActiveDynamicMap>().select(map.clone());
+    let map = SceneId::parse("MAP-empty-placement-lifetime").unwrap();
+    app.world_mut().resource_mut::<ActiveDynamicScene>().select(map.clone());
     app.world_mut().resource_mut::<NextState<ScenePhase>>().set(ScenePhase::Active);
     app.update();
     mark_resident_document_open(app.world_mut(), map.clone());
     let root = app.world_mut().spawn((PlacementStagingRoot, Transform::default(), Visibility::Inherited)).id();
     let child = app.world_mut().spawn((Transform::default(), ChildOf(root))).id();
     app.update();
-    assert!(app.world().get::<ResidentMapEntity>(root).is_some());
+    assert!(app.world().get::<ResidentSceneEntity>(root).is_some());
     assert!(app.world().get::<DespawnOnExit<ScenePhase>>(root).is_none());
     close_resident_scene(app.world_mut(), map.clone());
     app.world_mut().resource_mut::<NextState<ScenePhase>>().set(ScenePhase::Idle);
@@ -40,21 +40,21 @@ fn placement_container_without_scene_scope_is_retired_with_its_map() {
         if !app.world().resource::<ResidentScenes>().contains(&map) { break; }
     }
     assert!(app.world().get_entity(root).is_err() && app.world().get_entity(child).is_err(),
-        "空候选根与普通子节点必须由同一地图的固定预算回收");
+        "空候选根与普通子节点必须由同一场景的固定预算回收");
 }
 
 #[test]
 fn placement_paths_stay_inside_assets_and_use_scene_formats() {
     assert!(validate_asset_path("gltf/树木/tree.glb"));
-    assert!(validate_asset_path("maps/MAP-1/private.gltf"));
+    assert!(validate_asset_path("scenes/MAP-1/private.gltf"));
     assert!(!validate_asset_path("../secret.glb"));
     assert!(!validate_asset_path("textures/tree.png"));
 }
 
 #[test]
 fn placement_attempt_revision_advances_before_a_candidate_can_become_ready() {
-    let mut state = MapPlacementRuntimeState::default();
-    let mut status = MapPlacementRuntimeStatus::default();
+    let mut state = ScenePlacementRuntimeState::default();
+    let mut status = ScenePlacementRuntimeStatus::default();
 
     begin_placement_revision(&mut state, &mut status);
 
@@ -100,16 +100,16 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
         .world()
         .get::<WorldInstance>(candidate)
         .expect("首个WorldInstance必须已经安装");
-    let map_id = MapId::parse("MAP-world-instance-revision").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-world-instance-revision").expect("测试场景ID合法");
     let gate = PlacementInstanceGate::new(false);
-    let mut state = MapPlacementRuntimeState::default();
-    state.active_map_id = Some(map_id.clone());
+    let mut state = ScenePlacementRuntimeState::default();
+    state.active_scene_id = Some(scene_id.clone());
     state.pending = Some(PendingPlacementRevision {
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 17,
         revision: 4,
-        map_id,
+        scene_id,
         building_preset_revision: TEST_BUILDING_PRESET_REVISION,
         building_clearances: BuildingVegetationClearanceState::empty_regions(),
         building_clearance_floor_heights: Default::default(),
@@ -136,7 +136,7 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
         verification_cursor: 1, // 模拟旧信用已经走完最终复验，下一次finish本可直接采用。
     });
     app.insert_resource(state)
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<BuildingVegetationClearanceState>()
         .init_resource::<super::super::resources::PlacementSettlementQueue>()
         .init_resource::<super::super::resources::PlacementWorldAssetInvalidations>()
@@ -156,7 +156,7 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
     app.add_systems(Update, finish_once); // 生命周期observer已经在根替换操作发生时完成失效，无需稳定帧查询。
     app.update();
 
-    let state = app.world().resource::<MapPlacementRuntimeState>();
+    let state = app.world().resource::<ScenePlacementRuntimeState>();
     let staging = state
         .staging
         .as_ref()
@@ -168,8 +168,8 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
 
 fn finish_once(
     mut commands: Commands,
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
     mut building_clearances: InstanceResMut<BuildingVegetationClearanceState>,
     mut visibilities: feathrise_scene_core::residency::InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
 ) {
@@ -182,8 +182,8 @@ fn finish_once(
     );
 }
 
-fn placement_record(id: impl Into<String>) -> MapPlacementRecord {
-    MapPlacementRecord {
+fn placement_record(id: impl Into<String>) -> ScenePlacementRecord {
+    ScenePlacementRecord {
         mesh_lod: None,
         terrain_binding: None,
         editor: Default::default(),
@@ -194,7 +194,7 @@ fn placement_record(id: impl Into<String>) -> MapPlacementRecord {
         building_preset_id: None, // 普通批次夹具不声明建筑预设身份。
         courtyard: None, // 独立摆放记录不属于任何院落副本。
         translation: [0.0, 0.0, 0.0], // 候选生命周期测试不需要位移。
-        height_mode: feathrise_map_content::MapPlacementHeightMode::FixedHeight, // 运行时批次测试使用确定世界Y。
+        height_mode: feathrise_scene_content::ScenePlacementHeightMode::FixedHeight, // 运行时批次测试使用确定世界Y。
         terrain_offset: 0.0,        // 固定高度不携带离地偏移。
         yaw_degrees: 0.0,           // 候选生命周期测试不需要旋转。
         scale: [1.0, 1.0, 1.0],     // 单位缩放保持记录有效。
@@ -204,17 +204,17 @@ fn placement_record(id: impl Into<String>) -> MapPlacementRecord {
 
 #[test]
 fn placement_batch_gate_distinguishes_pending_active_and_retired_roots() {
-    let map_id = MapId::parse("MAP-placement-gate").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-placement-gate").expect("测试场景ID合法");
     let record = placement_record("gate-root"); // 三态变化期间不可变来源证据保持同一快照。
     let gate = PlacementInstanceGate::new(false); // 正式隐藏候选从Pending开始。
-    let instance = MapPlacementInstance::new_pending(&map_id, &record, gate.clone());
+    let instance = ScenePlacementInstance::new_pending(&scene_id, &record, gate.clone());
 
     assert!(instance.is_pending()); // 当前候选可以参与同快照保存等待。
     assert!(!instance.is_active()); // 候选尚不可被F12写回。
     gate.activate(); // 模拟整批容器可见后的O(1)正式采用。
     assert!(!instance.is_pending()); // 已采用根不再冒充隐藏候选。
     assert!(instance.is_active()); // 整批根同时成为作者活动集合。
-    gate.retire(); // 模拟换图或新修订替换后的O(1)退役。
+    gate.retire(); // 模拟切换场景或新修订替换后的O(1)退役。
     assert!(!instance.is_pending()); // 物理Pending标记即使残留也不能恢复候选信用。
     assert!(!instance.is_active()); // 退役根不再提供保存或作者写回资格。
 }
@@ -226,13 +226,13 @@ fn candidate_app(total: usize, ready: bool) -> (App, Vec<Entity>) {
         .spawn((PlacementStagingRoot, Visibility::Hidden))
         .id();
     let gate = PlacementInstanceGate::new(false);
-    let map_id = MapId::parse("MAP-pending-adoption").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-pending-adoption").expect("测试场景ID合法");
     let roots = (0..total)
         .map(|index| {
             let record = placement_record(format!("candidate-{index}")); // 每根冻结自己的完整作者记录。
             app.world_mut()
                 .spawn((
-                    MapPlacementInstance::new_pending(&map_id, &record, gate.clone()),
+                    ScenePlacementInstance::new_pending(&scene_id, &record, gate.clone()),
                     PlacementPendingInstance,
                     PlacementPendingRevision {
                         generation: 5,
@@ -243,7 +243,7 @@ fn candidate_app(total: usize, ready: bool) -> (App, Vec<Entity>) {
                 .id()
         })
         .collect::<Vec<_>>();
-    let mut state = MapPlacementRuntimeState::default();
+    let mut state = ScenePlacementRuntimeState::default();
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
         terrain_roots: Vec::new(),
@@ -266,43 +266,43 @@ fn candidate_app(total: usize, ready: bool) -> (App, Vec<Entity>) {
         verification_epoch: u64::from(ready),
         verification_cursor: 0,
     });
-    state.active_map_id = Some(map_id.clone());
+    state.active_scene_id = Some(scene_id.clone());
     state.pending = Some(PendingPlacementRevision {
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 5,
         revision: 9,
-        map_id,
+        scene_id,
         building_preset_revision: TEST_BUILDING_PRESET_REVISION,
         building_clearances: BuildingVegetationClearanceState::empty_regions(),
         building_clearance_floor_heights: Default::default(),
-        plans: Vec::new(), // finish只消费已建立候选的地图身份，不回读计划。
+        plans: Vec::new(), // finish只消费已建立候选的场景身份，不回读计划。
     });
     app.insert_resource(state)
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<BuildingVegetationClearanceState>();
     (app, roots)
 }
 
 fn spawn_and_finish_zero_candidate(
     mut commands: Commands,
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
     mut building_clearances: InstanceResMut<BuildingVegetationClearanceState>,
     mut visibilities: feathrise_scene_core::residency::InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
 ) {
     if state.staging.is_none() && state.active.is_none() {
-        let map_id = MapId::parse("MAP-empty-placement").expect("测试地图ID合法");
+        let scene_id = SceneId::parse("MAP-empty-placement").expect("测试场景ID合法");
         let root = commands
             .spawn((PlacementStagingRoot, Visibility::Hidden))
             .id(); // 生产路径同样只拿到Commands预留Entity，本帧Query尚不可见。
-        state.active_map_id = Some(map_id.clone());
+        state.active_scene_id = Some(scene_id.clone());
         state.pending = Some(PendingPlacementRevision {
             terrain_holes: Default::default(),
             terrain_patch_count: 0,
             generation: 2,
             revision: 4,
-            map_id,
+            scene_id,
             building_preset_revision: TEST_BUILDING_PRESET_REVISION,
             building_clearances: BuildingVegetationClearanceState::empty_regions(),
             building_clearance_floor_heights: Default::default(),
@@ -341,30 +341,30 @@ fn spawn_and_finish_zero_candidate(
 #[test]
 fn zero_placement_candidate_waits_until_deferred_container_really_exists() {
     let mut app = App::new();
-    app.init_resource::<MapPlacementRuntimeState>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+    app.init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<BuildingVegetationClearanceState>()
         .add_systems(Update, spawn_and_finish_zero_candidate);
 
     app.update();
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Building
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Building
     ); // 首帧只创建Commands实体，不得把Query不可见误报Failed或提前Ready。
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .is_some()
     );
 
     app.update();
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Ready
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Ready
     ); // 下一帧真实观察到容器后，空批次以常数时间安全采用。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         1
     );
 }
@@ -375,7 +375,7 @@ fn whole_candidate_adoption_releases_pending_marker_from_every_known_root() {
     let candidate = roots[0];
     let staging_root = app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .staging
         .as_ref()
         .expect("测试候选存在")
@@ -402,21 +402,21 @@ fn whole_candidate_adoption_releases_pending_marker_from_every_known_root() {
     );
     assert_eq!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .active
             .as_ref()
             .map(|active| active.root),
         Some(staging_root),
     );
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Ready,
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Ready,
     );
-    let map_id = MapId::parse("MAP-pending-adoption").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-pending-adoption").expect("测试场景ID合法");
     let clearance = app
         .world()
         .resource::<BuildingVegetationClearanceState>()
-        .snapshot_for(&map_id)
+        .snapshot_for(&scene_id)
         .expect("无建筑批次也必须发布已完成的空净空快照");
     assert!(clearance.regions.is_empty()); // 删除最后建筑后消费者据此恢复全部植被。
 }
@@ -425,13 +425,13 @@ fn whole_candidate_adoption_releases_pending_marker_from_every_known_root() {
 fn candidate_adoption_and_retirement_toggle_the_single_shared_builtin_body() {
     use avian3d::prelude::{RigidBody, RigidBodyDisabled};
     let (mut app, _) = candidate_app(1, true);
-    let root = app.world().resource::<MapPlacementRuntimeState>().staging.as_ref().unwrap().root;
+    let root = app.world().resource::<ScenePlacementRuntimeState>().staging.as_ref().unwrap().root;
     app.world_mut().entity_mut(root).insert((RigidBody::Static, RigidBodyDisabled));
     app.add_systems(Update, finish_once);
     assert!(app.world().get::<RigidBodyDisabled>(root).is_some());
     app.update();
     assert!(app.world().get::<RigidBodyDisabled>(root).is_none());
-    app.add_systems(Update, |mut commands: Commands, mut state: InstanceResMut<MapPlacementRuntimeState>| {
+    app.add_systems(Update, |mut commands: Commands, mut state: InstanceResMut<ScenePlacementRuntimeState>| {
         retirement::retire_active_batch(&mut commands, &mut state);
     });
     app.update();
@@ -442,15 +442,15 @@ fn candidate_adoption_and_retirement_toggle_the_single_shared_builtin_body() {
 #[test]
 fn instance_placement_hot_updates_keep_adopted_layer_but_allow_the_initial_candidate() {
     let (mut app, roots) = candidate_app(1, true);
-    assert!(!keep_adopted_instance_placements(true, app.world().resource::<MapPlacementRuntimeState>()));
+    assert!(!keep_adopted_instance_placements(true, app.world().resource::<ScenePlacementRuntimeState>()));
     app.add_systems(Update, finish_once);
     app.update(); // 真正经过完整候选复验和原子采用后，才开始冻结旧子实例的内容层。
-    app.world_mut().resource_mut::<MapPlacementRuntimeState>().dirty = true;
-    let state = app.world().resource::<MapPlacementRuntimeState>();
+    app.world_mut().resource_mut::<ScenePlacementRuntimeState>().dirty = true;
+    let state = app.world().resource::<ScenePlacementRuntimeState>();
     assert!(keep_adopted_instance_placements(true, state));
-    assert!(!keep_adopted_instance_placements(false, state), "父地图继续采用原有热更新事务");
-    assert!(app.world().get::<MapPlacementInstance>(roots[0]).unwrap().is_active());
-    assert_eq!(app.world().resource::<MapPlacementRuntimeStatus>().phase, MapPlacementRuntimePhase::Ready);
+    assert!(!keep_adopted_instance_placements(false, state), "父场景继续采用原有热更新事务");
+    assert!(app.world().get::<ScenePlacementInstance>(roots[0]).unwrap().is_active());
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().phase, ScenePlacementRuntimePhase::Ready);
 }
 
 #[test]
@@ -464,13 +464,13 @@ fn candidate_with_missing_current_root_credit_cannot_be_adopted() {
     let world = app.world(); // 读取本帧候选与公开状态。
     assert!(
         world
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .is_some()
     ); // 候选未被提前消费。
     assert_eq!(
         world
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .active
             .as_ref()
             .map(|active| active.root),
@@ -479,8 +479,8 @@ fn candidate_with_missing_current_root_credit_cannot_be_adopted() {
     assert!(world.get::<PlacementPendingInstance>(candidate).is_some()); // 隔离标记仍保留。
     assert!(world.get::<PlacementPendingRevision>(candidate).is_some()); // 修订身份仍可接纳后续World ready。
     assert_eq!(
-        world.resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Building
+        world.resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Building
     ); // 可见状态准确表示尚在联合就绪。
 }
 
@@ -498,32 +498,32 @@ fn large_candidate_verifies_and_cleans_markers_across_frames_without_partial_aut
 
     app.update(); // 第一帧只核对固定前缀，不能采用。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Building
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Building
     );
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         0
     );
     assert!(roots.iter().all(|root| {
         !app.world()
-            .get::<MapPlacementInstance>(*root)
+            .get::<ScenePlacementInstance>(*root)
             .expect("候选根仍存在")
             .is_active()
     })); // 复验中全部根共享关闭门，不按已核对前缀逐根暴露。
 
     app.update(); // 第二帧完成复验并O(1)采用，随后只清首批物理标记。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Ready
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Ready
     );
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         1
     );
     assert!(roots.iter().all(|root| {
         app.world()
-            .get::<MapPlacementInstance>(*root)
+            .get::<ScenePlacementInstance>(*root)
             .expect("活动根仍存在")
             .is_active()
     })); // 即使物理标记只清了一部分，F12看到的整批作者身份也已同时切换。
@@ -540,7 +540,7 @@ fn large_candidate_verifies_and_cleans_markers_across_frames_without_partial_aut
 
     app.update(); // 剩余标记收口不得重复推进公开采用修订。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         1
     );
     assert!(
@@ -558,42 +558,42 @@ fn hot_reload_revokes_an_in_progress_full_ready_verification() {
 
     app.update(); // 已核对前128根，但尚未完成整批证明。
     {
-        let mut state = app.world_mut().resource_mut::<MapPlacementRuntimeState>();
+        let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>();
         let staging = state.staging.as_mut().expect("候选仍在复验");
         assert!(staging.ready_roots.remove(&roots[0])); // 模拟新WorldInstanceReady先撤销旧水体信用。
         staging.eligibility_epoch = staging.eligibility_epoch.wrapping_add(1);
     }
     app.update(); // 缺失最新信用时必须复位游标且保持隐藏。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         0
     );
     assert!(
         !app.world()
-            .get::<MapPlacementInstance>(roots[0])
+            .get::<ScenePlacementInstance>(roots[0])
             .expect("热更根仍在候选中")
             .is_active()
     );
 
     {
-        let mut state = app.world_mut().resource_mut::<MapPlacementRuntimeState>();
+        let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>();
         let staging = state.staging.as_mut().expect("候选等待最新Ready");
         assert!(staging.ready_roots.insert(roots[0])); // 模拟最新World和整网格水重新联合Ready。
         staging.eligibility_epoch = staging.eligibility_epoch.wrapping_add(1);
     }
     app.update(); // 新epoch第一帧仍只复验固定前缀。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         0
     );
     app.update(); // 只有新epoch完整跨帧复验后才允许采用一次。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         1
     );
     app.update();
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         1
     ); // 候选已被消费，稳定帧不能重复采用。
 }
@@ -610,7 +610,7 @@ fn retired_wide_tree_is_detached_and_destroyed_with_a_fixed_multiframe_budget() 
         })
         .collect::<Vec<_>>();
     let before = app.world().iter_entities().count();
-    let mut state = MapPlacementRuntimeState::default();
+    let mut state = ScenePlacementRuntimeState::default();
     state
         .retired_trees
         .push_back(PlacementTreeCleanup::new(root, Vec::new()));
@@ -639,7 +639,7 @@ fn retired_wide_tree_is_detached_and_destroyed_with_a_fixed_multiframe_budget() 
     );
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .retired_trees
             .is_empty()
     );

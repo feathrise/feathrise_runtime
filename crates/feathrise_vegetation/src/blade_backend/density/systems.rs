@@ -11,7 +11,7 @@ use crate::{
     VegetationLayoutState,
 }; // 候选只读取已经原子发布的活动布局和同版本提交块。
 
-use super::async_build::{BladeDensityBuildIdentity, VegetationBladeDensityCpuBuild}; // 大地图CPU候选按完整身份后台构建。
+use super::async_build::{BladeDensityBuildIdentity, VegetationBladeDensityCpuBuild}; // 大场景CPU候选按完整身份后台构建。
 use super::components::{VegetationBladeLayer, VegetationBladeLayoutRevision}; // 查询公开层绑定并私有记录真正采用身份。
 use super::resources::{
     PendingBladeDensityBatch, PendingBladeDensityState, VegetationBladeDensityCache,
@@ -107,7 +107,7 @@ pub(super) fn sync_resolved_blade_density(
 /// 收集当前全部绑定层并转为稳定有序数组。
 fn collect_bound_layers(
     windows: &mut Query<BladeDensityWindowQuery<'_>>, // 查询含可写Patch，因此使用顺序可变迭代。
-    validation: &VegetationBladeValidationLayers,     // 正式地图可先校验而不替换任何旧窗口。
+    validation: &VegetationBladeValidationLayers,     // 正式场景可先校验而不替换任何旧窗口。
 ) -> Vec<VegetationLayerId> {
     let mut layers = BTreeSet::new(); // 同层多个LOD窗口只产生一个共享候选。
     for (_, binding, _, _) in windows.iter_mut() {
@@ -256,7 +256,7 @@ fn sync_gpu_density_candidates(
             if resources.cpu_build.is_busy() {
                 return; // 已标记过期的大任务真正结束前保持single-flight并继续使用旧窗口。
             }
-            let ticket = next_gpu_ticket(); // 多张地图各自拥有协调器，GPU跨世界票据仍必须全局唯一。
+            let ticket = next_gpu_ticket(); // 多个场景各自拥有协调器，GPU跨世界票据仍必须全局唯一。
             resources.coordinator.next_ticket = ticket; // 启动CPU构建时立即消费票据以拒绝迟到结果。
             if VegetationBladeDensityCpuBuild::should_start_async(resources.active.tiles.len()) {
                 let started = resources.cpu_build.start(
@@ -272,12 +272,12 @@ fn sync_gpu_density_candidates(
                 return; // 本帧只启动任务，不在主线程执行任何整图CPU构建。
             }
             let result = build_pending_batch_cpu(PendingBladeDensityBatchBuild {
-                ticket,                    // 小地图同步路径沿用相同票据语义。
-                active: &resources.active, // 小地图直接借用当前活动布局。
-                commit: &resources.commit, // 小地图直接借用同版本提交。
-                layout: &resources.layout, // 小地图直接借用受检输入。
-                bound_layers,              // 小地图仍要求完整跨层集合。
-                cache: &resources.cache,   // 小地图仍可使用上一局部图集。
+                ticket,                    // 小场景同步路径沿用相同票据语义。
+                active: &resources.active, // 小场景直接借用当前活动布局。
+                commit: &resources.commit, // 小场景直接借用同版本提交。
+                layout: &resources.layout, // 小场景直接借用受检输入。
+                bound_layers,              // 小场景仍要求完整跨层集合。
+                cache: &resources.cache,   // 小场景仍可使用上一局部图集。
             });
             match result {
                 Ok(built) => {
@@ -291,7 +291,7 @@ fn sync_gpu_density_candidates(
                     if resources.cache.rejected.insert((revision, layer)) {
                         resources
                             .rejected
-                            .write(VegetationLayoutRejected { reason }); // 小地图CPU失败保持同一拒绝契约。
+                            .write(VegetationLayoutRejected { reason }); // 小场景CPU失败保持同一拒绝契约。
                     }
                     return; // 同步失败也没有部分Image进入Assets。
                 }
@@ -302,7 +302,7 @@ fn sync_gpu_density_candidates(
     publish_next_gpu_job(&mut resources.coordinator, &mut resources.request); // 一个层完成并通过后才发布稳定顺序中的下一层。
 }
 
-/// 资源快照恢复旧协调器时也不回退票据，避免另一张地图的迟到回读命中同层/同修订。
+/// 资源快照恢复旧协调器时也不回退票据，避免另一个场景的迟到回读命中同层/同修订。
 fn next_gpu_ticket() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);

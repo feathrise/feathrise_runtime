@@ -1,4 +1,4 @@
-//! 验证纯地图、显式应用领域与子地图完成门各自提供真实证据，不互相冒领。
+//! 验证纯场景、显式应用领域与子场景完成门各自提供真实证据，不互相冒领。
 use super::*;
 use feathrise_scene_core::state::{ScenePhase, LoadingProgress, LoadingStage, SceneStartupGate};
 
@@ -24,7 +24,7 @@ fn app() -> App {
     app
 }
 #[test]
-fn map_without_application_waits_for_geometry_then_completes_without_actor_entities() {
+fn scene_without_application_waits_for_geometry_then_completes_without_actor_entities() {
     let mut app = app();
     app.update();
     assert!(!app.world().resource::<SceneStartupGate>().ready);
@@ -54,22 +54,22 @@ fn registered_domain_rejects_missing_or_other_scene_proof_and_recovers_after_fai
     assert!(app.world().resource::<SceneStartupGate>().application_error.is_none());
 }
 #[test]
-fn application_success_cannot_override_pending_or_failed_sub_map() {
+fn application_success_cannot_override_pending_or_failed_subscene() {
     let mut app = app();
     app.insert_resource(hooks())
         .insert_resource(Proof { scene: ScenePhase::Active, complete: true, error: None });
     {
         let mut gate = app.world_mut().resource_mut::<SceneStartupGate>();
-        gate.collision_ready = true; gate.sub_maps_ready = false;
+        gate.collision_ready = true; gate.subscenes_ready = false;
     }
     app.update();
     assert!(!app.world().resource::<SceneStartupGate>().ready);
-    app.world_mut().resource_mut::<SceneStartupGate>().sub_maps_error = Some("子地图资源损坏".into());
+    app.world_mut().resource_mut::<SceneStartupGate>().subscenes_error = Some("子场景资源损坏".into());
     app.update();
     assert_eq!(app.world().resource::<LoadingProgress>().stage, LoadingStage::Failed);
     {
         let mut gate = app.world_mut().resource_mut::<SceneStartupGate>();
-        gate.sub_maps_ready = true; gate.sub_maps_error = None;
+        gate.subscenes_ready = true; gate.subscenes_error = None;
     }
     app.update();
     assert!(app.world().resource::<SceneStartupGate>().ready);

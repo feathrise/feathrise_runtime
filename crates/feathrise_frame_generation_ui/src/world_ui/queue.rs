@@ -71,7 +71,7 @@ pub(super) fn restore_retained_items(
         } // 已销毁相机的 UI phase 直接释放。
         phase.transient_items.clear(); // 此处只借用标准 Material 的 retained 项。
     } // 上帧有限视图处理结束。
-    overlay.retain(|view, _| original.contains_key(view)); // 不积累历史地图和相机的空 phase。
+    overlay.retain(|view, _| original.contains_key(view)); // 不积累历史场景和相机的空 phase。
 } // restore_retained_items 结束。
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)] // 每个输入都对应分流事务的一个独立所有权或就绪条件。

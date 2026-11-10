@@ -182,7 +182,7 @@ fn contact_shadow_quality_keeps_antialiasing_but_requires_native_scale() {
 }
 
 #[test]
-fn every_preset_maps_to_the_documented_seven_linked_fields() {
+fn every_preset_scenes_to_the_documented_seven_linked_fields() {
     let expected = [
         (
             GraphicsQualityPreset::Low,   // 低档综合预设。
@@ -235,7 +235,7 @@ fn every_preset_maps_to_the_documented_seven_linked_fields() {
 }
 
 #[test]
-fn content_quality_levels_map_to_bounded_runtime_multipliers() {
+fn content_quality_levels_scene_to_bounded_runtime_multipliers() {
     let vegetation = [
         (VegetationQuality::Low, (0.55, 1.35, 0.60)), // 低档显著压低密度与范围。
         (VegetationQuality::Medium, (0.75, 1.15, 0.80)), // 中档保留主要轮廓。
@@ -257,7 +257,7 @@ fn content_quality_levels_map_to_bounded_runtime_multipliers() {
 }
 
 #[test]
-fn effects_quality_maps_to_documented_particle_multipliers_and_storage() {
+fn effects_quality_scenes_to_documented_particle_multipliers_and_storage() {
     let expected = [
         (EffectsQuality::Low, 0.50),    // 低档粒子数量减半。
         (EffectsQuality::Medium, 0.75), // 中档保留四分之三。

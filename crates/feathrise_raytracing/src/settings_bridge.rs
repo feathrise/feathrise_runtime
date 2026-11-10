@@ -85,7 +85,7 @@ pub(crate) fn publish_dlss_raytracing_status(
     dlss.ray_reconstruction_supported = runtime.dlss_rr_supported; // 官方支持资源是唯一事实。
     dlss.ray_reconstruction_effective = rr_effective; // 与相机真实RR组件所有权一致。
     dlss.scene_coverage = if !requested {
-        RaytracingSceneCoverage::RasterOnly // 光追关闭时不把当前地图解释为错误。
+        RaytracingSceneCoverage::RasterOnly // 光追关闭时不把当前场景解释为错误。
     } else if target == RaytracingPrototypeTarget::None {
         RaytracingSceneCoverage::Unsupported // 没有既有白名单目标时明确回退光栅。
     } else {
@@ -154,7 +154,7 @@ fn raytracing_blocker(
                     detail: features.clone(), // 保留缺失wgpu能力集合。
                 }
             }
-            RaytracingPrototypeBlocker::WaitingForSupportedMap => {
+            RaytracingPrototypeBlocker::WaitingForSupportedScene => {
                 DlssRuntimeBlocker::SceneUnsupported // 与目标None使用同一正式提示。
             }
             _ => DlssRuntimeBlocker::RuntimeFailure {
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn every_explicit_dlss_mode_maps_to_the_same_rr_mode() {
+    fn every_explicit_dlss_mode_scenes_to_the_same_rr_mode() {
         for mode in [
             DlssMode::Quality,
             DlssMode::Balanced,

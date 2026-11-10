@@ -38,12 +38,12 @@ pub use components::{
     GpuBladeLodDebugDisabled,
     GpuBladePatch,
     GpuBladeProfileBankId,
-    GpuBladeProfileBankAllocation, // 多地图/多网格根分别持有绘制槽，退役不清空共享目录。
+    GpuBladeProfileBankAllocation, // 多场景/多网格根分别持有绘制槽，退役不清空共享目录。
     GpuBladeView,
 }; // 对场景层开放密度、高度、草块参数和玩法相机标记，并允许F3临时隔离单档GPU负载。
 pub use constants::{
     GPU_GRASS_DEPTH_BUCKET_COUNT, // 对F3开放每个LOD环带固定的径向间接绘制桶数。
-    GPU_GRASS_PATCH_AABB_HORIZONTAL_MARGIN, // 地图和独立示例必须共用能覆盖草簇重映射与顶点形变的水平AABB余量。
+    GPU_GRASS_PATCH_AABB_HORIZONTAL_MARGIN, // 场景和独立示例必须共用能覆盖草簇重映射与顶点形变的水平AABB余量。
 };
 #[cfg(feature = "diagnostics")] // 公共默认构建不暴露未安装的异步回读配置。
 pub use diagnostics::GpuBladeReadbackConfig; // 自动运动烟雾可切换逐帧异步采样，正式默认仍为每四帧。
@@ -55,18 +55,18 @@ pub use render::GpuBladeDiagnosticsPlugin;
 pub use render::GpuBladePlugin; // 消费者安装一次通用 GPU 草地核心渲染后端。
 pub use resources::{
     GPU_GRASS_DEFAULT_WIND_TIP_STRENGTH, // 测试设置默认值与正式渲染默认风摆保持一致。
-    GPU_GRASS_INTERACTION_SOURCE_CAPACITY, // 地图足迹采样严格遵守绘制shader固定八槽上限。
+    GPU_GRASS_INTERACTION_SOURCE_CAPACITY, // 场景足迹采样严格遵守绘制shader固定八槽上限。
     GPU_GRASS_MAX_WIND_TIP_STRENGTH,     // F1风力滑块使用渲染端同一安全上限。
-    GpuBladeInteraction,                 // 对地图层和F3开放一份全局风场与固定容量足迹uniform。
-    GpuBladeInteractionSource,           // 对地图层开放米制世界空间局部压草源。
-    GpuBladeProfile, // 对内容层开放固定叶片profile结构，便于测试面板或后续地图显式覆盖。
+    GpuBladeInteraction,                 // 对场景层和F3开放一份全局风场与固定容量足迹uniform。
+    GpuBladeInteractionSource,           // 对场景层开放米制世界空间局部压草源。
+    GpuBladeProfile, // 对内容层开放固定叶片profile结构，便于测试面板或后续场景显式覆盖。
     GpuBladeProfileBank, // 一个绘制绑定组内的四个局部外观和共享纹理页。
     GpuBladeProfileBanks, // 数据驱动内容可登记任意数量四槽绘制批次。
     GpuBladeProfiles, // 兼容场景继续使用的批次零固定四槽外观表。
     GpuBladeRenderAssets, // 消费者可配置共享综合色图集，None时使用内置白色回退。
     GpuBladeRenderStats, // 对F3开放上一完整CPU渲染流水线快照。
-    GpuBladeStreamingPhase, // 对地图层与F3开放阶段5驻留生命周期枚举。
-    GpuBladeStreamingStats, // 对地图层与F3开放预测、淡入和资产驻留快照。
+    GpuBladeStreamingPhase, // 对场景层与F3开放阶段5驻留生命周期枚举。
+    GpuBladeStreamingStats, // 对场景层与F3开放预测、淡入和资产驻留快照。
 };
 #[cfg(feature = "diagnostics")] // 诊断 feature 统一控制异步样本和分阶段 GPU 查询快照。
 pub use resources::{
@@ -76,7 +76,7 @@ pub use resources::{
 pub use types::{
     GPU_GRASS_LOD_CAPACITY, GPU_GRASS_PROFILE_CAPACITY, GpuBladeConfig, GpuBladeProfileSlot,
     GpuBladeUltraLodBudget, GpuBladeViewLodConfig,
-}; // 消费地图显式提供内容身份、保守包围、投影LOD和常驻窗口规格。
+}; // 消费场景显式提供内容身份、保守包围、投影LOD和常驻窗口规格。
 
 #[cfg(any(test, feature = "diagnostics"))] // 仅诊断/测试构建暴露拓扑镜像。
 pub use gpu_compute::clipmap_validation::sample_clipmap_surface_for_validation; // 场景真实 Mesh oracle 的独立 GPU 算法镜像。

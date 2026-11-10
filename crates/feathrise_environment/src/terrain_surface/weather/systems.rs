@@ -13,7 +13,7 @@ pub fn surface_weather_buffer_handle() -> Handle<ShaderBuffer> {
     uuid_handle!("da04cb15-a9df-46a0-9f72-efb98dab63c2") // 与项目其他内置资源隔离。
 } // 完成固定身份入口。
 
-/// 地表插件安装时创建64字节干燥回退；更新不遍历材质或地图。
+/// 地表插件安装时创建64字节干燥回退；更新不遍历材质或场景。
 pub(in crate::terrain_surface) fn install_surface_weather(app: &mut App) {
     // 无RenderApp测试也能建立相同主世界契约。
     crate::rain_shelter::install_rain_shelter(app); // 同一环境插件安装共享无碰撞遮雨缓冲。
@@ -31,7 +31,7 @@ pub(in crate::terrain_surface) fn install_surface_weather(app: &mut App) {
         PostUpdate,
         upload_surface_weather.in_set(SurfaceWeatherUpload),
     ); // 宿主更新后、渲染提取前最多一次上传。
-    app.add_systems(PostUpdate, bind_puddle_mask.in_set(SurfaceWeatherUpload)); // 仅换图换版或新材质时更新遮罩绑定。
+    app.add_systems(PostUpdate, bind_puddle_mask.in_set(SurfaceWeatherUpload)); // 仅切换场景换版或新材质时更新遮罩绑定。
 } // 完成共享资源安装。
 
 fn bind_puddle_mask(
@@ -42,16 +42,16 @@ fn bind_puddle_mask(
 ) {
     // 稳定运行不产生逐材质天气工作。
     if mask.is_changed() {
-        // 遮罩完整换版为低频作者/切图事件。
+        // 遮罩完整换版为低频作者/切换场景事件。
         for (_, material) in materials.iter_mut() {
             // 当前地表材质数量取决于真实承接/预热，不创建每水洼材质。
-            if material.extension.follows_global_puddle_mask() { material.extension.set_puddle_mask(mask.image.clone()); } // 子地图保持自己的受检遮罩。
+            if material.extension.follows_global_puddle_mask() { material.extension.set_puddle_mask(mask.image.clone()); } // 子场景保持自己的受检遮罩。
         } // 完成遮罩换版。
         events.clear(); // 本次整表处理已覆盖新增和修改事件。
         return; // 不重复处理刚处理过的材质。
     } // 稳定纹理只处理事件。
     for event in events.read() {
-        // 事件量与真正的材质更新相关，而非地图像素。
+        // 事件量与真正的材质更新相关，而非场景像素。
         let id = match event {
             // Modified也覆盖热重建的同ID材质，避免丢失遮罩。
             AssetEvent::Added { id } | AssetEvent::Modified { id } => *id, // 两类事件都可能产生没有遮罩的新扩展。

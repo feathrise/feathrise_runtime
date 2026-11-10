@@ -76,12 +76,12 @@ fn capture(world: &mut World) {
         if !vegetation_source_ready(&content, gpu.source_revision) { world.insert_resource(evidence); return; }
     }
     let report = serde_json::json!({"pid":std::process::id(),"world_id":state.world_id,
-        "map_generation":identity.generation,"revision":state.revision,"preview_sequence":identity.sequence,
+        "scene_generation":identity.generation,"revision":state.revision,"preview_sequence":identity.sequence,
         "kind":super::preview::kind_name(kind),"mode":"editing","frame":runtime.frames,"content":content,
         "gpu":{"source_revision":gpu.source_revision,"sample_sequence":gpu.sample_sequence,
             "sample_baseline":evidence.sample_baseline,"sampled_windows":gpu.sampled_windows,
             "rendered_instances":gpu.rendered_instances,"density_survivors":gpu.density_survivors,
-            "surface_survivors":gpu.surface_survivors,"map_errors":gpu.map_errors,
+            "surface_survivors":gpu.surface_survivors,"scene_errors":gpu.scene_errors,
             "drawn_draws":render.drawn_draws,"input_ready_windows":render.input_ready_windows,
             "density_waiting_windows":render.density_waiting_windows},
         "source":"real-project-preview"});

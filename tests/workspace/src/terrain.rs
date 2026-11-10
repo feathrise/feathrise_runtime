@@ -31,7 +31,7 @@ fn wet_terrain_full_fragment_variants_are_valid_wgsl() {
             format!(
                 "{}\n{}",
                 feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false).replace("#{MATERIAL_BIND_GROUP}", "2"),
-                preprocess(include_str!("../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wesl"), defines),
+                preprocess(include_str!("../../../crates/feathrise_scene/src/scenes/dynamic_scene/clipmap/shaders/height.wesl"), defines),
             )
         } else {
             String::new()

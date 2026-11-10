@@ -1,4 +1,4 @@
-//! 使用真实状态调度、实体关系和资源槽验证驻留；三个动态地图共享同一个枚举。
+//! 使用真实状态调度、实体关系和资源槽验证驻留；三个动态场景共享同一个枚举。
 
 use super::resources::ResidentEntityIndex;
 use super::*;
@@ -8,8 +8,8 @@ use bevy::{
     ecs::{entity_disabling::Disabled, query::Allow},
     state::app::StatesPlugin,
 };
-use feathrise_map_content::{ActiveDynamicMap, MapId};
-use feathrise_scene_core::residency::{ResidentMapEntity, SceneResidencyAppExt};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId};
+use feathrise_scene_core::residency::{ResidentSceneEntity, SceneResidencyAppExt};
 use std::sync::Arc;
 #[path = "gpu_tests.rs"]
 mod gpu_tests;
@@ -17,7 +17,7 @@ mod gpu_tests;
 mod camera_tests; // 真实Window/camera_system经过驻留恢复后重取当前尺寸与投影。
 
 #[derive(Resource, Default)]
-struct MapRuntimeProof {
+struct SceneRuntimeProof {
     pixels: Arc<Vec<u8>>,
     image: Handle<Image>,
     serial: usize,
@@ -34,7 +34,7 @@ struct OriginalDisabled;
 
 fn cold_enter(
     mut commands: Commands,
-    mut proof: ResMut<MapRuntimeProof>,
+    mut proof: ResMut<SceneRuntimeProof>,
     mut counts: ResMut<ConstructionCounts>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -44,7 +44,7 @@ fn cold_enter(
     proof.image = images.add(Image::default());
     commands
         .spawn((
-            Name::new(format!("地图{}完整场景根", counts.entered)),
+            Name::new(format!("场景{}完整场景根", counts.entered)),
             SceneActor(0),
             DespawnOnExit(ScenePhase::Active),
             Visibility::Inherited,
@@ -81,14 +81,14 @@ fn fixture() -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
         .init_state::<ScenePhase>()
-        .init_resource::<ActiveDynamicMap>()
+        .init_resource::<ActiveDynamicScene>()
         .init_resource::<Assets<Image>>()
         .init_resource::<ConstructionCounts>();
     install(&mut app);
     app.world_mut()
         .resource_mut::<SceneResidencyActivity>()
         .enabled = true;
-    app.init_resident_resource::<MapRuntimeProof>()
+    app.init_resident_resource::<SceneRuntimeProof>()
         .add_systems(OnEnter(ScenePhase::Active), cold_enter)
         .add_systems(OnExit(ScenePhase::Active), cold_exit)
         .add_resident_systems(Update, update_actors);
@@ -97,7 +97,7 @@ fn fixture() -> App {
 
 #[test]
 fn live_preview_orphaned_heights_retire_through_existing_single_background_slot() {
-    use feathrise_map_content::{SparseHeightLiveOverride, SparseHeightSpec, SparseHeightTile, SparseHeightTileKey};
+    use feathrise_scene_content::{SparseHeightLiveOverride, SparseHeightSpec, SparseHeightTile, SparseHeightTileKey};
     let mut app = App::new();
     app.add_plugins(MinimalPlugins).init_resource::<ResidentScenes>();
     let spec = SparseHeightSpec::new([0.0; 2], [64.0; 2], 1.0, -8.0, 16.0).unwrap();
@@ -129,12 +129,12 @@ fn live_preview_orphaned_heights_retire_through_existing_single_background_slot(
     assert!(scenes.retirement.is_none() && scenes.retired_resources.is_empty());
     assert!(weak.iter().all(|tile| tile.upgrade().is_none()), "两份最后根最终都由唯一worker释放");
 }
-fn id(value: &str) -> MapId {
-    MapId::parse(value).unwrap()
+fn id(value: &str) -> SceneId {
+    SceneId::parse(value).unwrap()
 }
 
 #[test]
-fn cancelled_cold_loading_placeholder_is_retired_without_touching_other_maps() {
+fn cancelled_cold_loading_placeholder_is_retired_without_touching_other_scenes() {
     let mut app = fixture();
     let target = id("MAP-cancelled-before-enter");
     let other = id("MAP-other-resident");
@@ -145,9 +145,9 @@ fn cancelled_cold_loading_placeholder_is_retired_without_touching_other_maps() {
     assert!(!app.world().resource::<ResidentScenes>().contains(&target));
     assert!(app.world().resource::<ResidentScenes>().contains(&other));
 }
-fn enter_first(app: &mut App, map: &MapId) -> Entity {
+fn enter_first(app: &mut App, map: &SceneId) -> Entity {
     app.world_mut()
-        .resource_mut::<ActiveDynamicMap>()
+        .resource_mut::<ActiveDynamicScene>()
         .select(map.clone());
     app.world_mut()
         .resource_mut::<NextState<ScenePhase>>()
@@ -159,7 +159,7 @@ fn enter_first(app: &mut App, map: &MapId) -> Entity {
         .single(app.world())
         .unwrap()
 }
-fn prepare(app: &mut App, map: &MapId) -> ResidentScenePreparation {
+fn prepare(app: &mut App, map: &SceneId) -> ResidentScenePreparation {
     prepare_resident_scene(app.world_mut(), map.clone(), ScenePhase::Active);
     for _ in 0..100 {
         app.update();
@@ -174,9 +174,9 @@ fn prepare(app: &mut App, map: &MapId) -> ResidentScenePreparation {
     }
     panic!("有界实体交接必须最终完成");
 }
-fn adopt(app: &mut App, map: &MapId, warm: bool) {
+fn adopt(app: &mut App, map: &SceneId, warm: bool) {
     app.world_mut()
-        .resource_mut::<ActiveDynamicMap>()
+        .resource_mut::<ActiveDynamicScene>()
         .select(map.clone());
     arm_resident_scene_transition(app.world_mut());
     app.world_mut()
@@ -210,12 +210,12 @@ fn cold_loading_open_document_keeps_handoff_and_startup_gate_until_scene_entry()
             ResidentScenePreparation::ColdReady
         );
         app.world_mut()
-            .resource_mut::<ActiveDynamicMap>()
+            .resource_mut::<ActiveDynamicScene>()
             .select(target.clone());
         app.world_mut()
-            .insert_resource(feathrise_scene_core::state::PendingSceneTransition::editor_map(
+            .insert_resource(feathrise_scene_core::state::PendingSceneTransition::editor_scene(
                 ScenePhase::Active,
-                "测试冷载地图",
+                "测试冷载场景",
             ));
         arm_resident_scene_transition(app.world_mut());
         app.world_mut()
@@ -257,7 +257,7 @@ fn cold_loading_open_document_keeps_handoff_and_startup_gate_until_scene_entry()
         let scenes = app.world().resource::<ResidentScenes>();
         assert!(scenes.active_is(&target));
         assert!(!scenes.sleeping(&target));
-        assert!(scenes.maps[&target].resources.is_none());
+        assert!(scenes.scenes[&target].resources.is_none());
         assert!(!app.world().resource::<SceneResidencyActivity>().switching);
         assert!(app.world().resource::<feathrise_scene_core::state::SceneStartupGate>().ready);
         let root = app
@@ -293,7 +293,7 @@ fn external_cold_loading_preserves_source_and_enters_enabled_target_scene() {
     let target = id("MAP-external-target");
     let source_root = enter_first(&mut app, &source);
     app.world_mut()
-        .resource_mut::<ActiveDynamicMap>()
+        .resource_mut::<ActiveDynamicScene>()
         .select(target.clone());
     app.world_mut()
         .resource_mut::<NextState<ScenePhase>>()
@@ -337,8 +337,8 @@ fn three_full_scenes_reuse_entities_resources_camera_and_collision_without_rebui
         id("MAP-resident-c"),
     );
     let root_a = enter_first(&mut app, &a);
-    let pixels_a = app.world().resource::<MapRuntimeProof>().pixels.clone();
-    let image_a = app.world().resource::<MapRuntimeProof>().image.id();
+    let pixels_a = app.world().resource::<SceneRuntimeProof>().pixels.clone();
+    let image_a = app.world().resource::<SceneRuntimeProof>().image.id();
     let camera_a = app.world().get::<Children>(root_a).unwrap()[0];
     let hidden_a = app.world().get::<Children>(root_a).unwrap()[1];
     let disabled_a = app.world().get::<Children>(root_a).unwrap()[2];
@@ -369,7 +369,7 @@ fn three_full_scenes_reuse_entities_resources_camera_and_collision_without_rebui
         .single(app.world())
         .unwrap();
     assert_eq!(active, root_a);
-    let proof = app.world().resource::<MapRuntimeProof>();
+    let proof = app.world().resource::<SceneRuntimeProof>();
     assert!(Arc::ptr_eq(&pixels_a, &proof.pixels));
     assert_eq!(proof.image.id(), image_a);
     assert_eq!(proof.serial, 1);
@@ -389,8 +389,8 @@ fn three_full_scenes_reuse_entities_resources_camera_and_collision_without_rebui
 }
 
 #[test]
-fn avian_spatial_query_only_hits_active_map_and_restores_original_collider() {
-    // 使用真实Avian碰撞树，而非只检查Disabled标记；同位置的两张地图不能互相命中。
+fn avian_spatial_query_only_hits_active_scene_and_restores_original_collider() {
+    // 使用真实Avian碰撞树，而非只检查Disabled标记；同位置的两个场景不能互相命中。
     #[derive(Resource, Default)]
     struct RayProof(Option<Entity>);
     fn probe(query: SpatialQuery, mut proof: ResMut<RayProof>) {
@@ -431,7 +431,7 @@ fn avian_spatial_query_only_hits_active_map_and_restores_original_collider() {
         .unwrap();
     assert_eq!(app.world().resource::<RayProof>().0, Some(root_b));
     prepare(&mut app, &a);
-    assert_eq!(app.world().resource::<RayProof>().0, Some(root_a)); // 完整恢复但尚未开启相机；物理步仍由切图锁暂停。
+    assert_eq!(app.world().resource::<RayProof>().0, Some(root_a)); // 完整恢复但尚未开启相机；物理步仍由切换场景锁暂停。
     adopt(&mut app, &a, true);
     app.update();
     assert_eq!(app.world().resource::<RayProof>().0, Some(root_a));
@@ -446,11 +446,11 @@ fn without_residency_original_scoped_scene_and_exit_contract_are_unchanged() {
         .resource_mut::<SceneResidencyActivity>()
         .enabled = false;
     let root = enter_first(&mut app, &id("MAP-original-lifecycle"));
-    assert!(app.world().get::<ResidentMapEntity>(root).is_none());
+    assert!(app.world().get::<ResidentSceneEntity>(root).is_none());
     assert!(
         app.world()
             .resource::<ResidentEntityIndex>()
-            .maps
+            .scenes
             .is_empty()
     );
     assert!(
@@ -492,8 +492,8 @@ fn large_tree_is_enrolled_and_switched_in_bounded_frames_and_closed_independentl
         }
     }
     adopt(&mut app, &b, false);
-    let token = app.world().get::<ResidentMapEntity>(root).unwrap().0;
-    assert!(app.world().resource::<ResidentEntityIndex>().maps[&token].len() > 1_025);
+    let token = app.world().get::<ResidentSceneEntity>(root).unwrap().0;
+    assert!(app.world().resource::<ResidentEntityIndex>().scenes[&token].len() > 1_025);
     let root_b = app
         .world_mut()
         .query_filtered::<Entity, With<SceneActor>>()
@@ -533,8 +533,8 @@ fn newly_spawned_dormant_children_inherit_pause_and_external_physics_disable_is_
         .id();
     app.update();
     assert_eq!(
-        app.world().get::<ResidentMapEntity>(child),
-        app.world().get::<ResidentMapEntity>(root)
+        app.world().get::<ResidentSceneEntity>(child),
+        app.world().get::<ResidentSceneEntity>(root)
     );
     assert!(app.world().get::<Disabled>(child).is_some());
     prepare(&mut app, &a);
@@ -549,7 +549,7 @@ fn gameplay_loading_and_menu_paths_preserve_open_scenes_and_resume_existing_scen
     let mut app = fixture();
     let a = id("MAP-portal-return");
     let root = enter_first(&mut app, &a);
-    let pixels = app.world().resource::<MapRuntimeProof>().pixels.clone();
+    let pixels = app.world().resource::<SceneRuntimeProof>().pixels.clone();
     app.world_mut()
         .resource_mut::<NextState<ScenePhase>>()
         .set(ScenePhase::Idle);
@@ -576,7 +576,7 @@ fn gameplay_loading_and_menu_paths_preserve_open_scenes_and_resume_existing_scen
     assert!(app.world().resource::<ResidentScenes>().restored(&a));
     assert!(Arc::ptr_eq(
         &pixels,
-        &app.world().resource::<MapRuntimeProof>().pixels
+        &app.world().resource::<SceneRuntimeProof>().pixels
     ));
     assert!(app.world().get::<Disabled>(root).is_none());
     assert_eq!(app.world().resource::<ConstructionCounts>().entered, 1);
@@ -611,7 +611,7 @@ fn fresh_load_reconstructs_world_while_ordinary_return_reuses_it() {
     let mut app = fixture();
     let a = id("MAP-save-reload");
     let root = enter_first(&mut app, &a);
-    let pixels = app.world().resource::<MapRuntimeProof>().pixels.clone();
+    let pixels = app.world().resource::<SceneRuntimeProof>().pixels.clone();
     app.world_mut().insert_resource(
         feathrise_scene_core::state::PendingSceneTransition::new(ScenePhase::Active)
             .with_fresh_world(),
@@ -640,10 +640,10 @@ fn fresh_load_reconstructs_world_while_ordinary_return_reuses_it() {
     assert_ne!(new_root, root);
     assert!(!Arc::ptr_eq(
         &pixels,
-        &app.world().resource::<MapRuntimeProof>().pixels
+        &app.world().resource::<SceneRuntimeProof>().pixels
     ));
     assert_eq!(app.world().resource::<ConstructionCounts>().entered, 2);
-    assert!(app.world().resource::<ResidentScenes>().maps[&a].document_open);
+    assert!(app.world().resource::<ResidentScenes>().scenes[&a].document_open);
     for _ in 0..10 {
         app.update();
     }
@@ -657,7 +657,7 @@ struct MeshChanges(Vec<usize>);
 fn capture_mesh_change(
     mut events: feathrise_scene_core::residency::ResidentAssetEventReader<Mesh>,
     mesh: Res<WatchedMesh>,
-    proof: Res<MapRuntimeProof>,
+    proof: Res<SceneRuntimeProof>,
     mut changes: ResMut<MeshChanges>,
 ) {
     for event in events.read() {
@@ -668,7 +668,7 @@ fn capture_mesh_change(
 }
 
 #[test]
-fn dormant_shared_asset_changes_replay_once_without_bouncing_between_maps() {
+fn dormant_shared_asset_changes_replay_once_without_bouncing_between_scenes() {
     let mut app = fixture();
     app.init_asset::<Mesh>()
         .init_resident_resource::<WatchedMesh>()
@@ -724,13 +724,13 @@ fn dormant_shared_asset_changes_replay_once_without_bouncing_between_maps() {
 }
 
 #[test]
-fn shared_image_without_map_path_replays_only_real_changes_to_dormant_runtime() {
+fn shared_image_without_scene_path_replays_only_real_changes_to_dormant_runtime() {
     // 高度/密度源可能来自共享目录，仅存在资源中而不挂在Mesh3d或WorldAssetRoot上。
     #[derive(Resource, Default)]
     struct ImageChanges(Vec<usize>);
     fn capture(
         mut events: feathrise_scene_core::residency::ResidentAssetEventReader<Image>,
-        proof: Res<MapRuntimeProof>,
+        proof: Res<SceneRuntimeProof>,
         mut changes: ResMut<ImageChanges>,
     ) {
         for event in events.read() {
@@ -745,7 +745,7 @@ fn shared_image_without_map_path_replays_only_real_changes_to_dormant_runtime() 
         .add_resident_systems(Update, capture);
     let (a, b) = (id("MAP-shared-image-a"), id("MAP-shared-image-b"));
     enter_first(&mut app, &a);
-    let image_a = app.world().resource::<MapRuntimeProof>().image.clone();
+    let image_a = app.world().resource::<SceneRuntimeProof>().image.clone();
     for _ in 0..4 {
         app.update();
     }
@@ -797,13 +797,13 @@ fn warm_restore_publishes_only_the_transaction_captured_before_actual_state_entr
         adopt(&mut app, &b, false);
         app.world_mut().remove_resource::<SceneStartupGate>();
         assert_eq!(prepare(&mut app, &a), ResidentScenePreparation::WarmReady);
-        let request = PendingSceneTransition::named(ScenePhase::Active, "恢复地图A");
+        let request = PendingSceneTransition::named(ScenePhase::Active, "恢复场景A");
         let progress = LoadingProgress::for_transition(&request);
         let dispatched = progress.transaction();
         app.insert_resource(progress);
         if replace_during_entry {
             // 请求拥有事务身份；模拟真正的新请求，而不是重建同一请求的进度视图。
-            let newer_request = PendingSceneTransition::named(ScenePhase::Active, "恢复地图A");
+            let newer_request = PendingSceneTransition::named(ScenePhase::Active, "恢复场景A");
             app.insert_resource(ReplaceLoadingAfterStateEntry(LoadingProgress::for_transition(&newer_request)))
                 .add_systems(StateTransition, (|world: &mut World| {
                     if let Some(newer) = world.remove_resource::<ReplaceLoadingAfterStateEntry>() {

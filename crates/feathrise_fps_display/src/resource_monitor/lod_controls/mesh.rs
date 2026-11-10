@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use feathrise_environment::vegetation::VegetationMeshRenderIdentity;
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 use super::LodControlPresetBindings;
 
 use super::apply::write_lod_visibility;

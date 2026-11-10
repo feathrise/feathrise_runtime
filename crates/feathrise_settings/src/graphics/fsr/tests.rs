@@ -2,7 +2,7 @@ use super::*; // 纯规则与相机所有权夹具共用父模块私有入口。
 use bevy::{camera::RenderTargetInfo, window::WindowRef}; // 构造具备真实物理尺寸的主窗口目标。
 
 #[test]
-fn all_persisted_modes_map_to_fixed_runtime_qualities() {
+fn all_persisted_modes_scene_to_fixed_runtime_qualities() {
     assert_eq!(fsr_quality(FsrMode::Off), None);
     assert_eq!(fsr_quality(FsrMode::Quality), Some(Fsr3Quality::Quality));
     assert_eq!(fsr_quality(FsrMode::Balanced), Some(Fsr3Quality::Balanced));

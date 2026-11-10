@@ -60,7 +60,7 @@ pub(super) fn forget(world: &mut World, source: Entity) {
             members.remove(&source); // 归还这个源的一条反向边。
             if members.is_empty() {
                 index.descendants.remove(&ancestor);
-            } // 空桶不积累卸载地图实体。
+            } // 空桶不积累卸载场景实体。
         } // 排队的旧桶键将在固定预算处理中自然失效。
     } // 不触碰其他源。
 } // 清理结束。

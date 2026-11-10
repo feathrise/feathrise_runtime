@@ -13,10 +13,10 @@ pub(crate) struct VegetationWeatherPlugin; // 场景层拥有天气与植被两�
 
 impl Plugin for VegetationWeatherPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<systems::VegetationWindPhase>() // 无地图时也保留相位连续性。
+        app.init_resource::<systems::VegetationWindPhase>() // 无场景时也保留相位连续性。
             .add_systems(
                 Update, // F12输入在天气解析之前，植被在渲染提取前读取最终值。
                 systems::sync_vegetation_weather_wind.after(WeatherSystemSet::Resolve), // 单帧只写一份草与Mesh共用的全局风。
-            ); // 避免地图切换或test_panel关闭时出现第二个写入者。
+            ); // 避免场景切换或test_panel关闭时出现第二个写入者。
     } // 完成唯一桥接插件装配。
 } // 完成天气植被插件实现。

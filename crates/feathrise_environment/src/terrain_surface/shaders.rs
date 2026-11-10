@@ -77,7 +77,7 @@ fn deferred_terrain_surface_shader(source: &str, _: std::borrow::Cow<'_, str>) -
     shader
 }
 
-#[cfg(test)] // Shader条件编译与大小地图兼容GBuffer元数据由源码契约锁定。
+#[cfg(test)] // Shader条件编译与大小场景兼容GBuffer元数据由源码契约锁定。
 mod tests {
     #[test] // 空作者层显示白模，存在层但未绘制的区域保留中性裸地。
     fn empty_surface_returns_white_before_any_layer_sampling() {
@@ -98,7 +98,7 @@ mod tests {
             .split("fn decode_indexed_normal")
             .next()
             .unwrap(); // 检查正式采样入口没有默认材质回填。
-        assert!(!weights.contains("output_weights[0] = 1.0")); // 零纹素与地图外区域都不得自动变成第一作者层。
+        assert!(!weights.contains("output_weights[0] = 1.0")); // 零纹素与场景外区域都不得自动变成第一作者层。
         assert!(blend[white..neutral].contains("vec4<f32>(1.0)")); // 空作者层分支必须明确返回无贴图白模。
         assert!(blend[neutral..sampling].contains("vec4<f32>(0.5, 0.5, 0.5, 1.0)")); // 有层但局部未绘制保持中性灰。
     } // 完成空地表着色入口契约。
@@ -120,7 +120,7 @@ mod tests {
             .expect("Deferred会话标记必须守卫动态地形元数据"); // HN-01和作者源默认不会进入。
         let normal_position = TERRAIN_SURFACE_SHADER_SOURCE // 取得当前地表法线重打包位置。
             .find("out.deferred.a = pack_24bit_normal_and_flags(octahedral_encode(surface_normal), deferred_flags);") // A槽保存平滑或F12平直模式的最终法线。
-            .expect("动态地形必须保留当前地表法线并只附加身份位"); // 大小地图与RR guide均消费该槽。
+            .expect("动态地形必须保留当前地表法线并只附加身份位"); // 大小场景与RR guide均消费该槽。
         let primitive_position = TERRAIN_SURFACE_SHADER_SOURCE // 取得指数安全三角身份写入位置。
             .find("out.deferred.g = primitive_index & DEFERRED_DYNAMIC_TERRAIN_PRIMITIVE_MASK;") // G槽只保存低十九位编号。
             .expect("动态地形必须在G槽发布完整三角编号"); // 唯一TLAS代理按同号三角惰性解析。
@@ -146,15 +146,15 @@ mod tests {
                 .contains("@builtin(primitive_index) primitive_index: u32")
         ); // 编号必须来自硬件片元内建值而非世界坐标猜测。
         assert!(!TERRAIN_SURFACE_SHADER_SOURCE.contains("out.deferred.b =")); // B槽AO与清漆不得再被三角编号覆盖。
-        assert!(!TERRAIN_SURFACE_SHADER_SOURCE.contains("guide_normal")); // A槽不得再发布会让俯视地图出现棱角的逐面guide。
+        assert!(!TERRAIN_SURFACE_SHADER_SOURCE.contains("guide_normal")); // A槽不得再发布会让俯视场景出现棱角的逐面guide。
         assert!(grass_branch_position < deferred_position); // 草土微法线必须先进入正式平滑GBuffer。
         assert!(deferred_position < mode_position); // 元数据只能在标准Deferred编码完成后写入。
         assert!(mode_position < normal_position); // 动态身份门必须包围A槽标记写入。
         assert!(normal_position < primitive_position); // 当前地表法线必须先于三角身份发布。
         assert!(primitive_position < forward_position); // 自定义写入保持在Deferred条件编译分支内。
-    } // 完成大小地图标准PBR字段兼容测试。
+    } // 完成大小场景标准PBR字段兼容测试。
 
-    #[test] // F12平直预览必须只替换片元受光法线，不得要求复制或拆点大地图网格。
+    #[test] // F12平直预览必须只替换片元受光法线，不得要求复制或拆点大场景网格。
     fn flat_shading_uses_world_position_derivatives_before_surface_detail() {
         let mode_position = TERRAIN_SURFACE_SHADER_SOURCE // 从生产源码定位统一着色模式门。
             .find("if terrain_surface.shading.x > 0.5") // 设置仅通过既有材质uniform切换。
@@ -184,7 +184,7 @@ mod tests {
             let packed = primitive_index & PRIMITIVE_MASK; // 只保留固定预算允许的十九位身份。
             let decoded = packed & PRIMITIVE_MASK; // 项目Solari从同一低十九位恢复身份。
             assert_eq!(decoded, primitive_index); // 每个代表值都必须无损往返。
-            assert_eq!(packed >> RGB9E5_EXPONENT_SHIFT, 0u32); // 大小地图标准Deferred不得把编号解释成高指数发光。
+            assert_eq!(packed >> RGB9E5_EXPONENT_SHIFT, 0u32); // 大小场景标准Deferred不得把编号解释成高指数发光。
         } // 完成全部三角预算边界检查。
-    } // 完成辅助地图RGB9E5兼容身份测试。
+    } // 完成辅助场景RGB9E5兼容身份测试。
 } // 完成通用地表Shader测试模块。

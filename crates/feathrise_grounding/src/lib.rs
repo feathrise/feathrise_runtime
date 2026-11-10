@@ -1,4 +1,4 @@
-//! 通用地面吸附：按声明偏移和源实例过滤执行 Avian 射线；实体分类与地图就绪资格由安装方适配。
+//! 通用地面吸附：按声明偏移和源实例过滤执行 Avian 射线；实体分类与场景就绪资格由安装方适配。
 
 use bevy::prelude::*; // 引入 App、Plugin、Update 和系统集派生宏。
 
@@ -30,7 +30,7 @@ impl Plugin for GroundingPlugin {
             // 将统一射线系统加入主 Update 调度。
             Update, // 生成实体通过延迟 Commands 出现后，最迟下一帧完成吸附。
             systems::snap_pending_entities_to_ground // 执行所有待处理实体的一次性射线。
-                .in_set(GroundingSet::Snap), // 应用在这一阶段统一施加地图资格，不把游戏状态带回叶子包。
+                .in_set(GroundingSet::Snap), // 应用在这一阶段统一施加场景资格，不把游戏状态带回叶子包。
         ); // 完成地面吸附系统注册。
     } // 结束插件构建。
 } // 结束 GroundingPlugin 实现。

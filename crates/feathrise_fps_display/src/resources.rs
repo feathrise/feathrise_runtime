@@ -189,7 +189,7 @@ mod tests {
     #[test] // 精确Mesh分箱不得在普通游戏或非景观物诊断页常驻运行。
     fn mesh_render_monitor_only_runs_for_visible_landscape_pages() {
         let mut state = ResourceMonitorState::default(); // 默认F3隐藏且停留总览页。
-        assert!(!state.needs_mesh_render_monitor()); // 启动后的普通地图帧必须保持零监控成本。
+        assert!(!state.needs_mesh_render_monitor()); // 启动后的普通场景帧必须保持零监控成本。
 
         state.visible = true; // 模拟用户按F3打开默认总览页。
         assert!(!state.needs_mesh_render_monitor()); // 总览只读通用快照，不提取数千Mesh身份。

@@ -3,7 +3,7 @@
 
 use feathrise_scene_core::residency::SceneResidencyAppExt;
 
-mod systems; // 系统负责幂等应用当前持久植被档，并让后续地图相机自动继承。
+mod systems; // 系统负责幂等应用当前持久植被档，并让后续场景相机自动继承。
 
 use bevy::prelude::*; // App、Plugin 与 PostUpdate 调度接口。
 use feathrise_settings::RenderSettings; // 独立使用场景插件时初始化安全高档设置资源。

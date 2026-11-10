@@ -2,7 +2,7 @@
 
 use bevy::{
     anti_alias::taa::TemporalAntiAliasing, // 判断深度预通道是否仍由 TAA 持有。
-    camera::RenderTarget,                  // 区分窗口与角色预览、小地图纹理目标。
+    camera::RenderTarget,                  // 区分窗口与角色预览、小场景纹理目标。
     core_pipeline::prepass::{DepthPrepass, NormalPrepass}, // SSAO 的两个 required 预通道。
     pbr::{ContactShadows, ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel}, // Bevy 0.19 屏幕空间遮蔽组件与内建 SSAO 档。
     prelude::*, // ECS、Camera3d 与 Msaa 常用类型。
@@ -301,7 +301,7 @@ mod tests {
         let texture = app
             .world_mut()
             .spawn((
-                Camera3d::default(),                     // 角色预览或小地图三维相机。
+                Camera3d::default(),                     // 角色预览或小场景三维相机。
                 PrimarySceneView,                            // 即使误带玩法标记也必须由目标边界隔离。
                 RenderTarget::None { size: UVec2::ONE }, // 模拟纹理或无颜色目标。
                 Msaa::Off,                               // 保持作者采样配置。
@@ -342,7 +342,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(camera)
-            .insert(RenderTarget::None { size: UVec2::ONE }); // 模拟复用为角色预览或小地图纹理目标。
+            .insert(RenderTarget::None { size: UVec2::ONE }); // 模拟复用为角色预览或小场景纹理目标。
         app.update(); // 离开窗口目标后立即归还作者状态。
         assert!(
             app.world()

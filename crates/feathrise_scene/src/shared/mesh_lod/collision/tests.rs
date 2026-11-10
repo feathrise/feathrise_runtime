@@ -81,7 +81,7 @@ fn actual_far_collision_lod_recovers_near_player_without_duplicate_colliders() {
         Position(Vec3::new(3.0, 1.0, 3.0)),
         GlobalTransform::from_translation(Vec3::new(3.0, 1.0, 3.0)),
     ));
-    app.world_mut().run_schedule(FixedPreUpdate); // 不等全部地图轮转，下一物理步先恢复近区原始承托。
+    app.world_mut().run_schedule(FixedPreUpdate); // 不等全部场景轮转，下一物理步先恢复近区原始承托。
     assert_eq!(
         key(app.world().get::<Collider>(root).unwrap()),
         key(&original)

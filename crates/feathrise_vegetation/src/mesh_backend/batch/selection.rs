@@ -48,7 +48,7 @@ fn distance_in_range(distance: f32, range: &VisibilityRange) -> bool {
         && distance <= range.end_margin.end + BATCH_LOD_OBSERVER_MARGIN_METERS
 }
 
-/// 两个全局工作席位承接完整逐株扫描；地图实例、根旋转和相机移动只冻结小快照。
+/// 两个全局工作席位承接完整逐株扫描；场景实例、根旋转和相机移动只冻结小快照。
 #[derive(Clone, PartialEq)]
 pub(super) struct Stamp {
     root: Entity, source: usize, frame: Mat4, view: Option<Vec3>, range: Vec4,
@@ -111,7 +111,7 @@ fn build(stamp: Stamp, placements: Arc<[super::components::VegetationMeshBatchPl
     for placement in placements.iter() {
         let matrix = placement.transform.to_matrix();
         let anchor = (stamp.frame * matrix).transform_point3(stamp.offset);
-        // GPU只乘一次当前批次层级变换，缓冲继续保留源地图坐标。
+        // GPU只乘一次当前批次层级变换，缓冲继续保留源场景坐标。
         let world_from_local = matrix * stamp.local;
         let shader_anchor = (stamp.frame * world_from_local).w_axis.truncate();
         // AABB测距点可能离部件原点很远；保守集合还须包含GPU实际渐变锚点，不能先剔除Shader仍该显示的株。

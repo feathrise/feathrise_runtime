@@ -1,7 +1,7 @@
 //! 资产日志区分真实失效与首载/退役通知，并验证轮转实例迟读和真正溢出的恢复合同。
 
 use super::*;
-use crate::residency::{MapRuntimeScope, ResidentAssetEventReader};
+use crate::residency::{SceneRuntimeScope, ResidentAssetEventReader};
 use bevy::{asset::AssetPlugin, ecs::message::MessageCursor};
 
 #[derive(Asset, TypePath)]
@@ -102,7 +102,7 @@ fn load_burst_keeps_real_modification_and_explicit_removal_for_a_late_instance()
     flush(&mut app);
     assert_eq!(app.world().resource::<InstanceAssetJournalEpoch>().0, 0);
     let instance = app.world_mut().spawn_empty().id();
-    app.insert_resource(MapRuntimeScope { instance: Some(instance), ..default() });
+    app.insert_resource(SceneRuntimeScope { instance: Some(instance), ..default() });
     let mut schedule = Schedule::default();
     schedule.add_systems(receive);
     schedule.run(app.world_mut());

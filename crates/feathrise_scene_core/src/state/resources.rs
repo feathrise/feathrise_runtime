@@ -1,4 +1,4 @@
-//! 公共加载事务、就绪证明与地图边界；游戏会话和死亡规则归应用。
+//! 公共加载事务、就绪证明与场景边界；游戏会话和死亡规则归应用。
 
 use bevy::prelude::*; // Resource 等 ECS 常用类型
 
@@ -13,7 +13,7 @@ pub struct EditorStartup;
 #[derive(Resource, Debug, Clone)]
 pub struct PendingSceneTransition {
     pub target: ScenePhase,
-    /// 明确要求丢弃驻留世代；普通地图切换和作者切页可恢复已有世代。
+    /// 明确要求丢弃驻留世代；普通场景切换和作者切页可恢复已有世代。
     pub fresh_world: bool,
     target_display_name: String,
     presentation: SceneTransitionPresentation,
@@ -25,7 +25,7 @@ impl PendingSceneTransition {
         Self::named(target, target.display_name())
     }
 
-    /// 名称只用于显示；状态、请求ID及实际地图身份分别参与就绪校验。
+    /// 名称只用于显示；状态、请求ID及实际场景身份分别参与就绪校验。
     pub fn named(target: ScenePhase, target_display_name: impl Into<String>) -> Self {
         Self {
             target,
@@ -36,8 +36,8 @@ impl PendingSceneTransition {
         }
     }
 
-    /// 作者地图同样走真实加载事务，只把展示交给作者工作台。
-    pub fn editor_map(target: ScenePhase, target_display_name: impl Into<String>) -> Self {
+    /// 作者场景同样走真实加载事务，只把展示交给作者工作台。
+    pub fn editor_scene(target: ScenePhase, target_display_name: impl Into<String>) -> Self {
         Self {
             presentation: SceneTransitionPresentation::Authoring,
             ..Self::named(target, target_display_name)
@@ -65,19 +65,19 @@ fn normalized_display_name(target: ScenePhase, name: String) -> String {
     else { name.trim().to_owned() }
 }
 
-/// 场景启动门控：地图碰撞与应用领域就绪前暂停世界模拟。
+/// 场景启动门控：场景碰撞与应用领域就绪前暂停世界模拟。
 #[derive(Resource, Debug, Clone)]
 pub struct SceneStartupGate {
     pub target: ScenePhase,
     pub collision_ready: bool,
-    /// 当前地图声明的阻塞式大资源已经完成；未完成时加载遮罩继续覆盖玩法画面。
+    /// 当前场景声明的阻塞式大资源已经完成；未完成时加载遮罩继续覆盖玩法画面。
     pub scene_assets_ready: bool,
-    /// 应用显式注册的领域已完成；纯地图没有应用领域时只检查几何与资产。
+    /// 应用显式注册的领域已完成；纯场景没有应用领域时只检查几何与资产。
     pub application_ready: bool,
     /// 当前应用领域的确定失败；应用后续提供新证明可恢复。
     pub application_error: Option<String>,
-    pub sub_maps_ready: bool, // 完整子地图几何由场景宿主确认，独立组合根默认无需等待。
-    pub sub_maps_error: Option<String>,
+    pub subscenes_ready: bool, // 完整子场景几何由场景宿主确认，独立组合根默认无需等待。
+    pub subscenes_error: Option<String>,
     pub ready: bool,
 }
 
@@ -86,20 +86,20 @@ impl SceneStartupGate {
         Self {
             target,
             collision_ready: false,
-            scene_assets_ready: true, // 默认地图没有额外大资源队列；需要分段加载的地图在 OnEnter 显式关闭。
+            scene_assets_ready: true, // 默认场景没有额外大资源队列；需要分段加载的场景在 OnEnter 显式关闭。
             application_ready: false, // 完成门根据实际注册的应用域决定是否还需等待。
             application_error: None,
-            sub_maps_ready: true,
-            sub_maps_error: None,
+            subscenes_ready: true,
+            subscenes_error: None,
             ready: false,
         }
     }
 }
 
-/// 地图发布的最低有效世界边界；跌出后的死亡、传送或其他处理由应用决定。
+/// 场景发布的最低有效世界边界；跌出后的死亡、传送或其他处理由应用决定。
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
 pub struct SceneFallBoundary {
-    scene: Option<ScenePhase>, // 边界只属于发布它的场景，防止切图后沿用旧地图高度。
+    scene: Option<ScenePhase>, // 边界只属于发布它的场景，防止切换场景后沿用旧场景高度。
     lower_y: f32,             // 低于此世界Y即已离开全部合法地形；具体处置由应用决定。
 }
 
@@ -111,12 +111,12 @@ impl SceneFallBoundary {
         }
         self.scene = Some(scene); // 先登记场景身份，读取方必须同时匹配。
         self.lower_y = lower_y; // 同一主线程系统内更新边界，不暴露半完成状态。
-        true // 返回成功供地图加载器把损坏输入升级为明确失败。
+        true // 返回成功供场景加载器把损坏输入升级为明确失败。
     }
 
-    /// 仅在当前场景身份一致时返回地图边界。
+    /// 仅在当前场景身份一致时返回场景边界。
     pub fn lower_y_for_scene(&self, scene: ScenePhase) -> Option<f32> {
-        (self.scene == Some(scene)).then_some(self.lower_y) // 切图期间绝不复用上一地图阈值。
+        (self.scene == Some(scene)).then_some(self.lower_y) // 切换场景期间绝不复用上一场景阈值。
     }
 
     /// 离开或重新准备指定场景时清除旧边界。
@@ -134,16 +134,16 @@ pub struct LoadingProgress {
     pub completed: usize,
     pub total: usize,
     pub label: String,
-    /// 切换请求被消费后继续保留的目标地图显示名。
+    /// 切换请求被消费后继续保留的目标场景显示名。
     target_display_name: String,
-    presentation: SceneTransitionPresentation, // 请求消费后仍保留界面归属，直到地图完整就绪。
+    presentation: SceneTransitionPresentation, // 请求消费后仍保留界面归属，直到场景完整就绪。
     transaction: LoadingTransactionId,
     target: Option<ScenePhase>,
-    resident_completion: Option<(LoadingTransactionId, ScenePhase, crate::residency::ResidentMapToken)>,
+    resident_completion: Option<(LoadingTransactionId, ScenePhase, crate::residency::ResidentSceneToken)>,
 }
 
 impl LoadingProgress {
-    /// 从场景切换请求初始化加载进度并捕获本次地图名称。
+    /// 从场景切换请求初始化加载进度并捕获本次场景名称。
     pub fn for_transition(transition: &PendingSceneTransition) -> Self {
         Self {
             target: Some(transition.target),
@@ -182,10 +182,10 @@ impl LoadingProgress {
         &mut self,
         transaction: LoadingTransactionId,
         target: ScenePhase,
-        token: crate::residency::ResidentMapToken,
+        token: crate::residency::ResidentSceneToken,
     ) -> bool {
         if self.transaction != transaction || self.target != Some(target) {
-            return false; // 旧交接即使恢复了相同地图，也不能完成后来创建的加载事务。
+            return false; // 旧交接即使恢复了相同场景，也不能完成后来创建的加载事务。
         }
         self.resident_completion = Some((transaction, target, token));
         self.stage = LoadingStage::Complete;
@@ -240,12 +240,12 @@ impl LoadingProgress {
         start + (end - start) * fraction
     }
 
-    /// 返回当前加载事务的具体地图名，缺少事务快照时使用场景枚举兼容旧调用。
+    /// 返回当前加载事务的具体场景名，缺少事务快照时使用场景枚举兼容旧调用。
     pub fn target_display_name(&self, fallback_scene: ScenePhase) -> &str {
         if self.target_display_name.trim().is_empty() {
             fallback_scene.display_name() // 手工测试或旧入口未提供名称时保持既有可读提示。
         } else {
-            &self.target_display_name // 编辑器动态地图正常返回清单display_name。
+            &self.target_display_name // 编辑器动态场景正常返回清单display_name。
         }
     }
 }
@@ -257,7 +257,7 @@ impl Default for LoadingProgress {
             completed: 0,
             total: 1,
             label: "正在准备场景资源...".to_string(),
-            target_display_name: String::new(), // 尚无切换请求时不猜测目标地图。
+            target_display_name: String::new(), // 尚无切换请求时不猜测目标场景。
             presentation: SceneTransitionPresentation::Application, // 未提供请求的旧入口继续兼容应用加载界面。
             transaction: LoadingTransactionId::next(),
             target: None,
@@ -268,16 +268,16 @@ impl Default for LoadingProgress {
 
 #[cfg(test)] // 公共启动门默认语义测试不创建窗口或玩法场景。
 mod tests {
-    use super::*; // 访问启动门构造函数和地图状态。
-    use crate::residency::{ResidentMapToken, SceneResidencyActivity};
+    use super::*; // 访问启动门构造函数和场景状态。
+    use crate::residency::{ResidentSceneToken, SceneResidencyActivity};
 
-    fn restored_activity(token: ResidentMapToken) -> SceneResidencyActivity {
+    fn restored_activity(token: ResidentSceneToken) -> SceneResidencyActivity {
         SceneResidencyActivity { enabled: true, switching: false, active: Some(token), restored: Some(token) }
     }
 
     #[test]
     fn progress_captures_request_identity_and_name_changes_do_not_replace_it() {
-        let mut request = PendingSceneTransition::named(ScenePhase::Active, "待解析地图");
+        let mut request = PendingSceneTransition::named(ScenePhase::Active, "待解析场景");
         let mut progress = LoadingProgress::for_transition(&request);
         assert_eq!(progress.transaction(), request.transaction());
         request.set_target_display_name("目录名称");
@@ -287,13 +287,13 @@ mod tests {
     }
 
     #[test]
-    fn later_request_to_same_map_rejects_previous_resident_receipt() {
-        let first = PendingSceneTransition::named(ScenePhase::Active, "相同地图");
+    fn later_request_to_same_scene_rejects_previous_resident_receipt() {
+        let first = PendingSceneTransition::named(ScenePhase::Active, "相同场景");
         let mut progress = LoadingProgress::for_transition(&first);
-        let token = ResidentMapToken(7);
+        let token = ResidentSceneToken(7);
         assert!(progress.complete_resident_restore(first.transaction(), ScenePhase::Active, token));
         assert!(progress.resident_restore_ready(ScenePhase::Active, &restored_activity(token)));
-        let later = PendingSceneTransition::named(ScenePhase::Active, "相同地图");
+        let later = PendingSceneTransition::named(ScenePhase::Active, "相同场景");
         progress.remember_transition(&later);
         assert_ne!(first.transaction(), later.transaction());
         assert!(!progress.complete_resident_restore(first.transaction(), ScenePhase::Active, token));
@@ -306,7 +306,7 @@ mod tests {
     fn resident_receipt_requires_current_target_and_complete_active_token() {
         let request = PendingSceneTransition::new(ScenePhase::Active);
         let mut progress = LoadingProgress::for_transition(&request);
-        let token = ResidentMapToken(7);
+        let token = ResidentSceneToken(7);
         assert!(!progress.complete_resident_restore(request.transaction(), ScenePhase::Loading, token));
         assert!(progress.complete_resident_restore(request.transaction(), ScenePhase::Active, token));
         assert!(!progress.resident_restore_ready(ScenePhase::Loading, &restored_activity(token)));
@@ -315,8 +315,8 @@ mod tests {
             match mismatch {
                 0 => activity.enabled = false,
                 1 => activity.switching = true,
-                2 => activity.active = Some(ResidentMapToken(8)),
-                _ => activity.restored = Some(ResidentMapToken(8)),
+                2 => activity.active = Some(ResidentSceneToken(8)),
+                _ => activity.restored = Some(ResidentSceneToken(8)),
             }
             assert!(!progress.resident_restore_ready(ScenePhase::Active, &activity));
         }
@@ -325,36 +325,36 @@ mod tests {
 
     #[test]
     fn editor_presentation_survives_request_consumption_and_does_not_leak_to_game() {
-        let editor = PendingSceneTransition::editor_map(ScenePhase::Active, "作者地图");
+        let editor = PendingSceneTransition::editor_scene(ScenePhase::Active, "作者场景");
         let mut progress = LoadingProgress::for_transition(&editor);
-        assert!(!editor.fresh_world); // 作者切图不隐式丢弃已有驻留世代。
+        assert!(!editor.fresh_world); // 作者切换场景不隐式丢弃已有驻留世代。
         assert_eq!(progress.presentation(), SceneTransitionPresentation::Authoring);
         assert_eq!(
             progress.target_display_name(ScenePhase::Active),
-            "作者地图",
+            "作者场景",
         );
-        let game = PendingSceneTransition::named(ScenePhase::Active, "运行地图");
+        let game = PendingSceneTransition::named(ScenePhase::Active, "运行场景");
         progress.remember_transition(&game);
         assert_eq!(progress.presentation(), SceneTransitionPresentation::Application); // 下次传送、读档不继承编辑器展示。
         assert_eq!(
             progress.target_display_name(ScenePhase::Active),
-            "运行地图"
+            "运行场景"
         );
     }
 
-    #[test] // 动态场景的内部枚举名不得覆盖编辑器地图清单中的实际名称。
-    fn named_transition_keeps_concrete_dynamic_map_name() {
+    #[test] // 动态场景的内部枚举名不得覆盖编辑器场景清单中的实际名称。
+    fn named_transition_keeps_concrete_dynamic_scene_name() {
         let transition = PendingSceneTransition::named(
-            ScenePhase::Active, // 多张编辑器地图共享同一运行时状态。
-            "  新建地图  ",             // 模拟清单名称并验证统一清理首尾空白。
-        ); // 构造携带具体地图名称的正式切换请求。
+            ScenePhase::Active, // 多张编辑器场景共享同一运行时状态。
+            "  新建场景  ",             // 模拟清单名称并验证统一清理首尾空白。
+        ); // 构造携带具体场景名称的正式切换请求。
         let progress = LoadingProgress::for_transition(&transition); // 模拟LoadingScene消费请求前保存名称。
 
-        assert_eq!(transition.display_name(), "新建地图"); // 请求应返回清理后的作者名称。
+        assert_eq!(transition.display_name(), "新建场景"); // 请求应返回清理后的作者名称。
         assert_eq!(
             progress.target_display_name(ScenePhase::Active), // 请求移除后仍从进度资源读取名称。
-            "新建地图", // 加载后续阶段不得退回“动态地图”。
-        ); // 完成动态地图名称贯穿断言。
+            "新建场景", // 加载后续阶段不得退回“动态场景”。
+        ); // 完成动态场景名称贯穿断言。
     }
 
     #[test] // 空显示名必须回退场景稳定名称，避免生成空白加载标题。
@@ -367,25 +367,25 @@ mod tests {
         assert_eq!(transition.display_name(), "场景"); // UI永远获得非空可读名称。
     }
 
-    #[test] // 公共启动门构造时必须默认放行场景资产，具体地图随后才能按需登记额外工作。
+    #[test] // 公共启动门构造时必须默认放行场景资产，具体场景随后才能按需登记额外工作。
     fn startup_gate_defaults_scene_assets_to_ready() {
         let gate = SceneStartupGate::waiting_for_collision(ScenePhase::Active);
-        assert!(!gate.collision_ready); // 地形碰撞仍需地图系统显式放行。
-        assert!(gate.scene_assets_ready); // 默认不应在地图系统登记额外工作前提前关闭资产门。
+        assert!(!gate.collision_ready); // 地形碰撞仍需场景系统显式放行。
+        assert!(gate.scene_assets_ready); // 默认不应在场景系统登记额外工作前提前关闭资产门。
         assert!(!gate.application_ready); // 必须由实际装配的完成门检查。
         assert!(gate.application_error.is_none()); // 未开始准备不冒充确定失败。
         assert!(!gate.ready); // 三类启动条件未完成前场景整体保持未就绪。
     } // 完成默认大资源门回归。
 
-    #[test] // 地图死亡边界必须携带场景身份并拒绝非有限输入。
+    #[test] // 场景死亡边界必须携带场景身份并拒绝非有限输入。
     fn fall_death_boundary_never_leaks_across_scenes() {
-        let mut boundary = SceneFallBoundary::default(); // 初始没有地图发布的覆盖值。
+        let mut boundary = SceneFallBoundary::default(); // 初始没有场景发布的覆盖值。
         assert!(
             boundary
                 .lower_y_for_scene(ScenePhase::Active)
                 .is_none()
         ); // 未发布时由角色域使用兼容阈值。
-        assert!(boundary.set_for_scene(ScenePhase::Active, -96.0)); // 动态地图发布高度量程下方边界。
+        assert!(boundary.set_for_scene(ScenePhase::Active, -96.0)); // 动态场景发布高度量程下方边界。
         assert_eq!(
             boundary.lower_y_for_scene(ScenePhase::Active), // 同一场景读取正式边界。
             Some(-96.0), // 合法深河床不会被-20米旧阈值杀死。
@@ -394,17 +394,17 @@ mod tests {
             boundary
                 .lower_y_for_scene(ScenePhase::Idle)
                 .is_none()
-        ); // 静态地图不能继承动态地图阈值。
+        ); // 静态场景不能继承动态场景阈值。
         assert!(!boundary.set_for_scene(ScenePhase::Active, f32::NAN)); // 损坏边界必须拒绝。
         assert_eq!(
             boundary.lower_y_for_scene(ScenePhase::Active), // 拒绝后仍读取上一完整值。
             Some(-96.0), // 失败写入不能破坏当前有效边界。
         ); // 完成原子失败断言。
-        boundary.clear_for_scene(ScenePhase::Active); // 离开动态地图时清理所有权。
+        boundary.clear_for_scene(ScenePhase::Active); // 离开动态场景时清理所有权。
         assert!(
             boundary
                 .lower_y_for_scene(ScenePhase::Active)
                 .is_none()
         ); // 下一张图必须重新发布。
-    } // 完成地图死亡边界回归。
+    } // 完成场景死亡边界回归。
 } // 结束公共加载资源测试。

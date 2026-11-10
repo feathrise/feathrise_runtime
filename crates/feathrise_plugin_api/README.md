@@ -8,7 +8,7 @@
 
 插件的 `build.rs` 调用 `write_plugin_metadata`，由 Cargo 的包版本、目标OS和目标CPU生成 `OUT_DIR/feathrise_plugin_metadata.rs`；这三项不依靠手填。插件声明 `feathrise_plugin_api::export_plugin!(ToolType, embedded)`，同时产生静态节及 `feathrise_plugin_metadata_v1(context, WriteResponse) -> i32`。getter返回**包含固定头的完整字节数组**，和静态节同源，宿主使用 `decode_plugin_metadata` 解码后核对身份。回调只在调用期间借用字节，Rust对象及内存释放不跨库。
 
-原 `feathrise_plugin_api_v1` 函数表和 create／invoke／destroy ABI保持。只使用旧的单参数导出宏无法生成新格式安装所需的元数据，旧目录包需要重新构建。
+场景版宿主要求 ABI 主版本 2 及 `feathrise_plugin_api_v2` 函数表入口。会话通过 create／invoke／destroy 交互，场景消息使用 scene_id。旧插件应使用配套 SDK 重新构建。
 
 维护者在 `feathrise_runtime/` 执行，复用 SDK 原 target：
 
@@ -18,6 +18,6 @@ target/debug/feathrise-plugin-meta inspect <插件单文件> --json
 cargo test --locked -p feathrise_plugin_api --features reader-test-support
 ```
 
-发布后可通过 `cargo install feathrise_plugin_api --version "=0.2.0" --locked --features reader --bin feathrise-plugin-meta` 独立安装检查命令。普通插件只依赖默认接口。地图文件传输显式开启 `blob-io`，复用后台有界读写和 SHA-256 身份，不引入编辑器实现。
+发布后可通过 `cargo install feathrise_plugin_api --version "=0.3.0" --locked --features reader --bin feathrise-plugin-meta` 独立安装检查命令。普通插件只依赖默认接口。场景文件传输显式开启 `blob-io`，复用后台有界读写和 SHA-256 身份，不引入编辑器实现。
 
 CLI静态检查所有已实现的格式；安装是否适用于当前平台由调用方再执行 `validate_current_platform`。`reader-test-support` 只给测试生成带真实共享库头的解析夹具，不能用于证明 DLL 加载或完整作者业务通过。Linux/macOS代码需要各自实机另验。

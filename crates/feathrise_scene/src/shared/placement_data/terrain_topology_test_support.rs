@@ -1,7 +1,7 @@
 //! 地形联合采用回归的空批次夹具；私有门构造仍留在摆放所有权模块。
 use super::{components::PlacementInstanceGate, resources::*};
 use bevy::prelude::*;
-use feathrise_map_content::MapId;
+use feathrise_scene_content::SceneId;
 use std::sync::Arc;
 
 pub(crate) fn install_mesh_upload(app: &mut App) {
@@ -39,9 +39,9 @@ pub(crate) fn collision_fixture(
     super::terrain_collision::collision_fixture(generation, collider, meshes)
 }
 
-pub(crate) fn closing_candidate(id: MapId, container: Entity) -> MapPlacementRuntimeState {
-    MapPlacementRuntimeState {
-        active_map_id: Some(id.clone()),
+pub(crate) fn closing_candidate(id: SceneId, container: Entity) -> ScenePlacementRuntimeState {
+    ScenePlacementRuntimeState {
+        active_scene_id: Some(id.clone()),
         generation: 4,
         revision: 9,
         dirty: false,
@@ -51,7 +51,7 @@ pub(crate) fn closing_candidate(id: MapId, container: Entity) -> MapPlacementRun
             terrain_holes: Arc::default(),
             generation: 4,
             revision: 9,
-            map_id: id,
+            scene_id: id,
             building_preset_revision: 0,
             building_clearances: Arc::default(),
             building_clearance_floor_heights: Arc::default(),

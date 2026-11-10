@@ -70,7 +70,7 @@ impl GpuBladePatch {
             ),
             focus_radius: safe_origin.extend(default_visible_radius), // 静态草块默认以净化后的自身中心和半边长作为可见范围。
             height_world: Vec4::ZERO, // 默认没有地表高度纹理，最小样例继续使用origin.y固定平面。
-            height_decode: Vec4::new(safe_origin.y, 0.0, 0.0, 1.0), // 无图时关闭高度采样，但默认完整显示以兼容既有地图与样例。
+            height_decode: Vec4::new(safe_origin.y, 0.0, 0.0, 1.0), // 无图时关闭高度采样，但默认完整显示以兼容既有场景与样例。
             density_world: Vec4::ZERO, // 默认不读取密度图，最小样例继续保留全部候选。
             lod_density: Vec4::new(0.0, 0.01, default_outer_fade, 1.0), // 默认无内圈空洞、沿用旧外圈淡出且不放大密度。
             vegetation_bounds: Vec4::new(
@@ -79,8 +79,8 @@ impl GpuBladePatch {
                 GpuBladeConfig::DEFAULT.reference_height, // 旧调用方屏幕LOD继续使用七十厘米参考草高。
                 GpuBladeConfig::DEFAULT.root_penetration, // 旧调用方根部继续下扎三厘米。
             ), // 完成默认普通草内容和GPU包围参数初始化。
-            density_control_world: Vec4::ZERO, // 旧地图默认只按密度图全图范围裁剪，不被新增受控区改变。
-            view_lod_pixel_thresholds: Vec4::ZERO, // 默认继承GpuBladeView，保持所有既有地图和最小样例行为。
+            density_control_world: Vec4::ZERO, // 旧场景默认只按密度图全图范围裁剪，不被新增受控区改变。
+            view_lod_pixel_thresholds: Vec4::ZERO, // 默认继承GpuBladeView，保持所有既有场景和最小样例行为。
             view_lod_ultra_fade: Vec4::ZERO, // 未启用内容级配置时不单独覆盖超远阈值或近镜头避让。
             view_lod_residency_radii: Vec4::ZERO, // 未配置局部规格时前四档半径均为零，档数元数据决定是否继承。
             view_lod_residency_transitions: Vec4::ZERO, // 未启用时全部过渡宽度和安全边距由玩法视图提供。
@@ -104,7 +104,7 @@ impl GpuBladePatch {
 
     /// 设置一个带内外交叉过渡的圆形LOD环带。
     pub fn with_lod_range(
-        mut self,              // 按值接收窗口，支持地图层连续链式配置。
+        mut self,              // 按值接收窗口，支持场景层连续链式配置。
         inner_radius: f32,     // 该半径以内完全交给更密一级LOD。
         outer_radius: f32,     // 该半径以外完全交给更疏一级LOD或地表材质。
         inner_fade_width: f32, // 从内半径开始逐株增加的交叉过渡宽度。
@@ -117,7 +117,7 @@ impl GpuBladePatch {
             inner_fade_width, // 传递与更密一级草圈的交叉宽度。
             outer_fade_width, // 传递与更疏一级草圈的交叉宽度。
         ); // 完成LOD环带参数写入。
-        self // 返回可继续配置高度、密度和地图资产的窗口。
+        self // 返回可继续配置高度、密度和场景资产的窗口。
     }
 
     /// 更新当前窗口的LOD环带，所有距离仍以连续观察中心为圆心。
@@ -149,7 +149,7 @@ impl GpuBladePatch {
     /// 为当前草圈选择近、中、远材质级别；级别随紧凑实例进入GPU，不增加逐草CPU数据。
     pub fn with_lod_level(mut self, lod_level: u32) -> Self {
         self.set_lod_level(lod_level); // 复用可变接口的两位标志保护和合法范围钳制。
-        self // 返回可继续链式配置高度、密度和地图输入的草块。
+        self // 返回可继续链式配置高度、密度和场景输入的草块。
     }
 
     /// 更新当前草圈的材质LOD级别，同时严格保留`grid.w`中的密度与未来标志位。
@@ -209,7 +209,7 @@ impl GpuBladePatch {
         self.uses_ultra_lod_chain() && self.lod_level() + 1 == self.lod_count()
     }
 
-    /// 显式局部档数优先；未写入局部规格的旧地图按原三/四档标志兼容。
+    /// 显式局部档数优先；未写入局部规格的旧场景按原三/四档标志兼容。
     pub fn lod_count(self) -> u32 {
         if self.view_lod_metadata.x > 0.0 {
             self.view_lod_metadata.x as u32
@@ -283,7 +283,7 @@ impl GpuBladePatch {
 
     /// 返回当前窗口参与GPU保守剔除的最高叶尖米数。
     pub fn max_blade_height(self) -> f32 {
-        self.vegetation_bounds.x // F3和地图测试无需访问uniform私有字段即可核对内容包围。
+        self.vegetation_bounds.x // F3和场景测试无需访问uniform私有字段即可核对内容包围。
     }
 
     /// 返回当前窗口参与GPU视锥和近镜头剔除的保守水平扫掠半径。
@@ -310,7 +310,7 @@ impl GpuBladePatch {
     /// 全部有效档一同打包；非法候选不得留下新档数与旧阈值混用的半配置。
     pub fn set_view_lod_config(&mut self, config: GpuBladeViewLodConfig) {
         if !config.is_valid() {
-            return; // 损坏地图规格保持上一份完整局部配置。
+            return; // 损坏场景规格保持上一份完整局部配置。
         }
         let thresholds = config.pixel_thresholds;
         // 细→粗 pixel_thresholds：[0]中近、[1]远中、[2]超远转远。

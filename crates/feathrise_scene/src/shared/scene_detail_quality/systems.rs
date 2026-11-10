@@ -118,7 +118,7 @@ pub(super) fn unregister_scene_detail_visibility_range(
     mut state: ResMut<SceneDetailQualityState>,             // O(1) 更新实体向量与反向索引。
 ) {
     unregister_scene_detail_node(&mut state, remove.entity); // 实体已不可查询也能凭事件身份安全移除。
-} // 完成切图、热替换与单节点销毁索引回收。
+} // 完成切换场景、热替换与单节点销毁索引回收。
 
 /// 档位变化时按固定批量重算已登记节点，稳定帧仅比较一个枚举后返回。
 pub(super) fn apply_scene_detail_quality(
@@ -143,7 +143,7 @@ pub(super) fn apply_scene_detail_quality(
     let batch_end = state
         .cursor
         .saturating_add(SCENE_DETAIL_NODE_BATCH)
-        .min(state.entities.len()); // 每帧成本由固定常量封顶，空地图得到零长度批次。
+        .min(state.entities.len()); // 每帧成本由固定常量封顶，空场景得到零长度批次。
     {
         let entities = &state.entities[state.cursor..batch_end]; // 借用连续实体切片，不产生每帧临时分配。
         let mut batch = nodes.iter_many_mut(entities); // 直接定位本批节点，跳过期间已失效实体。
@@ -308,7 +308,7 @@ mod tests {
                 .end_margin,
             60.0..72.0,
         ); // 第二批必须完成未来扩容场景的最终一致状态。
-        let removed = entities[0]; // 选择已完成切档的登记节点模拟切图销毁。
+        let removed = entities[0]; // 选择已完成切档的登记节点模拟切换场景销毁。
         let _ = app.world_mut().despawn(removed); // Remove 观察器应同步回收反向索引。
         let state = app.world().resource::<SceneDetailQualityState>();
         assert_eq!(state.entities.len(), SCENE_DETAIL_NODE_BATCH); // 销毁后登记总数精确减少一个。

@@ -30,7 +30,7 @@ fn paused_roof_image_changes_preserve_water_and_clear_removed_producer() {
         .query_filtered::<Entity, With<WeatherRainEmitter>>()
         .single(app.world())
         .unwrap(); // 后续必须保留实体身份。
-    let roof_image = bevy::asset::uuid_handle!("a70b405e-f2fd-48e5-bcdc-e48b6d54b516"); // 新地图深度图身份。
+    let roof_image = bevy::asset::uuid_handle!("a70b405e-f2fd-48e5-bcdc-e48b6d54b516"); // 新场景深度图身份。
     let water_image = bevy::asset::uuid_handle!("97643dfb-cfd8-4d99-81ae-3647ef27303e"); // 同帧变化的独立水面身份。
     app.world_mut().resource_mut::<RainOcclusionMap>().image = roof_image.clone(); // 模拟完整屋顶图发布。
     app.world_mut().resource_mut::<RainWaterMask>().image = water_image.clone(); // 模拟水面同时更新。
@@ -48,7 +48,7 @@ fn paused_roof_image_changes_preserve_water_and_clear_removed_producer() {
             .unwrap()
             .is_changed()
     ); // 稳定帧禁止重复材质提取。
-    app.world_mut().remove_resource::<RainOcclusionMap>(); // 模拟地图卸载或生产者撤销。
+    app.world_mut().remove_resource::<RainOcclusionMap>(); // 模拟场景卸载或生产者撤销。
     app.update(); // 缺失生产者恢复无覆盖fallback。
     assert_eq!(
         app.world().get::<EffectMaterial>(emitter).unwrap().images,

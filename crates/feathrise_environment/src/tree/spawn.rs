@@ -1,5 +1,5 @@
 //! 树木实例生成 helper。
-//! 【功能设计】地图层提供离线稳定树位，本模块只生成共享Mesh/Material句柄的四档节点，
+//! 【功能设计】场景层提供离线稳定树位，本模块只生成共享Mesh/Material句柄的四档节点，
 //! 让Bevy自动硬件实例化相同网格与材质；不会在运行时随机散布或复制树木资产。
 //! 【模块所有权】旧树根生成继续作为通用Mesh接管前及失败恢复时的安全基线。
 
@@ -13,7 +13,7 @@ use super::types::{TreeLodLevel, TreeMeshPart, TreePlacement, TreePrototype}; //
 
 /// 生成一棵由四档现有资产组成的世界稳定树木并返回根实体。
 pub fn spawn_tree_instance(
-    commands: &mut Commands, // 地图OnEnter系统通过统一命令队列创建根和渲染子节点。
+    commands: &mut Commands, // 场景OnEnter系统通过统一命令队列创建根和渲染子节点。
     prototype: &TreePrototype, // 全部树位共享的Mesh、Material、LOD与根部下扎规格。
     placement: TreePlacement, // 当前树的稳定位置、朝向和缩放。
 ) -> Entity {
@@ -27,10 +27,10 @@ pub fn spawn_tree_instance(
                 collision_proxy: None, // 玩家接近且地面吸附完成前不创建碰撞实体。
             }, // 完成根组件初始化。
             root_transform,        // 根变换只承载世界位置和稳定朝向，不缩放碰撞体。
-            Visibility::Inherited, // 地图根可见时所有LOD子节点按各自范围参与渲染。
+            Visibility::Inherited, // 场景根可见时所有LOD子节点按各自范围参与渲染。
             GroundSnap::new(tree_ground_offset(prototype)), // 树根原点轻微下扎，让旧资产负Y根须自然埋入地面。
         ))
-        .id(); // 保存根实体供地图生命周期标记和碰撞代理系统使用。
+        .id(); // 保存根实体供场景生命周期标记和碰撞代理系统使用。
     commands.entity(root).with_children(|tree| {
         for lod in &prototype.lods {
             let visual_transform = tree_visual_transform(placement); // 全部LOD保持原资产地面原点，不再把负Y根须错误抬到地表。
@@ -52,7 +52,7 @@ pub fn spawn_tree_instance(
                         end_margin: lod.visibility_range.end_margin.clone(), // 保留当前LOD退出交叉区。
                         use_aabb: lod.visibility_range.use_aabb, // 全部档位按同一树根计算距离。
                     }, // 完成Bevy原生距离LOD配置。
-                )); // 生成当前实体LOD树干节点；材质就绪后由地图层原子替换为根部固定的GPU顶点风材质。
+                )); // 生成当前实体LOD树干节点；材质就绪后由场景层原子替换为根部固定的GPU顶点风材质。
                 if !lod.casts_shadow {
                     trunk.insert(NotShadowCaster); // 低档树干退出阴影图，限制全图林带远景投影成本。
                 } // 树干与同档树冠共享同一投影策略。
@@ -90,7 +90,7 @@ pub fn spawn_tree_instance(
             } // 公告板保持静止且不投影；三个实体LOD稍后通过共享GPU材质获得随树高增加的顶点风。
         } // 完成高、中、低、公告板四档节点生成。
     }); // 完成单棵树的共享资产子树。
-    root // 返回根实体供地图层绑定DespawnOnExit。
+    root // 返回根实体供场景层绑定DespawnOnExit。
 } // 完成单棵树实例生成。
 
 /// 把正的下扎深度转换为GroundSnap使用的负地表偏移。

@@ -2,19 +2,19 @@
 use super::*;
 use crate::shared::placement_data::{
     components::{PlacementInstanceGate, PlacementStagingRoot},
-    resources::{MapPlacementRuntimeStatus, PlacementActiveBatch},
+    resources::{ScenePlacementRuntimeStatus, PlacementActiveBatch},
     terrain_collision::{TerrainColliderProxy, TerrainPatchCollisionRequest},
     terrain_topology_test_support::{
         closing_candidate, collision_fixture, install_proxy_observers,
     },
 };
 use avian3d::prelude::Collider;
-use feathrise_map_content::MapId;
+use feathrise_scene_content::SceneId;
 
 fn check_retired_physics(replacement: bool) {
     let mut app = App::new();
     install_proxy_observers(&mut app);
-    app.init_resource::<MapPlacementRuntimeStatus>()
+    app.init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<crate::BuildingVegetationClearanceState>();
     let old_container = app
         .world_mut()
@@ -43,7 +43,7 @@ fn check_retired_physics(replacement: bool) {
         .id();
     app.world_mut().flush();
     let physical = app.world().get::<TerrainColliderProxy>(cave).unwrap().0;
-    let mut state = closing_candidate(MapId("MAP-retired-cave".into()), new_container);
+    let mut state = closing_candidate(SceneId("MAP-retired-cave".into()), new_container);
     state.terrain_mesh_generation = Some([4, 9]); // 新空批次已经联合采用关闭洞口。
     state.active = Some(PlacementActiveBatch {
         building_preset_revision: 0,
@@ -56,8 +56,8 @@ fn check_retired_physics(replacement: bool) {
     app.insert_resource(state).add_systems(
         Update,
         move |mut commands: Commands,
-              mut state: ResMut<MapPlacementRuntimeState>,
-              mut status: ResMut<MapPlacementRuntimeStatus>,
+              mut state: ResMut<ScenePlacementRuntimeState>,
+              mut status: ResMut<ScenePlacementRuntimeStatus>,
               mut clearance: ResMut<crate::BuildingVegetationClearanceState>,
               mut visibility: feathrise_scene_core::residency::InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>| {
             if replacement {
@@ -86,15 +86,15 @@ fn check_retired_physics(replacement: bool) {
     assert!(app.world().get::<Collider>(ordinary).is_some());
     assert_eq!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .retired_trees
             .len(),
         1
     );
     if replacement {
         assert_eq!(
-            app.world().resource::<MapPlacementRuntimeStatus>().phase,
-            super::super::super::resources::MapPlacementRuntimePhase::Ready
+            app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+            super::super::super::resources::ScenePlacementRuntimePhase::Ready
         );
         assert_eq!(
             app.world().get::<Visibility>(new_container),
@@ -109,6 +109,6 @@ fn deleting_last_cave_removes_old_collider_before_tree_cleanup() {
 }
 
 #[test]
-fn leaving_map_removes_old_collider_before_tree_cleanup() {
+fn leaving_scene_removes_old_collider_before_tree_cleanup() {
     check_retired_physics(false);
 }

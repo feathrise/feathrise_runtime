@@ -114,7 +114,7 @@ fn message_cursor_loss_is_detectable_and_permanently_fail_closed() {
     index.finish_event_collection(true);
     assert!(!index.events_caught_up());
     assert_eq!(index.missed_message_count(), 129); // 未知AssetId不能静默恢复或clear。
-    let mut placement = MapPlacementRuntimeState::default();
+    let mut placement = ScenePlacementRuntimeState::default();
     assert!(synchronize_placement_message_gate(&index, &mut placement));
     assert!(!placement.world_asset_events_caught_up); // 游标空也不能把候选采用门反写为true。
 }
@@ -122,7 +122,7 @@ fn message_cursor_loss_is_detectable_and_permanently_fail_closed() {
 #[test]
 fn stable_frame_source_contains_no_world_root_changed_scan() {
     let lifecycle = include_str!("mod.rs");
-    let water = include_str!("../large_map/water/mesh_overrides/runtime.rs");
+    let water = include_str!("../large_scene/water/mesh_overrides/runtime.rs");
     let settlement = include_str!("../placement_data/settlement.rs");
     assert!(!water.contains(concat!("Changed<", "WorldInstance>")));
     assert!(!water.contains(concat!("Changed<", "DynamicWaterMeshOverrides>")));

@@ -1,4 +1,4 @@
-//! 无限参考网格的透明通道管线和最多8项缓冲绑定缓存；不持有地图或场景实体。
+//! 无限参考网格的透明通道管线和最多8项缓冲绑定缓存；不持有场景或场景实体。
 use bevy::{core_pipeline::FullscreenShader, prelude::*, render::render_resource::*};
 
 #[derive(Resource)]

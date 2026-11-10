@@ -405,7 +405,7 @@ mod tests {
         let texture = app
             .world_mut()
             .spawn((
-                Camera3d::default(),                     // 角色预览或小地图三维相机。
+                Camera3d::default(),                     // 角色预览或小场景三维相机。
                 PrimarySceneView,                            // 即使误带玩法标记也必须由目标边界隔离。
                 RenderTarget::None { size: UVec2::ONE }, // 模拟纹理或无颜色目标。
             ))

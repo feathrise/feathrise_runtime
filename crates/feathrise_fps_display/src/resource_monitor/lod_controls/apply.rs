@@ -5,10 +5,10 @@ use feathrise_environment::landscape::{LandscapeKind, LandscapeLodLevel, Landsca
 use feathrise_environment::tree::{TreeLodLevel, TreeLodMesh}; // 树木高、中、低和公告板使用同一可见性路径。
 use feathrise_environment::vegetation::blade::{
     GpuBladeLodDebugDisabled, GpuBladePatch,
-}; // GPU叶片通过移除渲染世界草窗停止全部GPU阶段，当前地图区分复用零号profile的普通草与湿地草。
+}; // GPU叶片通过移除渲染世界草窗停止全部GPU阶段，当前场景区分复用零号profile的普通草与湿地草。
 
 use feathrise_environment::vegetation::VegetationBladeLayer;
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 use crate::resource_monitor::blade_identity::content_for_blade_layer;
 use super::LodControlPresetBindings;
 use super::state::{LodControlContent, LodControlState}; // 读取F3/F4共享且九类内容互不串改的四档状态。
@@ -22,7 +22,7 @@ type NewLandscapeLodFilter = (Added<LandscapeLodMesh>, Without<TreeLodMesh>);
 pub(in crate::resource_monitor) fn apply_changed_lod_controls(
     lod_state: Res<LodControlState>, // 只有资源变化帧才扫描全部已有LOD节点。
     bindings: Option<Res<LodControlPresetBindings>>, // 应用提供的诊断绑定独立于预设运行。
-    presets: Option<Res<VegetationPresetRegistry>>, // 数据预设决定正式层内容，不依赖地图编号。
+    presets: Option<Res<VegetationPresetRegistry>>, // 数据预设决定正式层内容，不依赖场景编号。
     mut previous: Local<super::targets::Targets>,
     mut presence: Local<(bool, bool)>,
     mut commands: Commands,                         // 为GPU叶片窗口插入或移除主世界调试关闭标记。
@@ -68,7 +68,7 @@ pub(in crate::resource_monitor) fn apply_changed_lod_controls(
 
 /// 把已经选择的调试状态应用到后续新加载的 LOD 节点。
 pub(in crate::resource_monitor) fn apply_lod_controls_to_new_nodes(
-    lod_state: Res<LodControlState>, // 地图切换后继续沿用本次进程内用户选择。
+    lod_state: Res<LodControlState>, // 场景切换后继续沿用本次进程内用户选择。
     bindings: Option<Res<LodControlPresetBindings>>, // 应用提供的诊断绑定独立于预设运行。
     presets: Option<Res<VegetationPresetRegistry>>, // 新窗口按正式层身份继承现有开关。
     mut commands: Commands,                         // 为新GPU叶片窗口补齐关闭标记。
@@ -85,7 +85,7 @@ pub(in crate::resource_monitor) fn apply_lod_controls_to_new_nodes(
     mut landscape_q: Query<LandscapeLodVisibilityData, NewLandscapeLodFilter>, // 只扫描新增景观物，并与树木可变查询保持互斥。
 ) {
     for (entity, patch, layer, disabled) in &grass_q {
-        sync_grass_patch(&lod_state, presets.as_deref(), bindings.as_deref(), &mut commands, entity, patch, layer, disabled); // 新草窗立即遵守当前地图内容页已有调试选择。
+        sync_grass_patch(&lod_state, presets.as_deref(), bindings.as_deref(), &mut commands, entity, patch, layer, disabled); // 新草窗立即遵守当前场景内容页已有调试选择。
     } // 完成新增GPU草窗同步。
     for (lod, mut visibility) in &mut tree_q {
         if bindings.as_deref().and_then(|bindings| bindings.profile(LodControlContent::Trees)).is_some() {

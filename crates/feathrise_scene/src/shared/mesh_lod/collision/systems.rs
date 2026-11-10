@@ -15,7 +15,7 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
 };
-use feathrise_map_content::MeshCollisionLodSettings;
+use feathrise_scene_content::MeshCollisionLodSettings;
 use std::sync::Arc;
 pub(super) fn body_inserted(
     event: On<Insert<RigidBody>>,

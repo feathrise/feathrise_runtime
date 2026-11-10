@@ -51,7 +51,7 @@ fn build_gpu_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut counts: ResMut<ConstructionCounts>,
-    mut proof: ResMut<MapRuntimeProof>,
+    mut proof: ResMut<SceneRuntimeProof>,
 ) {
     counts.entered += 1;
     proof.serial = counts.entered;
@@ -86,7 +86,7 @@ fn build_gpu_scene(
                 Camera3d::default(),
                 Transform::from_xyz(4.0, 3.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
             ));
-            // 实际地图含阴影方向光；只用 unlit 网格会漏掉旧灯光引用新相机的级联崩溃。
+            // 实际场景含阴影方向光；只用 unlit 网格会漏掉旧灯光引用新相机的级联崩溃。
             parent.spawn((
                 DirectionalLight {
                     shadow_maps_enabled: true,
@@ -138,8 +138,8 @@ fn observe_gpu_allocations(
     }
 }
 
-fn start_target(world: &mut World, map: &MapId, warm: bool) {
-    world.resource_mut::<ActiveDynamicMap>().select(map.clone());
+fn start_target(world: &mut World, map: &SceneId, warm: bool) {
+    world.resource_mut::<ActiveDynamicScene>().select(map.clone());
     arm_resident_scene_transition(world);
     world.resource_mut::<NextState<ScenePhase>>().set(if warm {
         ScenePhase::Active
@@ -178,12 +178,12 @@ fn drive_gpu_smoke(world: &mut World) {
                 let mut proof = probe.lock().unwrap();
                 proof.render_entity = Some(render.id());
                 proof.mesh = Some(world.get::<Mesh3d>(root).unwrap().0.id());
-                proof.image = Some(world.resource::<MapRuntimeProof>().image.id());
+                proof.image = Some(world.resource::<SceneRuntimeProof>().image.id());
                 if proof.allocation.is_none() {
                     return;
                 }
                 smoke.root = Some(root);
-                smoke.pixels = world.resource::<MapRuntimeProof>().pixels.clone();
+                smoke.pixels = world.resource::<SceneRuntimeProof>().pixels.clone();
                 mark_resident_document_open(world, a.clone());
                 prepare_resident_scene(world, b.clone(), ScenePhase::Active);
                 smoke.phase = 1;
@@ -232,7 +232,7 @@ fn drive_gpu_smoke(world: &mut World) {
             7 if world.resource::<ResidentScenes>().preparation(&a)
                 == ResidentScenePreparation::WarmReady =>
             {
-                let image = world.resource::<MapRuntimeProof>().image.id();
+                let image = world.resource::<SceneRuntimeProof>().image.id();
                 world
                     .resource_mut::<Messages<feathrise_scene_core::residency::ResidentAssetEvent<Image>>>()
                     .write(feathrise_scene_core::residency::ResidentAssetEvent(
@@ -250,7 +250,7 @@ fn drive_gpu_smoke(world: &mut World) {
                 assert_eq!(Some(root), smoke.root);
                 assert!(Arc::ptr_eq(
                     &smoke.pixels,
-                    &world.resource::<MapRuntimeProof>().pixels
+                    &world.resource::<SceneRuntimeProof>().pixels
                 ));
                 assert_eq!(world.resource::<ConstructionCounts>().entered, 3);
                 let proof = world.resource::<GpuProbe>().0.lock().unwrap();
@@ -288,7 +288,7 @@ fn drive_gpu_smoke(world: &mut World) {
                 assert!(world.get_entity(smoke.root.unwrap()).is_err());
                 assert!(
                     !world.resource::<GpuProbe>().0.lock().unwrap().peer_alive,
-                    "地图关闭后原渲染相机必须真正退役，不能成为被重新激活的孤儿视图"
+                    "场景关闭后原渲染相机必须真正退役，不能成为被重新激活的孤儿视图"
                 );
                 close_resident_scene(world, b.clone());
                 close_resident_scene(world, c.clone());
@@ -300,17 +300,17 @@ fn drive_gpu_smoke(world: &mut World) {
             }
             12 if scene == ScenePhase::Idle && frame > smoke.since + 20 => {
                 assert!(
-                    world.resource::<ResidentScenes>().maps.is_empty(),
-                    "最后一张地图必须完成关闭"
+                    world.resource::<ResidentScenes>().scenes.is_empty(),
+                    "最后一个场景必须完成关闭"
                 );
                 let mut proof = world.resource::<GpuProbe>().0.lock().unwrap();
                 assert_eq!(
                     proof.remaining_scene_views, 0,
-                    "关闭全部地图后不能残留禁用相机"
+                    "关闭全部场景后不能残留禁用相机"
                 );
                 assert_eq!(
                     proof.remaining_scene_lights, 0,
-                    "关闭全部地图后不能残留禁用灯光"
+                    "关闭全部场景后不能残留禁用灯光"
                 );
                 proof.closed_all = true;
                 drop(proof);
@@ -343,13 +343,13 @@ fn three_full_gpu_scenes_keep_original_vertex_buffer_texture_and_render_entity()
             }),
     );
     app.init_state::<ScenePhase>()
-        .init_resource::<ActiveDynamicMap>()
+        .init_resource::<ActiveDynamicScene>()
         .init_resource::<ConstructionCounts>();
     install(&mut app);
     app.world_mut()
         .resource_mut::<SceneResidencyActivity>()
         .enabled = true;
-    app.init_resident_resource::<MapRuntimeProof>()
+    app.init_resident_resource::<SceneRuntimeProof>()
         .init_resource::<Smoke>()
         .add_plugins(ExtractResourcePlugin::<GpuProbe>::default())
         .init_resource::<GpuProbe>()
@@ -367,7 +367,7 @@ fn three_full_gpu_scenes_keep_original_vertex_buffer_texture_and_render_entity()
     );
     let probe = app.world().resource::<GpuProbe>().0.clone();
     app.world_mut()
-        .resource_mut::<ActiveDynamicMap>()
+        .resource_mut::<ActiveDynamicScene>()
         .select(id("MAP-gpu-resident-a"));
     app.world_mut()
         .resource_mut::<NextState<ScenePhase>>()

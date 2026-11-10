@@ -17,7 +17,7 @@
 默认 feature 为空。`blade` 保留既有 208 字节叶片窗口、16 字节紧凑实例、四档 LOD
 和每批四个外观槽，三份 WGSL 直接随本包内嵌；层数超过四种外观时拆分多个渲染
 批次即可。叶片专业 API 统一使用 `GpuBlade*` 命名；P2.4已经退役独立
-`bevy_learn5_grass`包装包，P5.3b真实地图画面复验通过后又删除
+`bevy_learn5_grass`包装包，P5.3b真实场景画面复验通过后又删除
 `feathrise_environment::grass`、`grass-compat`及全部`GpuGrass*`公开别名。
 
 `mesh` 提供通用多部件 PBR 与距离 LOD。固定公告板继续使用原材质和作者姿态；动态

@@ -34,7 +34,7 @@ struct Evidence {
 #[derive(Clone, PartialEq)]
 struct CaptureIdentity {
     revision: u64,
-    // 函数体补丁不改PID/World/地图修订，必须另用真实采用代次拒绝旧GPU回调。
+    // 函数体补丁不改PID/World/场景修订，必须另用真实采用代次拒绝旧GPU回调。
     patch_epoch: u64,
     mode: Mode,
     viewport: Viewport,
@@ -236,14 +236,14 @@ fn capture_ready(world: &mut World) {
     let base = format!("{}-{}-{mode}", std::process::id(), state.revision);
     let placements = world
         .query::<(
-            &feathrise_scene::MapPlacementInstance,
+            &feathrise_scene::ScenePlacementInstance,
             &GlobalTransform,
         )>()
         .iter(world)
         .filter(|(instance, _)| instance.is_active())
         .take(128)
         .map(|(instance, transform)| {
-            serde_json::json!({ "id":instance.id(), "map":instance.map_id().as_str(),
+            serde_json::json!({ "id":instance.id(), "scene_id":instance.scene_id().as_str(),
             "position":transform.translation().to_array(), "asset_target":instance.asset_target() })
         })
         .collect::<Vec<_>>();
@@ -401,7 +401,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unchanged_map_revision_requires_new_capture_after_geometry_or_occlusion_changes() {
+    fn unchanged_scene_revision_requires_new_capture_after_geometry_or_occlusion_changes() {
         let original = CaptureIdentity {
             revision: 3,
             patch_epoch: 0,
@@ -422,7 +422,7 @@ mod tests {
         };
         assert!(original == original.clone());
         let mut patched = original.clone(); patched.patch_epoch = 1;
-        assert!(original != patched,"同PID/World/地图修订的新补丁必须取新的真实GPU像素");
+        assert!(original != patched,"同PID/World/场景修订的新补丁必须取新的真实GPU像素");
         let mut resized = original.clone();
         resized.viewport.width = 900;
         assert!(original != resized);
@@ -437,7 +437,7 @@ mod tests {
             shading:[1.0,0.0,0.0,1.0],wire:[0.0;4],grid:None,
             terrain_flat:false,terrain_grid:false,terrain_backfaces:false,physics_debug:false,
         });
-        assert!(original != shading, "原四球控件不改地图修订，也必须重新取真实GPU像素");
+        assert!(original != shading, "原四球控件不改场景修订，也必须重新取真实GPU像素");
         let mut moved_camera = original.clone();
         moved_camera.camera = Some(feathrise_editor_protocol::CameraState {
             position:[1.,2.,3.],rotation:[0.,0.,0.,1.],vertical_fov_radians:0.8,orthographic_height:None,

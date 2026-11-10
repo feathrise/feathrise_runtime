@@ -5,9 +5,9 @@ use std::{collections::BTreeMap, sync::Arc}; // 后台生成只读逐行覆盖�
 #[derive(Clone, Debug, PartialEq)] // 真实完整单元的阶梯轮廓，不用凸包冒充凹角地面。
 pub struct TerrainSupportRows {
     // 最粗覆盖选区向内细分后覆盖面积保持不变。
-    pub origin: [f64; 2],              // 固定地图原点。
+    pub origin: [f64; 2],              // 固定场景原点。
     pub spacing: [f64; 2],             // 最粗覆盖单元的世界格距。
-    pub bounds: [Vec2; 2],             // 实际地图最小/最大边界，尾格必须裁切。
+    pub bounds: [Vec2; 2],             // 实际场景最小/最大边界，尾格必须裁切。
     pub rows: BTreeMap<i64, [i64; 2]>, // 格行 -> [最左格索引, 最右格的排他索引]。
 } // 只由完整后台候选发布，不随当前玩家中心临时重算。
 
@@ -15,7 +15,7 @@ impl TerrainSupportRows {
     // 每次查询最多查三个相邻行，不遍历完整轮廓。
     pub fn contains(&self, point: Vec2) -> bool {
         // 仅判定真实覆盖，不改变活动资格半径。
-        if !point.is_finite() || point.cmplt(self.bounds[0]).any() || point.cmpgt(self.bounds[1]).any() // 拒绝地图外和非法点。
+        if !point.is_finite() || point.cmplt(self.bounds[0]).any() || point.cmpgt(self.bounds[1]).any() // 拒绝场景外和非法点。
             || self.spacing.iter().any(|value| !value.is_finite() || *value <= 0.0)
         {
             return false;
@@ -44,11 +44,11 @@ impl TerrainSupportRows {
     } // 对数级小查询，不分配或触发加载。
 } // 覆盖与形状采用同一个版本。
 
-#[derive(Resource, Default, Clone, Debug)] // 缺省关闭，非 Clipmap 地图与隔离测试完全保持原行为。
+#[derive(Resource, Default, Clone, Debug)] // 缺省关闭，非 Clipmap 场景与隔离测试完全保持原行为。
 pub struct TerrainCollisionRegion {
     // 场景运行时是该资源的唯一发布者。
     pub enabled: bool,                       // 仅自定义多层碰撞模式启用。
-    pub revision: u64,                       // 已采用地图、配置、覆盖或玩家中心变化的版本。
+    pub revision: u64,                       // 已采用场景、配置、覆盖或玩家中心变化的版本。
     pub center: Vec2,                        // 发布者当前活动锚点 X/Z，而非显示或已采用任务的旧中心。
     pub max_distance_meters: f32,            // 已采用配置的最外活动半径。
     pub supported_bounds: Vec<(Vec2, Vec2)>, // 当前完整已安装碰撞块范围，最多 512 块。
@@ -65,11 +65,11 @@ impl TerrainCollisionRegion {
         let polygon = &self.supported_polygon; // 发布者保证非空外环为有序凸多边形，无重复末点。
         if polygon.is_empty() {
             return true;
-        } // 旧地图及旧矩形夹具维持原承托语义。
+        } // 旧场景及旧矩形夹具维持原承托语义。
         if polygon.len() < 3 || !point.is_finite() {
             return false;
         } // 损坏外环和非法查询均不得提供承托。
-        let origin = polygon[0].as_dvec2(); // f64 计算避免大地图坐标的 f32 叉积精度损失。
+        let origin = polygon[0].as_dvec2(); // f64 计算避免大场景坐标的 f32 叉积精度损失。
         let cross = |a: Vec2, b: Vec2| (a.as_dvec2() - origin).perp_dot(b.as_dvec2() - origin); // 扇形有向面积。
         let corner_area = cross(polygon[1], polygon[polygon.len() - 1]); // 发布者保留顶点零为真实凸角，允许其余边插入共线节点。
         if corner_area == 0.0 || !corner_area.is_finite() {
@@ -127,7 +127,7 @@ mod tests {
             // 十字形只用于明确区分真实行区间与凸包。
             origin: [0.0; 2],                       // 固定世界原点。
             spacing: [1.0; 2],                      // 一米一个完整覆盖格。
-            bounds: [Vec2::ZERO, Vec2::splat(3.0)], // 限定地图边缘。
+            bounds: [Vec2::ZERO, Vec2::splat(3.0)], // 限定场景边缘。
             rows: BTreeMap::from([(0, [1, 2]), (1, [0, 3]), (2, [1, 2])]), // 相邻行宽度不同形成凹角。
         }; // 凸包会错误放行部分角落，本合同不会。
         assert!(rows.contains(Vec2::splat(1.5))); // 中央实际有地面。
@@ -135,7 +135,7 @@ mod tests {
         assert!(rows.contains(Vec2::new(2.0, 3.0))); // 最后行闭边仍有地面。
         assert!(!rows.contains(Vec2::new(0.75, 0.75))); // 在凸包内但在实际阶梯外。
         assert!(!rows.contains(Vec2::new(2.25, 2.25))); // 对角空白同样拒绝。
-        assert!(!rows.contains(Vec2::new(1.5, 3.01))); // 地图外拒绝。
+        assert!(!rows.contains(Vec2::new(1.5, 3.01))); // 场景外拒绝。
         assert!(!rows.contains(Vec2::splat(f32::NAN))); // 非有限查询不得绕过保护。
         let region = TerrainCollisionRegion {
             // 即使旧包围盒覆盖凹角，也要先检查实际格行。
@@ -150,18 +150,18 @@ mod tests {
         assert!(!region.supports(Vec3::new(0.5, 0.0, 1.5))); // 活动距离外仍不能恢复。
     } // 场景生成与角色查询使用相同的阶梯覆盖。
 
-    #[test] // 地图末端不足整格时不能把取整部分当成地图。
+    #[test] // 场景末端不足整格时不能把取整部分当成场景。
     fn support_rows_clip_tail_cells_and_match_world_projection() {
         // 同时覆盖负原点和非整除世界格距。
         let rows = TerrainSupportRows {
-            // 近似实际不规则地图尾格。
+            // 近似实际不规则场景尾格。
             origin: [-10.0, -20.0], // 世界固定原点。
             spacing: [0.3, 0.7],    // f64权威格距。
             bounds: [Vec2::new(-10.0, -20.0), Vec2::new(-9.25, -18.5)], // X末格只有0.15米。
-            rows: BTreeMap::from([(0, [0, 3]), (1, [0, 3]), (2, [0, 3])]), // 逻辑格子可超出地图尾端。
-        }; // 查询以真实地图边界裁剪。
-        assert!(rows.contains(Vec2::new(-9.25, -18.5))); // 地图末点有地面。
-        assert!(!rows.contains(Vec2::new(-9.2, -18.5))); // 逻辑末格地图外部分无地面。
+            rows: BTreeMap::from([(0, [0, 3]), (1, [0, 3]), (2, [0, 3])]), // 逻辑格子可超出场景尾端。
+        }; // 查询以真实场景边界裁剪。
+        assert!(rows.contains(Vec2::new(-9.25, -18.5))); // 场景末点有地面。
+        assert!(!rows.contains(Vec2::new(-9.2, -18.5))); // 逻辑末格场景外部分无地面。
         assert!(rows.contains(Vec2::new(
             (-10.0_f64 + 0.3) as f32,
             (-20.0_f64 + 0.7) as f32

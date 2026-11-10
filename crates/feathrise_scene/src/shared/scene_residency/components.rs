@@ -13,7 +13,7 @@ pub(super) struct ParkedSceneEntity {
     pub spatial_audio_playing: bool,
 }
 
-/// 音频仅在完整采用后恢复，避免分帧期间先听到尚未可见的地图。
+/// 音频仅在完整采用后恢复，避免分帧期间先听到尚未可见的场景。
 #[derive(Component)]
 pub(super) struct ResumeResidentAudio {
     pub audio: bool,

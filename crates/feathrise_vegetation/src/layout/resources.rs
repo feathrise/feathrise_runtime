@@ -198,7 +198,7 @@ impl VegetationSourceField {
     /// 以最近邻采样世界点；范围外密度为零。
     pub(crate) fn sample(&self, world_xz: Vec2) -> f32 {
         if !self.world_bounds.contains(world_xz) {
-            return 0.0; // 不把边缘纹素无限延伸到地图外。
+            return 0.0; // 不把边缘纹素无限延伸到场景外。
         }
         let uv =
             (world_xz - self.world_bounds.min) / (self.world_bounds.max - self.world_bounds.min); // 世界min/max映射到首尾源样本。
@@ -260,7 +260,7 @@ fn overlapping_sample_range(
     source_max: f32,
     source_count: u32,
 ) -> Option<std::ops::RangeInclusive<usize>> {
-    let center = f64::from(output_center); // f64中计算大地图索引，降低边界量化误差。
+    let center = f64::from(output_center); // f64中计算大场景索引，降低边界量化误差。
     let output_half = f64::from(output_cell_size) * 0.5; // 输出纹素按中心和完整边长参与相交。
     let minimum = f64::from(source_min); // 公共范围先提升精度再执行端点式映射。
     let maximum = f64::from(source_max); // 最大端点对应最后一个源样本中心。

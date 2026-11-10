@@ -25,7 +25,7 @@ mod resources; // 渲染世界管线、准备作业和跨回调共享队列。
 use node::run_vegetation_gpu_mip; // 安装一次无视图全局计算系统。
 use pipeline::init_vegetation_gpu_mip_pipeline; // 设备建立后排队内部WGSL入口。
 use prepare::prepare_vegetation_gpu_mip_job; // 只在新票据层出现且图片已上传时建立作业。
-use readback::begin_maps_and_publish_vegetation_gpu_mips; // 绝不在运行时同步poll或等待GPU。
+use readback::begin_scenes_and_publish_vegetation_gpu_mips; // 绝不在运行时同步poll或等待GPU。
 use resources::{VegetationGpuMipRenderState, VegetationGpuMipShared}; // 渲染世界持有当前作业和完成队列。
 
 /// 单轴Compute工作组边长。
@@ -157,7 +157,7 @@ pub(super) fn install(app: &mut App) -> bool {
                 .in_set(RenderSystems::PrepareResources)
                 .after(RenderSystems::PrepareAssets), // 候选Image已成为GpuImage后才创建逐Mip视图。
         )
-        .add_systems(ExtractSchedule, begin_maps_and_publish_vegetation_gpu_mips) // 下一帧发起map_async并把已完成结果写回MainWorld。
+        .add_systems(ExtractSchedule, begin_scenes_and_publish_vegetation_gpu_mips) // 下一帧发起map_async并把已完成结果写回MainWorld。
         .add_systems(
             RenderGraph,
             run_vegetation_gpu_mip

@@ -5,9 +5,9 @@ use bevy::diagnostic::DiagnosticPath; // 诊断路径使用const哈希，稳定�
 pub(crate) const DYNAMIC_EXPECTED_INSTANCE_COUNT: u32 = 1;
 /// 动态目标只允许唯一地形材质资产，避免同一地形被意外拆成多个BLAS实例。
 pub(crate) const DYNAMIC_EXPECTED_UNIQUE_MATERIAL_COUNT: u32 = 1;
-/// 动态地图单个规则高度场的顶点上限，覆盖513×513采样；小地图可低于此值。
+/// 动态场景单个规则高度场的顶点上限，覆盖513×513采样；小场景可低于此值。
 pub(crate) const DYNAMIC_MAX_TERRAIN_VERTEX_COUNT: u64 = 513 * 513;
-/// 相同网格的三角形上限；这是预算，不要求地图具有固定几何数量。
+/// 相同网格的三角形上限；这是预算，不要求场景具有固定几何数量。
 pub(crate) const DYNAMIC_MAX_TERRAIN_TRIANGLE_COUNT: u64 = 512 * 512 * 2;
 /// 最大地形派生为位置、法线、切线、UV和索引后的载荷。
 pub(crate) const DYNAMIC_MAX_TERRAIN_DERIVED_BYTES: u64 =

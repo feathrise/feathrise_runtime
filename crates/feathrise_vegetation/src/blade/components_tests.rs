@@ -7,7 +7,7 @@ const COMPUTE_SHADER_SOURCE: &str = include_str!("shaders/gpu_grass_compute.wgsl
 const TALL_SLOT_1_CONFIG: GpuBladeConfig =
     GpuBladeConfig::new(GpuBladeProfileSlot::SLOT_1, 1.35, 0.72, 1.18, 0.04); // 构造无草种语义的高秆二号槽测试规格。
 const LOW_SLOT_3_CONFIG: GpuBladeConfig =
-    GpuBladeConfig::new(GpuBladeProfileSlot::SLOT_3, 0.52, 0.95, 0.42, 0.035); // 构造无地图语义的低矮四号槽测试规格。
+    GpuBladeConfig::new(GpuBladeProfileSlot::SLOT_3, 0.52, 0.95, 0.42, 0.035); // 构造无场景语义的低矮四号槽测试规格。
 
 #[test]
 fn cross_mesh_render_extraction_moves_source_coordinates_without_changing_grass_seed_or_density() {
@@ -31,7 +31,7 @@ fn cross_mesh_render_extraction_moves_source_coordinates_without_changing_grass_
 
 #[test]
 fn grass_patch_cpu_payload_keeps_legacy_offsets_and_eight_lod_extension() {
-    assert_eq!(std::mem::size_of::<GpuBladePatch>(), 416); // 十八个vec4与两份地图坐标矩阵必须与WGSL一致。
+    assert_eq!(std::mem::size_of::<GpuBladePatch>(), 416); // 十八个vec4与两份场景坐标矩阵必须与WGSL一致。
     assert_eq!(GpuBladePatch::min_size().get(), 416);
     assert_eq!(
         std::mem::offset_of!(GpuBladePatch, view_lod_pixel_thresholds_ext),
@@ -133,7 +133,7 @@ fn grass_patch_requires_no_automatic_batching() {
     let mut world = World::new(); // 使用最小ECS世界触发require组件自动插入。
     let entity = world
         .spawn(GpuBladePatch::square(Vec3::ZERO, 64.0, 64, 1))
-        .id(); // 模拟地图只插入公开草窗口组件。
+        .id(); // 模拟场景只插入公开草窗口组件。
     assert!(world.entity(entity).contains::<NoAutomaticBatching>()); // 每个窗口必须保留自己的动态uniform与实例范围。
 } // 完成自动合批回归测试。
 
@@ -167,7 +167,7 @@ fn following_window_snaps_by_whole_world_cells() {
 #[test]
 fn height_field_is_explicit_and_preserves_world_bounds() {
     let patch = GpuBladePatch::square(Vec3::new(0.0, 4.37, 0.0), 716.8, 2049, 1); // 默认动态窗口仍走固定平面。
-    assert!(!patch.uses_height_field()); // 没有绑定地图内容时shader不得误采fallback纹理。
+    assert!(!patch.uses_height_field()); // 没有绑定场景内容时shader不得误采fallback纹理。
     let patch = patch.with_height_field(
         Vec2::splat(-2500.0), // 大型高度纹理世界最小角。
         Vec2::splat(2500.0),  // 大型高度纹理世界最大角。
@@ -307,7 +307,7 @@ fn density_field_uses_independent_world_bounds_and_render_wait() {
         .with_density_field(
             Vec2::new(-2500.0, -2400.0), // 使用故意不对称的最小角验证字段没有复用高度范围。
             Vec2::new(2500.0, 2400.0),   // 使用故意不对称的最大角验证X/Z顺序。
-        ); // 模拟正式地图已启用红通道密度概率采样。
+        ); // 模拟正式场景已启用红通道密度概率采样。
     assert!(patch.uses_density_field()); // 主世界配置必须显式打开最低标志位。
     assert_eq!(patch.lod_level(), 2); // 同一grid.w中的远景材质位必须完整保留。
     assert_eq!(
@@ -329,8 +329,8 @@ fn density_field_uses_independent_world_bounds_and_render_wait() {
 #[test]
 fn density_control_region_adds_a_strict_optional_world_clip() {
     let mut patch = GpuBladePatch::square(Vec3::ZERO, 1024.0, 257, 2) // 构造公里级候选窗口。
-        .with_density_field(Vec2::splat(-3000.0), Vec2::splat(3000.0)); // 原始密度图仍覆盖完整六公里地图。
-    assert!(!patch.uses_density_control_region()); // 默认零范围不得改变既有地图生草行为。
+        .with_density_field(Vec2::splat(-3000.0), Vec2::splat(3000.0)); // 原始密度图仍覆盖完整六公里场景。
+    assert!(!patch.uses_density_control_region()); // 默认零范围不得改变既有场景生草行为。
     patch.set_density_control_region(
         Vec2::new(910.0, -1340.0), // 东部芦汀受控矩形世界X/Z最小角。
         Vec2::new(2590.0, 60.0),   // 东部芦汀受控矩形世界X/Z最大角。

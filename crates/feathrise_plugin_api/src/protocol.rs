@@ -19,9 +19,9 @@ pub struct SessionConfig {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Open,
-    /// 地图领域沿用地图的草稿身份和统一保存，领域正文由插件拥有。
-    MapDomain {
-        request: crate::map_domain::MapDomainRequest,
+    /// 场景领域沿用场景的草稿身份和统一保存，领域正文由插件拥有。
+    SceneDomain {
+        request: crate::scene_domain::SceneDomainRequest,
     },
     /// 目录窗口按整行偏移取数，保留连续滚动而非强制分页。
     Browse {
@@ -81,7 +81,7 @@ pub struct Snapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeline: Option<Timeline>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_domain: Option<crate::map_domain::MapDomainSnapshot>,
+    pub scene_domain: Option<crate::scene_domain::SceneDomainSnapshot>,
     /// 用户明确点击产生的跨工具交接；宿主核对当前来源页后，仅向已安装目标提交公开字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff: Option<ToolHandoff>,
@@ -534,7 +534,7 @@ impl Snapshot {
         }) {
             return Err("跨工具交接目标或字段超出预算".into());
         }
-        if let Some(domain) = &self.map_domain {
+        if let Some(domain) = &self.scene_domain {
             domain.validate()?;
         }
         Ok(())

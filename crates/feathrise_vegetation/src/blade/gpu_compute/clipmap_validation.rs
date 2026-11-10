@@ -9,10 +9,10 @@ pub fn sample_clipmap_surface_for_validation(
     point: Vec2,
     mut sample: impl FnMut(Vec2, u32) -> f32,
 ) -> Option<f32> {
-    // 不读取 ECS、纹理或地图文件。
+    // 不读取 ECS、纹理或场景文件。
     if point.cmplt(height.world_min).any() || point.cmpgt(height.world_max).any() {
         return None;
-    } // 地图外草根禁止生成。
+    } // 场景外草根禁止生成。
     if height
         .holes
         .iter()
@@ -104,7 +104,7 @@ fn triangle(
         // 只检查已选中的真实三角，不遍历全图页表。
         if p.cmplt(height.world_min).any() || p.cmpgt(height.world_max).any() {
             continue;
-        } // 地图外顶点仍是地形正式零高度。
+        } // 场景外顶点仍是地形正式零高度。
         let mip = geometry_mip.min(height.max_mip); // 必须与GPU实际采样父页相同。
         let scale = 2.0_f32.powi(mip as i32); // 当前页的基础格覆盖倍率。
         let logical = ((p - height.world_min) / height.cell_size)
@@ -128,7 +128,7 @@ fn triangle(
         } else {
             height.stitches.boundary_height(p,height.world_min,height.world_max).unwrap_or_else(||height.stitches.height(p,sample(p,mip.min(height.max_mip)),height.world_min,height.world_max))
         }
-    }; // 地图外顶点与正式材质同为零。
+    }; // 场景外顶点与正式材质同为零。
     Some(get(a) * (1.0 - u - v) + get(b) * u + get(c) * v) // 真实三角插值而非双线性地表。
 } // 完成三角查询。
 

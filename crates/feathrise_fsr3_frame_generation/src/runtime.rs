@@ -7,7 +7,7 @@ use std::sync::{
 
 use ash::vk::Handle as _; // Vulkan句柄只转换成稳定u64位模式。
 use bevy::{
-    camera::RenderTarget,   // 资格阶段必须排除小地图和预览RTT相机。
+    camera::RenderTarget,   // 资格阶段必须排除小场景和预览RTT相机。
     diagnostic::FrameCount, // 判断RenderApp输入是否仍属于最近帧。
     prelude::*,             // ECS资源、查询、插件安装和日志。
     render::{

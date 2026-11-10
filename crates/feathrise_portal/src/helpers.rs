@@ -5,21 +5,21 @@ use bevy::color::LinearRgba; // HDR自发光颜色让光环和光束在Bloom开�
 use bevy::prelude::*; // Commands、Mesh、Material、Transform 等
 use feathrise_billboard_text::BillboardText; // 通用离屏烘焙文字 Billboard（朝向相机的标签）
 use feathrise_scene_core::view::CameraRaycastIgnore; // 使路标箭头不参与相机防穿墙射线
-use feathrise_scene_core::constants::render_layers::PORTAL_EFFECT_LAYER; // 主相机与F12可见、小地图不可见的独立传送特效层。
+use feathrise_scene_core::constants::render_layers::PORTAL_EFFECT_LAYER; // 主相机与F12可见、小场景不可见的独立传送特效层。
 use feathrise_grounding::GroundSnap; // 传送门视觉根和独立标签按真实地形高度摆放。
 use feathrise_scene_core::state::ScenePhase; // 游戏场景枚举
 
 use crate::components::{Portal, PortalLabel}; // 传送门组件
 use crate::constants::PORTAL_EDGE_BEAM_HEIGHT; // 视觉根使用共享十四米渐隐光幕高度。
-use crate::resources::PortalVisualMeshes; // 正式地图全部传送点复用一套固定程序网格。
+use crate::resources::PortalVisualMeshes; // 正式场景全部传送点复用一套固定程序网格。
 
 /// 单个传送门的内容、场景归属与路标外观配置。
 #[derive(Clone, Copy, Debug)]
 pub struct PortalSpawnSpec<'a> {
     pub position: Vec3,                 // 路标世界坐标。
     pub target_scene: ScenePhase,        // 目标场景。
-    pub target_map_id: Option<&'a str>, // 动态地图目标ID；静态地图不填写。
-    pub target_display_name: &'a str,   // 目标地图清单中的实际显示名称。
+    pub target_scene_id: Option<&'a str>, // 动态场景目标ID；静态场景不填写。
+    pub target_display_name: &'a str,   // 目标场景清单中的实际显示名称。
     pub spawn_position: Vec3,           // 到达目标场景后的出生坐标。
     pub label: &'a str,                 // 作者原文与调试实体名来源；显示翻译由消费应用负责。
     pub color: Color,                   // 箭头基础色和自发光颜色。
@@ -59,11 +59,11 @@ fn emissive(color: Color, intensity: f32) -> LinearRgba {
     linear // 返回可直接写入StandardMaterial的HDR颜色。
 }
 
-/// 按目标地图正式显示名生成传送点世界名称；地图改名后所有消费者都应重新派生而非沿用旧序号。
+/// 按目标场景正式显示名生成传送点世界名称；场景改名后所有消费者都应重新派生而非沿用旧序号。
 pub fn portal_destination_label(target_display_name: &str) -> String {
     let target_display_name = target_display_name.trim(); // 清单名称允许作者误带首尾空白，展示边界统一去除。
     if target_display_name.is_empty() {
-        return "前往目标地图".to_owned(); // 资产未就绪或损坏边界仍不泄露MapId和内部portal ID。
+        return "前往目标场景".to_owned(); // 资产未就绪或损坏边界仍不泄露SceneId和内部portal ID。
     }
     format!("前往{target_display_name}") // 用户确认的固定命名规则不插入额外空格或流水序号。
 }
@@ -77,22 +77,22 @@ fn is_legacy_generated_portal_label(label: &str) -> bool {
         }) // 只迁移明确流水名，不误伤作者自定义中文。
 }
 
-/// 解析传送点最终显示名称：未自定义时跟随目标地图，自定义后完整保留作者区域语义。
+/// 解析传送点最终显示名称：未自定义时跟随目标场景，自定义后完整保留作者区域语义。
 pub fn portal_display_label(
     author_label: &str,        // JSON中保存的名称或旧默认快照。
     label_customized: bool,    // false表示仍采用自动默认命名。
-    target_display_name: &str, // 当前目标清单显示名，地图改名后可刷新默认名称。
+    target_display_name: &str, // 当前目标清单显示名，场景改名后可刷新默认名称。
 ) -> String {
     let author_label = author_label.trim(); // 输入框和旧JSON可能带首尾空白，显示边界统一去除。
-    let default_label = portal_destination_label(target_display_name); // 自动名固定为“前往{目标地图}”。
+    let default_label = portal_destination_label(target_display_name); // 自动名固定为“前往{目标场景}”。
     if !label_customized
         || author_label.is_empty()
         || is_legacy_generated_portal_label(author_label)
         || author_label == default_label
     {
-        return default_label; // 自动名、旧流水名和未实际改写的默认快照都继续跟随地图名称。
+        return default_label; // 自动名、旧流水名和未实际改写的默认快照都继续跟随场景名称。
     }
-    author_label.to_owned() // “前往王府”“前往河道”等作者名称不再被目标地图名覆盖。
+    author_label.to_owned() // “前往王府”“前往河道”等作者名称不再被目标场景名覆盖。
 }
 
 /// 构造传送门上方的显示文字 Billboard 请求，正式实体与F12作者预览共用同一可读性规格和显式字体。
@@ -178,9 +178,9 @@ pub fn spawn_portal_entity(
             Name::new(format!("PortalRoot_{}", spec.label)), // 根名称便于World检查器定位完整传送视觉。
             Portal {
                 target_scene: spec.target_scene, // 碰撞后切换到目标清单绑定的正式场景。
-                target_map_id: spec.target_map_id.map(str::to_owned), // 动态目标额外保存稳定MapId。
-                target_display_name: spec.target_display_name.to_owned(), // 加载页直接使用目标地图实际名称。
-                spawn_position: spec.spawn_position, // 玩家最终出生坐标已经由跨地图解析完整校验。
+                target_scene_id: spec.target_scene_id.map(str::to_owned), // 动态目标额外保存稳定SceneId。
+                target_display_name: spec.target_display_name.to_owned(), // 加载页直接使用目标场景实际名称。
+                spawn_position: spec.spawn_position, // 玩家最终出生坐标已经由跨场景解析完整校验。
                 label: spec.label.to_string(),       // 运行时日志继续保留作者标签。
             },
             Transform::from_translation(ground_pos), // X/Z沿用作者位置，Y由统一GroundSnap解算。
@@ -194,7 +194,7 @@ pub fn spawn_portal_entity(
                 Mesh3d(visual_meshes.base.clone()),              // 复用启动时登记的固定圆盘网格。
                 MeshMaterial3d(base_material), // 每个传送点保留同一克制深色底材质。
                 Transform::from_translation(Vec3::Y * 0.02).with_rotation(flat_rotation), // 二维圆盘铺到本地XZ平面。
-                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 主相机和F12可见，小地图不重复绘制底盘。
+                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 主相机和F12可见，小场景不重复绘制底盘。
                 CameraRaycastIgnore,                      // 纯视觉底盘不参与相机防穿墙射线。
             ));
             parent.spawn((
@@ -211,7 +211,7 @@ pub fn spawn_portal_entity(
                 MeshMaterial3d(arrow_material), // 使用同一作者颜色自发光材质。
                 Transform::from_translation(Vec3::Y * 0.05 + shaft_offset)
                     .with_rotation(flat_rotation), // 局部偏移旋转后保持原箭头比例。
-                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 不让小地图重复绘制世界空间箭头。
+                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 不让小场景重复绘制世界空间箭头。
                 CameraRaycastIgnore,            // 纯视觉杆身不阻挡相机射线。
             ));
             parent.spawn((
@@ -227,7 +227,7 @@ pub fn spawn_portal_entity(
                 Mesh3d(visual_meshes.edge_beam_wall.clone()), // 所有正式传送点共享同一十四米顶部渐隐圆柱壁。
                 MeshMaterial3d(edge_beam_material), // 低透明叠加材质形成一圈直光而非中心光芯。
                 Transform::from_translation(Vec3::Y * (PORTAL_EDGE_BEAM_HEIGHT * 0.5)), // 固定半径筒壁底端贴地、顶端十四米渐隐归零。
-                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 边缘直光不进入小地图相机。
+                RenderLayers::layer(PORTAL_EFFECT_LAYER), // 边缘直光不进入小场景相机。
                 CameraRaycastIgnore,                      // 透明筒壁绝不参与防穿墙射线或玩法碰撞。
             ));
         })
@@ -280,14 +280,14 @@ mod tests {
     }
 
     #[test]
-    fn portal_name_is_derived_from_target_map_display_name() {
-        assert_eq!(portal_destination_label("b"), "前往b"); // 地图a通往地图b时必须显示用户指定名称。
+    fn portal_name_is_derived_from_target_scene_display_name() {
+        assert_eq!(portal_destination_label("b"), "前往b"); // 场景a通往场景b时必须显示用户指定名称。
         assert_eq!(portal_destination_label(" 黄河古道 "), "前往黄河古道"); // 作者名称首尾空白不进入世界标签。
     }
 
     #[test]
     fn custom_portal_label_overrides_default_but_legacy_sequence_does_not() {
-        assert_eq!(portal_display_label("前往b", false, "b"), "前往b"); // 新建点未自定义时使用目标地图默认名。
+        assert_eq!(portal_display_label("前往b", false, "b"), "前往b"); // 新建点未自定义时使用目标场景默认名。
         assert_eq!(portal_display_label("传送点_7", true, "b"), "前往b"); // 旧流水名自动迁移为可读默认名。
         assert_eq!(portal_display_label("前往王府", true, "b"), "前往王府"); // 区块名称必须完整保留。
     }
@@ -317,7 +317,7 @@ mod tests {
                 PortalSpawnSpec {
                     position: Vec3::new(2.0, 0.0, -7.0),
                     target_scene: ScenePhase::Active,
-                    target_map_id: Some("project-map-b"),
+                    target_scene_id: Some("project-map-b"),
                     target_display_name: "目的地_遠景",
                     spawn_position: Vec3::new(8.0, 0.0, 9.0),
                     label: AUTHOR_LABEL,
@@ -346,7 +346,7 @@ mod tests {
         let world = app.world_mut();
         let portal = world.query::<&Portal>().single(world).unwrap();
         assert_eq!(portal.label, AUTHOR_LABEL);
-        assert_eq!(portal.target_map_id.as_deref(), Some("project-map-b"));
+        assert_eq!(portal.target_scene_id.as_deref(), Some("project-map-b"));
         let (label, request) = world
             .query::<(&PortalLabel, &BillboardText)>()
             .single(world)

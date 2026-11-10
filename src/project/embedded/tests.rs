@@ -118,8 +118,8 @@ fn direct_public_helper_pauses_a_handoff_without_changing_the_confirmed_mode() {
 }
 
 #[test]
-fn only_a_genuinely_empty_initial_world_can_bypass_map_readiness() {
-    use feathrise_map_content::ActiveDynamicMap;
+fn only_a_genuinely_empty_initial_world_can_bypass_scene_readiness() {
+    use feathrise_scene_content::ActiveDynamicScene;
     use feathrise_scene_core::state::{PendingSceneTransition, ScenePhase, SceneStartupGate};
     let mut world = World::new();
     world.insert_resource(EmbeddedProjectState {
@@ -128,16 +128,16 @@ fn only_a_genuinely_empty_initial_world_can_bypass_map_readiness() {
         revision: 0,
         transitioning: false,
     });
-    world.insert_resource(ActiveDynamicMap::default());
+    world.insert_resource(ActiveDynamicScene::default());
     world.insert_resource(State::new(ScenePhase::Idle));
     assert!(super::systems::scene_ready(&world));
     assert!(
-        world.resource::<ActiveDynamicMap>().map_id.is_none(),
-        "不得为预览偷偷补默认地图"
+        world.resource::<ActiveDynamicScene>().scene_id.is_none(),
+        "不得为预览偷偷补默认场景"
     );
     world.insert_resource(PendingSceneTransition::named(
         ScenePhase::Active,
-        "尚未采用地图",
+        "尚未采用场景",
     ));
     assert!(!super::systems::scene_ready(&world));
     world.remove_resource::<PendingSceneTransition>();
@@ -230,7 +230,7 @@ fn the_first_gameplay_update_observes_the_restored_game_camera() {
 }
 
 #[test]
-fn restoring_a_removed_game_camera_does_not_overwrite_the_new_map_camera() {
+fn restoring_a_removed_game_camera_does_not_overwrite_the_new_scene_camera() {
     use feathrise_scene_core::view::PrimarySceneView;
     let mut world = World::new();
     let old = world.spawn((PrimarySceneView, Transform::IDENTITY,
@@ -246,13 +246,13 @@ fn restoring_a_removed_game_camera_does_not_overwrite_the_new_map_camera() {
 }
 
 #[test]
-fn live_height_handback_preserves_shared_pages_and_rejects_old_map_results() {
-    use feathrise_map_content::{ActiveDynamicMap, MapId, SparseHeightLiveOverride,
+fn live_height_handback_preserves_shared_pages_and_rejects_old_scene_results() {
+    use feathrise_scene_content::{ActiveDynamicScene, SceneId, SparseHeightLiveOverride,
         SparseHeightSpec, SparseHeightTile, SparseHeightTileKey};
-    let map = MapId::parse("MAP-height-source").unwrap();
-    let other = MapId::parse("MAP-height-next").unwrap();
+    let map = SceneId::parse("MAP-height-source").unwrap();
+    let other = SceneId::parse("MAP-height-next").unwrap();
     let mut world = World::new();
-    let mut active = ActiveDynamicMap::default(); active.select(map.clone());
+    let mut active = ActiveDynamicScene::default(); active.select(map.clone());
     world.insert_resource(active);
     let spec = SparseHeightSpec::new([-512.0;2], [512.0;2], 0.125, -8.0, 16.0).unwrap();
     let key = SparseHeightTileKey { x:3, z:5 };
@@ -271,7 +271,7 @@ fn live_height_handback_preserves_shared_pages_and_rejects_old_map_results() {
     let complete = super::systems::next_height_source_revision().unwrap();
     assert!(complete > live, "完整来源不能与上一个实时页版本碰撞");
     prepared.retarget(Some(map.clone()), complete);
-    world.resource_mut::<ActiveDynamicMap>().select(other);
+    world.resource_mut::<ActiveDynamicScene>().select(other);
     assert!(super::systems::publish_height_preview(&mut world,&map,None,prepared).is_err());
     assert_eq!(world.resource::<SparseHeightLiveOverride>().revision(),live);
 }
@@ -279,7 +279,7 @@ fn live_height_handback_preserves_shared_pages_and_rejects_old_map_results() {
 #[test]
 fn an_asset_reader_never_combines_bytes_from_two_publications() {
     let store = AssetOverlay::default();
-    let path = "maps/TEST/map.json".to_owned();
+    let path = "scenes/TEST/map.json".to_owned();
     let publish = |bytes: &[u8]| Publication {
         files: Arc::new(Files::from([(path.clone(), Arc::new(bytes.to_vec()))])),
         reads: Arc::new(BTreeMap::from([(path.clone(), SourceEvidence::default())])),
@@ -328,7 +328,7 @@ fn reading_a_new_source_does_not_mean_production_assets_adopted_it() {
 }
 
 #[test]
-fn removed_draft_assets_reload_but_cannot_block_the_new_map_forever() {
+fn removed_draft_assets_reload_but_cannot_block_the_new_scene_forever() {
     let unchanged = Arc::new(vec![1]);
     let previous = Files::from([
         ("same.json".into(), unchanged.clone()),
@@ -353,13 +353,13 @@ fn asset_publication_yields_to_a_reader_and_rejects_path_escapes() {
     for path in [
         "../other/map.json",
         "C:/other/a.glb",
-        "maps/./x",
-        "maps//x",
+        "scenes/./x",
+        "scenes//x",
         "root1://x",
-        "maps/x.glb#Scene0",
-        "maps\\x",
+        "scenes/x.glb#Scene0",
+        "scenes\\x",
     ] {
         assert!(!valid_path(path), "{path}");
     }
-    assert!(valid_path("maps/当前图/terrain.glb"));
+    assert!(valid_path("scenes/当前图/terrain.glb"));
 }

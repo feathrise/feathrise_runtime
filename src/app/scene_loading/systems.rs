@@ -29,7 +29,7 @@ pub(super) fn clear_scene_loading(mut commands: Commands) {
     commands.remove_resource::<PendingSceneTransition>();
 }
 
-/// 地图专用入口明确不安装应用角色域；空关键清单仍需后续真实地图/碰撞启动门。
+/// 场景专用入口明确不安装应用角色域；空关键清单仍需后续真实场景/碰撞启动门。
 pub(super) fn prepare_project_scene_assets(
     mut commands: Commands,
     pending: Option<Res<PendingSceneTransition>>,
@@ -61,7 +61,7 @@ pub(super) fn poll_scene_loading(
     }
     if !prerequisites.ready_for(&transition) { return; }
     let Some(critical) = critical.filter(|assets| assets.is_for(&transition)) else {
-        return; // 同为Loading时也必须等当前请求清单，上一请求已就绪不能放行后来的地图。
+        return; // 同为Loading时也必须等当前请求清单，上一请求已就绪不能放行后来的场景。
     };
     let target = transition.target;
     let name = progress

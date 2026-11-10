@@ -160,7 +160,7 @@ pub(crate) fn run(project: crate::project::ProjectContext, plugin: impl Plugin) 
             exit_condition: ExitCondition::DontExit,
             ..default()
         });
-    app.insert_resource(feathrise_map_content::RuntimeAssetRoot::new(
+    app.insert_resource(feathrise_scene_content::RuntimeAssetRoot::new(
         project.asset_root(),
     )?)
     .insert_resource(project.clone())

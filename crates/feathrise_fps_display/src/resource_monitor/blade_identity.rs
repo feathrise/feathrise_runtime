@@ -2,7 +2,7 @@
 
 use super::lod_controls::{LodControlContent, LodControlPresetBindings};
 use feathrise_environment::vegetation::VegetationBladeLayer;
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 pub(super) fn content_for_blade_layer(
     layer: &VegetationBladeLayer,
     presets: Option<&VegetationPresetRegistry>,

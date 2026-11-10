@@ -102,7 +102,7 @@ impl WeatherState {
 
     /// 返回当前天气区域。
     pub const fn region(&self) -> WeatherRegion {
-        self.region // 所有地图维持中性全局天气连续性。
+        self.region // 所有场景维持中性全局天气连续性。
     } // 结束天气区域查询。
 
     /// 返回确定性随机种子。
@@ -134,7 +134,7 @@ impl WeatherState {
             transition_progress: self.transition_progress, // 保存连续过渡比例。
             transition_duration_game_seconds: self.transition_duration_game_seconds, // 保存完整过渡时长。
             stable_remaining_game_seconds: self.stable_remaining_game_seconds, // 保存稳定期剩余时长。
-            region: self.region, // 保存天气区域以兼容加载阶段尚未进入目标地图。
+            region: self.region, // 保存天气区域以兼容加载阶段尚未进入目标场景。
             seed: self.seed,     // 保存确定性随机基础种子。
             sequence: self.sequence, // 保存已消费随机序号。
         } // 返回完整轻量天气快照。
@@ -267,7 +267,7 @@ impl WeatherState {
         self.enforce_mist_time_constraints(hour); // 十点后立即应用薄雾时仍遵守晨雾生命期规则。
     } // 结束天气立即应用。
 
-    /// 按当前季节、时刻、状态图与地图气候配置重新抽取下一目标。
+    /// 按当前季节、时刻、状态图与场景气候配置重新抽取下一目标。
     pub(crate) fn reroll(&mut self, month: u8, hour: f32, climate: WeatherClimateProfile) {
         self.queued_target = None; // 手动重抽接管自动状态并取消旧剧情最终目标。
         self.queued_transition_duration_game_seconds = 0.0; // 清除旧剧情路径时长。
@@ -276,7 +276,7 @@ impl WeatherState {
             self.current,            // 重新抽取仍只允许当前节点自身和相邻节点。
             month,                   // 当前月份决定季节权重。
             hour,                    // 当前时刻决定薄雾是否进入候选池。
-            climate,                 // 显式配置提供季节权重与地图局部修正。
+            climate,                 // 显式配置提供季节权重与场景局部修正。
             self.next_random_unit(), // 消费一个确定性天气选择样本。
         ); // 完成手动重新抽取。
         if next == self.current {
@@ -298,7 +298,7 @@ impl WeatherState {
 
     /// 将场景映射后的天气区写入状态，不重置当前天气过程。
     pub(crate) fn set_region(&mut self, region: WeatherRegion) {
-        self.region = region; // 共享区域内地图切换保持同一份天气状态。
+        self.region = region; // 共享区域内场景切换保持同一份天气状态。
     } // 结束天气区域同步。
 
     /// 按指定游戏秒、月份和时刻推进自动天气。
@@ -307,7 +307,7 @@ impl WeatherState {
         game_seconds: f32,              // 已乘世界时间倍率且感知暂停的游戏秒增量。
         month: u8,                      // 当前月份决定下一天气季节权重。
         hour: f32,                      // 当前时刻决定晨雾生成和强制消散。
-        climate: WeatherClimateProfile, // 当前正式地图显式登记的季节权重与局部修正。
+        climate: WeatherClimateProfile, // 当前正式场景显式登记的季节权重与局部修正。
     ) {
         self.enforce_mist_time_constraints(hour); // 即使暂停或零增量，拖动时刻到十点后也必须清除晨雾。
         if !game_seconds.is_finite() || game_seconds <= 0.0 {
@@ -357,7 +357,7 @@ impl WeatherState {
                 self.current,            // 只从当前节点自身和直接相邻节点中抽取。
                 month,                   // 当前月份应用季节基础权重。
                 hour,                    // 当前时刻控制薄雾是否进入候选池。
-                climate,                 // 使用当前地图气候配置完成下一次正常抽取。
+                climate,                 // 使用当前场景气候配置完成下一次正常抽取。
                 self.next_random_unit(), // 消费一个确定性天气选择样本。
             ); // 完成下一天气抽取。
             if next == self.current {

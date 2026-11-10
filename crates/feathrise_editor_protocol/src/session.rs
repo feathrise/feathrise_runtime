@@ -27,7 +27,7 @@ impl SessionGuard {
 
     pub fn advance_generation(&mut self, generation: u64) -> Result<(), ProtocolError> {
         if generation <= self.identity.generation {
-            return Err(ProtocolError::Identity("切图代次必须严格递增".into()));
+            return Err(ProtocolError::Identity("切换场景代次必须严格递增".into()));
         }
         self.identity.generation = generation;
         Ok(())
@@ -43,7 +43,7 @@ impl SessionGuard {
             return Ok(Disposition::StaleGeneration);
         }
         if message.identity.generation != self.identity.generation {
-            return Err(ProtocolError::Identity("尚未授权的新地图代次".into()));
+            return Err(ProtocolError::Identity("尚未授权的新场景代次".into()));
         }
         if message.sequence == 0 || message.sequence <= self.last_sequence {
             return Err(ProtocolError::Identity("消息重复或接收顺序倒退".into()));

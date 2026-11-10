@@ -36,7 +36,7 @@ pub const GPU_GRASS_PROFILE_CAPACITY: usize = 4; // 两位实例字段和固定�
 
 /// 一条 GPU 叶片植被窗口使用的受检 profile 槽。
 ///
-/// 【功能设计】公共运行时只承诺零至三号通用槽，不为槽位附加普通草、麦田或地图语义；
+/// 【功能设计】公共运行时只承诺零至三号通用槽，不为槽位附加普通草、麦田或场景语义；
 /// 消费者在内容适配层为槽位命名，Compute 把两位索引写入二十字节实例记录的外观字段。
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -213,7 +213,7 @@ impl GpuBladeViewLodConfig {
         Ok(config)
     }
 
-    /// 用消费者的完整三级规格构造不可变相机LOD配置（兼容旧地图/专图）。
+    /// 用消费者的完整三级规格构造不可变相机LOD配置（兼容旧场景/专图）。
     #[allow(clippy::too_many_arguments)] // 固定纯值配置需要在const上下文一次性写明全部LOD维度。
     pub const fn new(
         far_to_middle_pixels: Vec2,  // 远景草簇过渡到中景草簇的投影像素区间。
@@ -269,7 +269,7 @@ impl GpuBladeViewLodConfig {
     }
 
     /// 构造包含最粗超远代理的四档相机驱动LOD规格（兼容旧专图）。
-    #[allow(clippy::too_many_arguments)] // 每一项都是地图标定后的独立视觉或固定驻留边界，合并会隐藏单位。
+    #[allow(clippy::too_many_arguments)] // 每一项都是场景标定后的独立视觉或固定驻留边界，合并会隐藏单位。
     pub const fn new_with_ultra(
         ultra_to_far_pixels: Vec2,         // 超远代理进入远级子树的投影像素区间。
         far_to_middle_pixels: Vec2,        // 远景转中景的投影像素区间。

@@ -5,14 +5,14 @@ use super::{
     ownership::{OwnerQuery, insert_source, owner_active, remove_source, resolve_owner},
     types::ShelterSource,
 }; // 有界祖先缓存和正式根活动门。
-use crate::MapPlacementInstance; // 只监听显式根新增，不枚举场景网格。
+use crate::ScenePlacementInstance; // 只监听显式根新增，不枚举场景网格。
 use bevy::gltf::GltfExtras; // glTF节点自定义属性，空节点也拥有该组件。
 use bevy::prelude::*; // 实体、变更过滤和资源。
 use feathrise_environment::rain_shelter::{
     RainShelterBox, RainShelterGpu, RainShelterState, RainShelterVolume,
 }; // CPU/GPU共享受检代理。
-use feathrise_map_content::ActiveDynamicMap; // 动态地图实际身份。
-use feathrise_scene_core::state::ScenePhase; // 正式玩法地图状态。
+use feathrise_scene_content::ActiveDynamicScene; // 动态场景实际身份。
+use feathrise_scene_core::state::ScenePhase; // 正式玩法场景状态。
 use std::collections::HashSet; // 层级事件合并，同源最多重建一次。
 
 pub(super) fn sync_extras(
@@ -75,8 +75,8 @@ pub(super) fn sync_extras(
 #[allow(clippy::too_many_arguments)] // 生命周期事件和正式根查询各自独立，避免混淆所有权。
 pub(super) fn publish(
     // 代理最多32时完整编码是固定3088字节小工作。
-    scene: Res<State<ScenePhase>>, // 菜单或加载态必须立刻关闭旧地图代理。
-    dynamic: Res<ActiveDynamicMap>, // 同DynamicMapScene下也检查真实MapId。
+    scene: Res<State<ScenePhase>>, // 菜单或加载态必须立刻关闭旧场景代理。
+    dynamic: Res<ActiveDynamicScene>, // 同DynamicSceneRoot下也检查真实SceneId。
     changed: Query<
         (Entity, &RainShelterBox, &GlobalTransform),
         Or<(Changed<RainShelterBox>, Changed<GlobalTransform>)>,
@@ -87,7 +87,7 @@ pub(super) fn publish(
         Entity,
         Or<(
             Changed<ChildOf>,
-            Added<MapPlacementInstance>,
+            Added<ScenePlacementInstance>,
             Added<DespawnOnExit<ScenePhase>>,
         )>,
     >, // 祖先重挂/补上拥有者时定向失效。
@@ -99,13 +99,13 @@ pub(super) fn publish(
 ) {
     // 不受虚拟时钟暂停影响，暂停编辑/移动仍正确。
     let context = match **scene {
-        // 只在正式地图发布遮雨。
-        ScenePhase::Active => dynamic.map_id.clone().map(|id| (**scene, Some(id))), // 无ID时不发布。
+        // 只在正式场景发布遮雨。
+        ScenePhase::Active => dynamic.scene_id.clone().map(|id| (**scene, Some(id))), // 无ID时不发布。
         _ => None, // 菜单/加载安全关闭。
-    }; // 完成当前地图身份。
+    }; // 完成当前场景身份。
     if registry.context != context {
         registry.context = context.clone();
-    } // 稳定地图不重复写入身份缓存。
+    } // 稳定场景不重复写入身份缓存。
     for entity in removed.read().chain(removed_transforms.read()) {
         remove_source(&mut registry, entity);
     } // 实体定向O(1)清理与最多64级索引清理。
@@ -135,7 +135,7 @@ pub(super) fn publish(
         let source_context = previous
             .as_ref()
             .map(|record| record.context.clone())
-            .unwrap_or_else(|| context.clone()); // 重挂不改写创建时地图身份。
+            .unwrap_or_else(|| context.clone()); // 重挂不改写创建时场景身份。
         let resolved = resolve_owner(entity, &owners); // 有界解析新链。
         let (owner, ancestors) = resolved.clone().unwrap_or((entity, vec![entity])); // 过深链保留明确坏源以关闭批次。
         insert_source(
@@ -153,16 +153,16 @@ pub(super) fn publish(
             },
         ); // 所有缓存一次提交。
     } // 完成真正层级变更接管。
-    let mut next = RainShelterGpu::default(); // 错误、超限、非地图均采用显式无代理回退。
+    let mut next = RainShelterGpu::default(); // 错误、超限、非场景均采用显式无代理回退。
     let mut error = None; // 成功后清除去重错误。
     if context.is_some() {
         // 不把加载场景的数据提前暴露给渲染。
         if registry.owners.len() > 32 {
             // 最多32个独立活动/候选根，超限不逐根无限查询。
-            error = Some("遮雨作者根超过32个，当前批次全部关闭；请将连续屋顶代理置于共同地图根下"); // 根检查预算独立且不静默遗漏。
+            error = Some("遮雨作者根超过32个，当前批次全部关闭；请将连续屋顶代理置于共同场景根下"); // 根检查预算独立且不静默遗漏。
         } else {
             // 已证实最多32个源，下面遍历具有固定上界。
-            let current = context.as_ref().unwrap(); // 上层已确保正式地图身份存在。
+            let current = context.as_ref().unwrap(); // 上层已确保正式场景身份存在。
             let mut active_roots = [None; 32]; // 固定栈数组避免每帧小堆分配。
             let mut root_count = 0; // 最多32次根单查。
             for owner in registry.owners.keys() {
@@ -215,7 +215,7 @@ pub(super) fn publish(
                 }
             } // 整批成功才绑定首次激活身份。
         } // 完成预算门。
-    } // 完成活动地图门。
+    } // 完成活动场景门。
     if error.is_some() {
         next = RainShelterGpu::default();
     } // 错误整批拒绝，禁止发布半成品。

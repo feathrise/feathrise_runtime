@@ -63,7 +63,7 @@ pub(super) fn prepare_vegetation_gpu_mip_job(
     let Some(job) = request.job.as_ref() else {
         state.current = None; // 主世界稳定或取消后不保留根图可执行作业。
         state.competition = None; // 整批结束后释放共享大输入GPU缓冲。
-        state.last_key = None; // 暂停地图后恢复的在途请求允许重新提交，不把已切走的回调当作该图已收到。
+        state.last_key = None; // 暂停场景后恢复的在途请求允许重新提交，不把已切走的回调当作该图已收到。
         return;
     };
     let key = (job.ticket, job.layer); // 同批次不同层必须分别处理。

@@ -9,7 +9,7 @@ use bevy::{
     tasks::Task,   // AsyncComputeTaskPool返回的非阻塞任务句柄。
 };
 
-use crate::types::AdaptationIdentity; // 所有捕获、任务与结果都锁定完整地图身份。
+use crate::types::AdaptationIdentity; // 所有捕获、任务与结果都锁定完整场景身份。
 
 pub(crate) use capture::{capture_mesh_inputs, poll_and_adopt_mesh_results};
 

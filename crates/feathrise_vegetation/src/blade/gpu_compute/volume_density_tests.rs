@@ -557,7 +557,7 @@ fn validate_seams(device: &wgpu::Device, queue: &wgpu::Queue, harness: &Harness)
                 .collect::<Vec<_>>();
             let image = GpuBladeVolumeSource::image_from_cells(&cells, 8 * 1024 * 1024).unwrap();
             let mut topology = ClipmapUniform {
-                map_bounds: Vec4::new(-2., -2., 2., 2.),
+                scene_bounds: Vec4::new(-2., -2., 2., 2.),
                 grid: Vec4::new(0.25, 0.25, 16., 16.),
                 options: Vec4::new(0., 1., 1., 0.),
                 ..default()

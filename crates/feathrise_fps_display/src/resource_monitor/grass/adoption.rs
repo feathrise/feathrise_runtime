@@ -17,7 +17,7 @@ pub(super) fn format_blade_adoption_report(
         return "状态资源未安装（直接密度资产）".to_string(); // 独立旧样例仍可只安装GPU绘制插件。
     };
     let phase = match status.phase() {
-        VegetationBladeAdoptionPhase::Unbound => "未绑定（直接密度资产）", // HN-02等未迁移地图保持原句柄。
+        VegetationBladeAdoptionPhase::Unbound => "未绑定（直接密度资产）", // HN-02等未迁移场景保持原句柄。
         VegetationBladeAdoptionPhase::FallbackRetained => {
             "等待解析布局（严格/上一有效密度托底）" // 初次加载和换版都不提前切换。
         }

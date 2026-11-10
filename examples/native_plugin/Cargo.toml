@@ -10,6 +10,6 @@ resolver = "3"
 [lib]
 crate-type = ["cdylib", "rlib"]
 [dependencies]
-feathrise_plugin_api = { version = "=0.2.0", path = "../../crates/feathrise_plugin_api" }
+feathrise_plugin_api = { version = "=0.3.0", path = "../../crates/feathrise_plugin_api" }
 [build-dependencies]
-feathrise_plugin_api = { version = "=0.2.0", path = "../../crates/feathrise_plugin_api" }
+feathrise_plugin_api = { version = "=0.3.0", path = "../../crates/feathrise_plugin_api" }

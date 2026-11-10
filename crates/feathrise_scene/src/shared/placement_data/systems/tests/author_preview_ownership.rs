@@ -5,21 +5,21 @@ use avian3d::prelude::{Collider, ColliderDisabled, RigidBody, RigidBodyDisabled}
 use bevy::ecs::system::RunSystemOnce;
 
 /// 沿用父夹具已经完成依赖就绪的边界，第二份保存候选仍经过生产最终复验和原子采用。
-fn install_followup_candidate(app: &mut App, map: &MapId, record: &MapPlacementRecord) -> (Entity, Entity) {
+fn install_followup_candidate(app: &mut App, map: &SceneId, record: &ScenePlacementRecord) -> (Entity, Entity) {
     let gate = PlacementInstanceGate::new(false);
     let container = app.world_mut().spawn((
         PlacementStagingRoot, Visibility::Hidden, Transform::IDENTITY,
         RigidBody::Static, RigidBodyDisabled, bevy_tnua::TnuaNotPlatform,
     )).id();
     let root = app.world_mut().spawn((
-        MapPlacementInstance::new_pending(map, record, gate.clone()),
+        ScenePlacementInstance::new_pending(map, record, gate.clone()),
         PlacementPendingInstance,
         PlacementPendingRevision { generation: 5, revision: 10 },
         Transform::IDENTITY,
         Visibility::Hidden, // 作者域遮蔽的是单个正式根；整批容器激活不能解除这层覆盖。
         ChildOf(container),
     )).id();
-    let mut state = app.world_mut().resource_mut::<MapPlacementRuntimeState>();
+    let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>();
     assert!(state.staging.is_none() && state.retired_plan.is_none());
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
@@ -46,7 +46,7 @@ fn install_followup_candidate(app: &mut App, map: &MapId, record: &MapPlacementR
         terrain_patch_count: 0,
         generation: 5,
         revision: 10,
-        map_id: map.clone(),
+        scene_id: map.clone(),
         building_preset_revision: TEST_BUILDING_PRESET_REVISION,
         building_clearances: BuildingVegetationClearanceState::empty_regions(),
         building_clearance_floor_heights: Default::default(),
@@ -61,14 +61,14 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
     app.init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<StandardMaterial>>()
         .add_systems(Update, (finish_once, cleanup_retired_placement_plan.after(finish_once)));
-    let map = MapId::parse("MAP-pending-adoption").unwrap();
+    let map = SceneId::parse("MAP-pending-adoption").unwrap();
     let mut saved = placement_record("candidate-0");
     saved.asset_path.clear();
-    saved.asset_target = MapPlacementAssetTarget::Cuboid {
+    saved.asset_target = ScenePlacementAssetTarget::Cuboid {
         size_mm: [1_000; 3], color_srgb: [160; 3], roughness_milli: 700, collision: true,
     };
     let (old_container, old_gate) = {
-        let state = app.world().resource::<MapPlacementRuntimeState>();
+        let state = app.world().resource::<ScenePlacementRuntimeState>();
         let staging = state.staging.as_ref().unwrap();
         (staging.root, staging.gate.clone())
     };
@@ -76,7 +76,7 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
         Transform::IDENTITY, RigidBody::Static, RigidBodyDisabled, bevy_tnua::TnuaNotPlatform,
     ));
     app.world_mut().entity_mut(old_roots[0]).insert((
-        MapPlacementInstance::new_pending(&map, &saved, old_gate),
+        ScenePlacementInstance::new_pending(&map, &saved, old_gate),
         Transform::IDENTITY, Visibility::Inherited,
     ));
     // 宽旧树确保正式回收确实跨帧执行，不能只证明新批次Ready时还没触碰作者根。
@@ -84,16 +84,16 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
         app.world_mut().spawn((Visibility::Inherited, ChildOf(old_roots[0])));
     }
     app.update();
-    let retired_identity = app.world().get::<MapPlacementInstance>(old_roots[0]).unwrap().clone();
+    let retired_identity = app.world().get::<ScenePlacementInstance>(old_roots[0]).unwrap().clone();
     assert!(retired_identity.is_active());
-    assert_eq!(app.world().resource::<MapPlacementRuntimeStatus>().revision, 1);
-    assert!(app.world().resource::<MapPlacementRuntimeState>().retired_plan.is_none());
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().revision, 1);
+    assert!(app.world().resource::<ScenePlacementRuntimeState>().retired_plan.is_none());
 
     let mut later_edit = saved.clone();
     later_edit.translation = [9.0, 4.0, 2.0];
     let author_transform = Transform::from_translation(Vec3::from_array(later_edit.translation));
     let author = app.world_mut().spawn((
-        MapPlacementInstance::new(&map, &later_edit), author_transform,
+        ScenePlacementInstance::new(&map, &later_edit), author_transform,
         Visibility::Inherited, RigidBody::Static,
     )).id();
     let target = later_edit.asset_target;
@@ -103,7 +103,7 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
     let author_visual = app.world().get::<Children>(author).unwrap()[0];
     assert!(app.world().get::<Collider>(author_visual).is_some());
     let (new_container, new_root) = install_followup_candidate(&mut app, &map, &saved);
-    assert!(app.world().get::<MapPlacementInstance>(new_root).unwrap().is_pending());
+    assert!(app.world().get::<ScenePlacementInstance>(new_root).unwrap().is_pending());
 
     app.update(); // 真正采用第二批：旧共享门退役、旧容器静默、新共享门激活。
 
@@ -114,18 +114,18 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
     assert_eq!(app.world().get::<Visibility>(new_container), Some(&Visibility::Inherited));
     assert!(app.world().get::<RigidBodyDisabled>(new_container).is_none());
     assert!(app.world().get::<bevy_tnua::TnuaNotPlatform>(new_container).is_none());
-    assert!(app.world().get::<MapPlacementInstance>(new_root).unwrap().is_active());
+    assert!(app.world().get::<ScenePlacementInstance>(new_root).unwrap().is_active());
     assert_eq!(app.world().get::<Visibility>(new_root), Some(&Visibility::Hidden));
-    assert_eq!(app.world().resource::<MapPlacementRuntimeStatus>().revision, 2);
-    assert_eq!(app.world().resource::<MapPlacementRuntimeState>().active.as_ref().unwrap().root, new_container);
-    assert!(!app.world().resource::<MapPlacementRuntimeState>().retired_trees.is_empty());
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().revision, 2);
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeState>().active.as_ref().unwrap().root, new_container);
+    assert!(!app.world().resource::<ScenePlacementRuntimeState>().retired_trees.is_empty());
 
     app.add_systems(Update, cleanup_retired_placement_trees.after(finish_once));
     for frame in 0..8 {
         app.update();
         assert_eq!(app.world().get::<Transform>(author), Some(&author_transform));
         assert_eq!(app.world().get::<Visibility>(author), Some(&Visibility::Inherited));
-        assert!(app.world().get::<MapPlacementInstance>(author).unwrap().is_active());
+        assert!(app.world().get::<ScenePlacementInstance>(author).unwrap().is_active());
         assert!(app.world().get::<RigidBody>(author).is_some());
         assert!(app.world().get::<RigidBodyDisabled>(author).is_none());
         assert!(app.world().get::<bevy_tnua::TnuaNotPlatform>(author).is_none());
@@ -137,10 +137,10 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
         if frame == 0 {
             assert!(app.world().get_entity(old_container).is_ok(), "旧宽树应继续占用分帧清理槽");
         }
-        if app.world().resource::<MapPlacementRuntimeState>().retired_trees.is_empty() { break; }
+        if app.world().resource::<ScenePlacementRuntimeState>().retired_trees.is_empty() { break; }
     }
     assert!(app.world().get_entity(old_container).is_err());
     assert!(app.world().get_entity(old_roots[0]).is_err());
-    assert!(app.world().resource::<MapPlacementRuntimeState>().retired_trees.is_empty());
-    assert_eq!(app.world().resource::<MapPlacementRuntimeStatus>().revision, 2);
+    assert!(app.world().resource::<ScenePlacementRuntimeState>().retired_trees.is_empty());
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().revision, 2);
 }

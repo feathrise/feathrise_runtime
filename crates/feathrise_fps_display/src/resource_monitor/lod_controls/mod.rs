@@ -17,7 +17,7 @@ pub struct LodControlApplySet;
 pub(super) use apply::{apply_changed_lod_controls, apply_lod_controls_to_new_nodes}; // 调度层只调用全量变化与新增节点两条同步路径。
 pub(super) use mesh::install_managed_mesh_lod_controls; // 通用节点通过独立PostUpdate安装边界保证首次生成帧即应用F3状态。
 pub use state::{
-    // F4动态地图监控复用同一状态，避免两个面板对同一渲染节点互相覆盖。
+    // F4动态场景监控复用同一状态，避免两个面板对同一渲染节点互相覆盖。
     ALL_LODS_ENABLED,
     LOD_LEVEL_COUNT,
     LodControlContent,

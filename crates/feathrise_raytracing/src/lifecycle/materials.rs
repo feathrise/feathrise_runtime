@@ -104,7 +104,7 @@ pub(crate) fn drive_gpu_preparation_and_warmup(
                     Some(RaytracingPrototypeBlocker::SourceChanged),
                     RollbackDisposition::RasterReady,
                 );
-                return; // 切换可见材质前再次核对全部候选实体与原句柄仍属于同一地图代次。
+                return; // 切换可见材质前再次核对全部候选实体与原句柄仍属于同一场景代次。
             }
             let lease = leases.acquire(GraphicsRuntimeRequirements::solari_warmup(camera)); // 预热先保留标准阴影。
             runtime.lease = Some(lease); // 回退路径持有精确票据。
@@ -377,9 +377,9 @@ fn prepare_all_materials_and_proxies(
                     "{}光追代理_{:02}",
                     runtime.target.display_name(),
                     candidate.contract_index
-                )), // 世界检查器可同时辨认地图级目标与稳定槽。
+                )), // 世界检查器可同时辨认场景级目标与稳定槽。
                 RaytracingProxy {
-                    generation: runtime.generation, // 代理只属于当前地图代次。
+                    generation: runtime.generation, // 代理只属于当前场景代次。
                     source: candidate.entity,       // 保留可见源身份供诊断。
                 },
                 RaytracingMesh3d(derived_mesh), // 只进入Solari提取与TLAS，不插入Mesh3d。
@@ -401,7 +401,7 @@ fn dynamic_terrain_publishes_shadow_terminator_data(
     contract_index: usize,
 ) -> bool {
     // 仅高度场代理携带对应三角身份，体积网格继续走普通材质路径。
-    target == RaytracingPrototypeTarget::DynamicMapTerrain && contract_index == 0 // 三维体积面不能借用唯一高度路由。
+    target == RaytracingPrototypeTarget::DynamicSceneTerrain && contract_index == 0 // 三维体积面不能借用唯一高度路由。
 } // 完成目标级光追元数据模式判定。
 
 #[cfg(test)]

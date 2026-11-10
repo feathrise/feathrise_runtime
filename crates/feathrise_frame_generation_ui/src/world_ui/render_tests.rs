@@ -29,7 +29,7 @@ impl Material for TestWorldLabel {
 #[test] // GPU实机测试需要显式运行。
 #[ignore = "需要真实GPU；运行Bevy离屏渲染链路"] // 默认CI不初始化图形设备。
 fn bevy_world_ui_split_and_fallback_render() {
-    // 不加载地图、不修改settings、不创建窗口。
+    // 不加载场景、不修改settings、不创建窗口。
     let mut app = App::new(); // 测试独占离屏App。
     app.add_plugins(
         DefaultPlugins

@@ -18,7 +18,7 @@ use super::resources::{
 }; // 当前Arc作业和回调完成队列。 // 主世界收件箱与版本化成功/失败载荷。
 
 /// 下一帧对已提交复制发起map_async，并发布此前已经完成的回调结果。
-pub(super) fn begin_maps_and_publish_vegetation_gpu_mips(
+pub(super) fn begin_scenes_and_publish_vegetation_gpu_mips(
     mut main_world: ResMut<MainWorld>, // 只在ExtractSchedule写主世界私有收件箱。
     state: Res<VegetationGpuMipRenderState>, // 当前作业可能仍在READY、复制或映射阶段。
     shared: Res<VegetationGpuMipShared>, // 回调完成队列不等待GPU。

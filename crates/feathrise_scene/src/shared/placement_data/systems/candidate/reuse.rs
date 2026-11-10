@@ -13,7 +13,7 @@ pub(crate) struct PlacementReuseInputs<'w, 's> {
         'w,
         's,
         (
-            &'static MapPlacementInstance,
+            &'static ScenePlacementInstance,
             Option<&'static DynamicWaterMeshOverrides>,
             Option<&'static WorldAssetRoot>,
             Option<&'static PlacementBuildingCollisionGeneration>,
@@ -31,10 +31,10 @@ fn id_hash(id: &str) -> u64 {
     hasher.finish()
 }
 
-/// 只遍历原活动批次自己的已知根，独立作者预览与其他地图永远不会被接管。
+/// 只遍历原活动批次自己的已知根，独立作者预览与其他场景永远不会被接管。
 pub(super) fn index_active_roots(
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     roots: &PlacementReuseInputs,
 ) -> bool {
     let Some(active) = state.active.as_ref() else {
@@ -71,7 +71,7 @@ pub(super) fn index_active_roots(
 /// 命中ID仅是线索，正式作者记录与水覆盖必须完全一致才有权沿用原Entity。
 pub(super) fn reuse_placement(
     commands: &mut Commands,
-    map: &MapId,
+    map: &SceneId,
     plan: &PendingPlacementPlan,
     staging: &mut PlacementStaging,
     active: Option<&PlacementActiveBatch>,

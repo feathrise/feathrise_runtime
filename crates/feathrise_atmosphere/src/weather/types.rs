@@ -38,12 +38,12 @@ impl<'de> Deserialize<'de> for WeatherKind {
 } // 结束天气种类容错Serde实现。
 
 /// 天气连续性所属区域。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)] // 区域随天气快照保存并在地图切换时校正，恢复时兼容未知区域。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)] // 区域随天气快照保存并在场景切换时校正，恢复时兼容未知区域。
 #[serde(rename_all = "snake_case")] // JSON 保持与天气枚举一致的稳定命名。
 pub enum WeatherRegion {
-    /// 不绑定地图地域的全局天气连续性。
+    /// 不绑定场景地域的全局天气连续性。
     #[default] // 新会话和旧快照均使用中性全局区域。
-    Global, // 地图切换保持同一天气过程，气候概率由输入配置决定。
+    Global, // 场景切换保持同一天气过程，气候概率由输入配置决定。
 } // 结束天气区域声明。
 
 impl<'de> Deserialize<'de> for WeatherRegion {

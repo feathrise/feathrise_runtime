@@ -101,7 +101,7 @@ struct GpuBladeReadbackShared {
     latest: Arc<Mutex<GpuBladeGpuReadbackStats>>, // 只有映射完成和ExtractSchedule各锁一次小结构。
     next_sequence: Arc<AtomicU64>,                // 序号在录入GPU拷贝时分配，与回调完成顺序无关。
     dropped_samples: Arc<AtomicU64>,              // 槽位都忙时只增加诊断计数而不卡帧。
-    map_errors: Arc<AtomicU64>,                   // 映射失败后释放槽位并保留上一份有效数据。
+    scene_errors: Arc<AtomicU64>,                   // 映射失败后释放槽位并保留上一份有效数据。
     render_frames: Arc<AtomicU64>, // 按提取配置计数；正式每四帧，运动烟雾逐帧尝试诊断拷贝。
 }
 
@@ -125,7 +125,7 @@ impl GpuBladeReadbackShared {
             .lock() // 只读极短临界区，不访问GPU缓冲。
             .unwrap_or_else(|poisoned| poisoned.into_inner()); // 保持诊断系统可恢复。
         snapshot.dropped_samples = self.dropped_samples.load(Ordering::Relaxed); // 累计值可比数据样本更新。
-        snapshot.map_errors = self.map_errors.load(Ordering::Relaxed); // 发布最新映射错误计数。
+        snapshot.scene_errors = self.scene_errors.load(Ordering::Relaxed); // 发布最新映射错误计数。
         snapshot // 返回F3可以直接复制的值类型。
     }
 }
@@ -234,7 +234,7 @@ fn init_gpu_grass_readback_ring(mut commands: Commands, render_device: Res<Rende
 }
 
 /// 帧首对上一帧已提交槽发起非阻塞映射，同时发布已完成样本。
-fn begin_maps_and_publish_gpu_grass_stats(
+fn begin_scenes_and_publish_gpu_grass_stats(
     mut main_world: ResMut<MainWorld>, // 只在ExtractSchedule通过Bevy官方跨世界入口发布F3资源。
     ring: Res<GpuBladeReadbackRing>,   // 扫描三个槽的COPY_RECORDED状态。
     shared: Res<GpuBladeReadbackShared>, // 为回调提供共享发布容器与映射错误计数。
@@ -271,7 +271,7 @@ fn begin_maps_and_publish_gpu_grass_stats(
                     let Ok(mapped) = callback_buffer.slice(..).get_mapped_range() else {
                         // 映射回调成功后，WGPU 30 的范围借用仍可能失败。
                         callback_buffer.unmap();
-                        callback_shared.map_errors.fetch_add(1, Ordering::Relaxed);
+                        callback_shared.scene_errors.fetch_add(1, Ordering::Relaxed);
                         callback_slot.state.store(SLOT_FREE, Ordering::Release);
                         return;
                     };
@@ -287,7 +287,7 @@ fn begin_maps_and_publish_gpu_grass_stats(
                     callback_buffer.unmap(); // 解除CPU映射后该缓冲才能再次作为COPY_DST。
                     callback_shared.publish(stats); // 序号较新时原子替换F3最新样本。
                 } else {
-                    callback_shared.map_errors.fetch_add(1, Ordering::Relaxed); // 失败只记录诊断，不丢弃上一份有效样本。
+                    callback_shared.scene_errors.fetch_add(1, Ordering::Relaxed); // 失败只记录诊断，不丢弃上一份有效样本。
                 }
                 callback_slot.state.store(SLOT_FREE, Ordering::Release); // 成功unmap或失败结束后都归还三缓冲槽位。
             }); // `map_async`立即返回，帧首系统不调用任何同步poll。
@@ -465,7 +465,7 @@ pub(super) fn install_gpu_grass_readback(render_app: &mut SubApp) {
     render_app
         .init_resource::<GpuBladeReadbackShared>() // 无草地场景也保持稳定零值快照。
         .add_systems(RenderStartup, init_gpu_grass_readback_ring) // 渲染设备建立后一次性创建三个2.5KiB槽。
-        .add_systems(ExtractSchedule, begin_maps_and_publish_gpu_grass_stats) // 帧首发起map_async并发布已完成样本。
+        .add_systems(ExtractSchedule, begin_scenes_and_publish_gpu_grass_stats) // 帧首发起map_async并发布已完成样本。
         .add_systems(
             RenderGraph,
             copy_gpu_grass_readback.in_set(VegetationRenderGraphSet::DiagnosticReadback),

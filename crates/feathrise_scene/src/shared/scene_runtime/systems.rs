@@ -1,17 +1,17 @@
-// 正式地图公共工具：消除城市与独立探索场景的重复代码。
+// 正式场景公共工具：消除城市与独立探索场景的重复代码。
 
 #[cfg(test)]
 use bevy::camera::visibility::RenderLayers;
-use bevy::light::SunDisk; // 所有玩法天体方向光显式携带可由动态地图更新的光盘范围。
+use bevy::light::SunDisk; // 所有玩法天体方向光显式携带可由动态场景更新的光盘范围。
 use bevy::prelude::*;
-use feathrise_atmosphere::{WorldCelestialLight, WorldCelestialLightKind}; // 动态地图显式生成太阳灯和月亮灯。
+use feathrise_atmosphere::{WorldCelestialLight, WorldCelestialLightKind}; // 动态场景显式生成太阳灯和月亮灯。
 use feathrise_scene_core::view::PrimarySceneView;
-use feathrise_settings::SceneDisplaySettings; // 读取 F1 测试面板已加载的地图规划显隐设置。
+use feathrise_settings::SceneDisplaySettings; // 读取 F1 测试面板已加载的场景规划显隐设置。
 use feathrise_scene_core::state::{ScenePhase, LoadingProgress, LoadingStage, SceneStartupGate};
 
 use super::types::SceneEnvironment;
 
-/// Blender与Bevy共同约定的地图规划对象统一名称前缀。
+/// Blender与Bevy共同约定的场景规划对象统一名称前缀。
 const BLENDER_PLANNING_OBJECT_PREFIX: &str = "规划_"; // 区域、标签和导线只通过这一个前缀识别。
 type PlanningEntityData = (Entity, &'static Name, Option<&'static Visibility>);
 type ChangedPlanningEntityFilter = Or<(Added<Name>, Changed<Visibility>)>;
@@ -19,18 +19,18 @@ type ChangedPlanningEntityFilter = Or<(Added<Name>, Changed<Visibility>)>;
 /// 构造玩法天体方向光，并显式保留两类正式阴影资格。
 fn gameplay_directional_light(illuminance: f32, color: Color) -> DirectionalLight {
     DirectionalLight {
-        illuminance,                   // 使用地图作者配置的日景照度。
+        illuminance,                   // 使用场景作者配置的日景照度。
         shadow_maps_enabled: true,     // 标准级联阴影继续作为主要远距离阴影。
         contact_shadows_enabled: true, // 相机设置开启时允许补强近距离接地阴影。
-        color,                         // 使用地图作者配置的高角度日光颜色。
+        color,                         // 使用场景作者配置的高角度日光颜色。
         ..default()                    // 偏置等其余字段沿用 Bevy 正式默认值。
     }
 } // 结束玩法天体方向光构造。
 
-/// 判断导入场景节点是否属于可切换的Blender地图规划对象。
+/// 判断导入场景节点是否属于可切换的Blender场景规划对象。
 fn is_blender_planning_object_name(name: &Name) -> bool {
     name.as_str().starts_with(BLENDER_PLANNING_OBJECT_PREFIX) // 只匹配名称开头，避免普通对象名称中偶然包含“规划”。
-} // 结束Blender地图规划对象名称判断。
+} // 结束Blender场景规划对象名称判断。
 
 /// 把当前规划显隐状态应用到一组命名场景节点。
 fn apply_blender_planning_visibility<'a>(
@@ -50,9 +50,9 @@ fn apply_blender_planning_visibility<'a>(
         } // 完成当前显隐状态比较。
         commands.entity(entity).insert(desired_visibility); // 写入目标Visibility并保留场景层级与其他组件。
     } // 完成全部命名节点显隐同步。
-} // 结束地图规划节点批量显隐应用。
+} // 结束场景规划节点批量显隐应用。
 
-/// 同步Blender地图规划对象显隐，并处理首次实例化与GLB热重载。
+/// 同步Blender场景规划对象显隐，并处理首次实例化与GLB热重载。
 pub fn sync_blender_planning_visibility(
     mut commands: Commands,      // 给匹配节点写入目标Visibility组件。
     settings: Res<SceneDisplaySettings>, // 读取测试面板“显示规划”已持久化的当前状态。
@@ -60,9 +60,9 @@ pub fn sync_blender_planning_visibility(
     changed_named_entities: Query<PlanningEntityData, ChangedPlanningEntityFilter>, // 捕获新场景节点和热重载恢复的Visibility。
     all_named_entities: Query<PlanningEntityData>, // 开关变化时覆盖当前世界全部命名节点。
 ) {
-    let show_planning = settings.show_map_planning; // 获取本帧应显示还是隐藏规划对象。
+    let show_planning = settings.show_scene_planning; // 获取本帧应显示还是隐藏规划对象。
     let desired_visibility = if show_planning {
-        Visibility::Inherited // 开启时恢复场景层级继承，不强制突破隐藏的地图根。
+        Visibility::Inherited // 开启时恢复场景层级继承，不强制突破隐藏的场景根。
     } else {
         Visibility::Hidden // 关闭时直接隐藏规划对象及其网格子节点。
     }; // 完成本帧目标Visibility选择。
@@ -83,7 +83,7 @@ pub fn sync_blender_planning_visibility(
         ); // 完成增量规划显隐同步。
     } // 完成全量与增量更新路径选择。
     *previous_setting = Some(show_planning); // 保存本帧状态供下一帧判断按钮是否变化。
-} // 结束Blender地图规划对象显隐同步。
+} // 结束Blender场景规划对象显隐同步。
 
 /// 标记当前玩法场景的地形碰撞已经可用于生成动态角色。
 pub fn mark_scene_collision_ready(commands: &mut Commands, scene: ScenePhase) {
@@ -107,22 +107,22 @@ pub fn mark_scene_collision_ready(commands: &mut Commands, scene: ScenePhase) {
             if let Some(mut progress) = world.get_resource_mut::<LoadingProgress>() {
                 if scene_assets_ready {
                     progress.stage = LoadingStage::DynamicEntities; // 无阻塞大资源时直接进入角色生成阶段。
-                    progress.completed = 0; // 应用域与子地图尚待完成门统计。
+                    progress.completed = 0; // 应用域与子场景尚待完成门统计。
                     progress.total = 1; // 应用域稍后发布自己的真实进度。
-                    progress.label = format!("正在生成{scene_display_name}应用内容..."); // 显示编辑器地图清单中的实际名称。
+                    progress.label = format!("正在生成{scene_display_name}应用内容..."); // 显示编辑器场景清单中的实际名称。
                 } else {
-                    progress.stage = LoadingStage::SceneAssets; // 保留地图资源加载阶段。
-                    progress.completed = 0; // 地图私有队列将在下一帧写入真实包数。
+                    progress.stage = LoadingStage::SceneAssets; // 保留场景资源加载阶段。
+                    progress.completed = 0; // 场景私有队列将在下一帧写入真实包数。
                     progress.total = 1; // 防止队列首次更新前出现零分母。
-                    progress.label = format!("正在准备{scene_display_name}大资源队列..."); // 明确具体地图碰撞已完成但仍需资源。
-                } // 完成地图是否存在阻塞资源队列的分支。
+                    progress.label = format!("正在准备{scene_display_name}大资源队列..."); // 明确具体场景碰撞已完成但仍需资源。
+                } // 完成场景是否存在阻塞资源队列的分支。
             }
-            info!("{scene_display_name}地图碰撞已就绪，开始生成动态实体"); // 日志与玩家加载提示使用同一名称快照。
+            info!("{scene_display_name}场景碰撞已就绪，开始生成动态实体"); // 日志与玩家加载提示使用同一名称快照。
         }
     });
 }
 
-/// 几何、资产、子地图和显式注册应用域全数完成后，解除当前场景门。
+/// 几何、资产、子场景和显式注册应用域全数完成后，解除当前场景门。
 pub fn complete_scene_startup(world: &mut World) {
     let Some(gate) = world.get_resource::<SceneStartupGate>() else { return; };
     if gate.ready || gate.target != *world.resource::<State<ScenePhase>>().get()
@@ -130,8 +130,8 @@ pub fn complete_scene_startup(world: &mut World) {
     let status = world.get_resource::<crate::SceneApplicationHooks>().map_or(
         crate::SceneApplicationStartupStatus { completed: 0, total: 0, error: None },
         |hooks| (hooks.startup)(world, gate));
-    let error = gate.sub_maps_error.clone().or(status.error.clone());
-    let ready = status.completed == status.total && error.is_none() && gate.sub_maps_ready;
+    let error = gate.subscenes_error.clone().or(status.error.clone());
+    let ready = status.completed == status.total && error.is_none() && gate.subscenes_ready;
     let target = gate.target;
     let display = world.get_resource::<LoadingProgress>()
         .map(|value| value.target_display_name(target).to_owned())
@@ -153,7 +153,7 @@ pub fn complete_scene_startup(world: &mut World) {
     }
 }
 
-/// 生成动态地图的主相机与太阳、月亮；地形和碰撞由作者内容完成后放行。
+/// 生成动态场景的主相机与太阳、月亮；地形和碰撞由作者内容完成后放行。
 pub fn spawn_scene_common(
     commands: &mut Commands,
     clear_color: &mut ResMut<ClearColor>,
@@ -172,7 +172,7 @@ pub fn spawn_scene_common(
         DespawnOnExit(scene),
     )).id();
 
-    // 【功能设计】两盏灯共享首帧安全配置，正式全局与地图配置在同帧ApplyLighting前接管。
+    // 【功能设计】两盏灯共享首帧安全配置，正式全局与场景配置在同帧ApplyLighting前接管。
     let base_profile = WorldCelestialLight::new(
         env.light_illuminance, env.light_color, env.clear_color,
     );
@@ -232,11 +232,11 @@ mod tests {
         let light = gameplay_directional_light(42_000.0, color); // 走正式方向光构造路径。
         assert!(light.shadow_maps_enabled); // 接触阴影不得替代既有标准级联阴影。
         assert!(light.contact_shadows_enabled); // 开启相机组件后必须存在实际可投射的正式光源。
-        assert_eq!(light.illuminance, 42_000.0); // 新资格不得覆盖地图作者照度。
-        assert_eq!(light.color, color); // 新资格不得覆盖地图作者颜色。
+        assert_eq!(light.illuminance, 42_000.0); // 新资格不得覆盖场景作者照度。
+        assert_eq!(light.color, color); // 新资格不得覆盖场景作者颜色。
     } // 结束玩法天体方向光阴影资格回归测试。
 
-    #[test] // 统一前缀必须覆盖区域、标签和导线，同时排除普通地图对象。
+    #[test] // 统一前缀必须覆盖区域、标签和导线，同时排除普通场景对象。
     fn blender_planning_name_uses_one_prefix() {
         let planning_names = [
             Name::new("规划_区域_府城核心区"), // 区域色块使用统一前缀和区域类别。
@@ -286,7 +286,7 @@ mod tests {
         ); // 完成非规划对象不受影响断言。
         app.world_mut()
             .resource_mut::<SceneDisplaySettings>() // 获取测试面板共享设置资源。
-            .show_map_planning = true; // 模拟点击“显示规划: 开”。
+            .show_scene_planning = true; // 模拟点击“显示规划: 开”。
         app.update(); // 应用设置变化并全量同步已有规划节点。
         assert_eq!(
             app.world().get::<Visibility>(planning), // 读取开启后的规划节点可见性。
@@ -294,20 +294,20 @@ mod tests {
         ); // 完成规划开启断言。
         app.world_mut()
             .resource_mut::<SceneDisplaySettings>() // 再次获取设置模拟关闭按钮。
-            .show_map_planning = false; // 模拟点击“显示规划: 关”。
+            .show_scene_planning = false; // 模拟点击“显示规划: 关”。
         app.update(); // 关闭后全量隐藏已有规划节点。
         let switched_scene_planning = app
-            .world_mut() // 模拟切换地图后新GLB刚实例化的规划节点。
+            .world_mut() // 模拟切换场景后新GLB刚实例化的规划节点。
             .spawn((
-                Name::new("规划_导线_地图边界_5公里"), // 新场景节点仍使用唯一前缀。
+                Name::new("规划_导线_场景边界_5公里"), // 新场景节点仍使用唯一前缀。
                 Visibility::Inherited,                 // 新GLB导入时对象默认继承场景可见性。
-            )) // 完成切换地图后的新规划节点生成。
+            )) // 完成切换场景后的新规划节点生成。
             .id(); // 保存新节点用于增量同步断言。
         app.update(); // Added<Name>增量路径必须继承当前关闭状态。
         assert_eq!(
-            app.world().get::<Visibility>(switched_scene_planning), // 读取新地图规划节点的最终可见性。
-            Some(&Visibility::Hidden), // 切换地图不得让关闭的规划对象短暂保持可见。
-        ); // 完成地图切换后规划状态断言。
+            app.world().get::<Visibility>(switched_scene_planning), // 读取新场景规划节点的最终可见性。
+            Some(&Visibility::Hidden), // 切换场景不得让关闭的规划对象短暂保持可见。
+        ); // 完成场景切换后规划状态断言。
         app.world_mut()
             .entity_mut(planning) // 模拟GLB热重载重新写回导入可见性。
             .insert(Visibility::Inherited); // 热重载场景把节点恢复为默认继承状态。

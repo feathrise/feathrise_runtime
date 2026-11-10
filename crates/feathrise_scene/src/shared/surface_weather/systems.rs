@@ -6,13 +6,13 @@ use feathrise_atmosphere::weather::{WeatherAuthoringPreview, WeatherOutput}; // 
 use feathrise_environment::terrain_surface::{
     SurfacePuddleMask, SurfaceWeatherGpu, load_terrain_surface_image, terrain_surface_image_failed,
 }; // 公共GPU状态和标准异步纹理加载。
-use feathrise_map_content::MapPuddleSaveHandoff; // 保存完成后用实际基级像素证明正式文件属于本次画布。
-use feathrise_map_content::{
-    ActiveDynamicMap, MapId, MapManifestAsset, MapPuddleDescriptor,
-    MapPuddleLiveOverride,
+use feathrise_scene_content::ScenePuddleSaveHandoff; // 保存完成后用实际基级像素证明正式文件属于本次画布。
+use feathrise_scene_content::{
+    ActiveDynamicScene, SceneId, SceneManifestAsset, ScenePuddleDescriptor,
+    ScenePuddleLiveOverride,
 }; // 文件权威和作者完整草稿。
 use feathrise_settings::{EffectsQuality, RenderSettings}; // 复用现有持久特效质量档。
-use feathrise_scene_core::state::ScenePhase; // 当前玩法地图而非相机位置决定身份。
+use feathrise_scene_core::state::ScenePhase; // 当前玩法场景而非相机位置决定身份。
 use std::{
     future::Future,
     pin::Pin,
@@ -23,28 +23,28 @@ use super::resources::PuddleRuntimeState; // 当前候选与上一完整结果�
 use feathrise_scene_core::residency::{InstanceRes, InstanceResMut, InstanceFrame};
 use super::resources::PuddleFileCache;
 
-fn current_map(scene: ScenePhase, dynamic: &ActiveDynamicMap) -> Option<MapId> {
-    // 动态地图不能只比较共用GameScene枚举。
+fn current_scene(scene: ScenePhase, dynamic: &ActiveDynamicScene) -> Option<SceneId> {
+    // 动态场景不能只比较共用GameScene枚举。
     match scene {
-        // 静态地图保留正式ID，菜单和加载态没有积水域。
-        ScenePhase::Active => dynamic.map_id.clone(),   // 真实动态清单身份。
+        // 静态场景保留正式ID，菜单和加载态没有积水域。
+        ScenePhase::Active => dynamic.scene_id.clone(),   // 真实动态清单身份。
         _ => None,                                              // 菜单、加载或未就绪场景安全清空。
-    } // 完成地图身份解析。
-} // 完成场景到地图映射。
+    } // 完成场景身份解析。
+} // 完成场景到场景映射。
 
-fn validate_descriptor(map: &MapId, descriptor: &MapPuddleDescriptor) -> Result<(), String> {
-    // 独立作者文件不能指向另一张地图。
+fn validate_descriptor(map: &SceneId, descriptor: &ScenePuddleDescriptor) -> Result<(), String> {
+    // 独立作者文件不能指向另一个场景。
     descriptor.validate()?; // 复用编辑器共同的尺寸/后缀/安全路径校验。
-    let prefix = format!("maps/{}/", map.as_str()); // 当前地图唯一私有根。
+    let prefix = format!("scenes/{}/", map.as_str()); // 当前场景唯一私有根。
     if !descriptor.source_path.starts_with(&prefix) || !descriptor.texture_path.starts_with(&prefix)
     {
-        // 不能通过合法maps前缀跨图串用。
-        return Err("积水作者源和纹理必须位于当前地图私有目录".into()); // 保留旧有效文件或无积水回退。
-    } // 完成精确地图身份保护。
+        // 不能通过合法scenes前缀跨场景串用。
+        return Err("积水作者源和纹理必须位于当前场景私有目录".into()); // 保留旧有效文件或无积水回退。
+    } // 完成精确场景身份保护。
     Ok(()) // 整份规格受检成功。
 } // 完成正式读取防护。
 
-fn validate_image(image: &Image, descriptor: &MapPuddleDescriptor) -> bool {
+fn validate_image(image: &Image, descriptor: &ScenePuddleDescriptor) -> bool {
     // 元数据校验是常量工作，不扫描像素。
     let texture = &image.texture_descriptor; // 借用已由ImageLoader后台解码的描述符。
     texture.format == TextureFormat::R8Unorm // 潜力必须线性，RGBA/sRGB不能静默读取红通道。
@@ -72,16 +72,16 @@ fn report_error(state: &mut PuddleRuntimeState, error: String) {
 
 #[allow(clippy::too_many_arguments)] // 各资源分别代表当前身份、权威、完整GPU输入，保持读写边界可审计。
 pub(crate) fn resolve_puddle_mask(
-    // 每帧只查询一个当前地图、一份候选和一份作者覆盖。
+    // 每帧只查询一个当前场景、一份候选和一份作者覆盖。
     scene: InstanceRes<State<ScenePhase>>,              // 当前正式玩法阶段。
-    dynamic: InstanceRes<ActiveDynamicMap>,            // 同枚举动态地图的真实ID。
-    registry: crate::maps::dynamic_map::sources::MapRuntimeCatalog,         // 已校验目录中的清单句柄。
-    manifests: Res<Assets<MapManifestAsset>>,  // 完整清单加载后才解析积水字段。
+    dynamic: InstanceRes<ActiveDynamicScene>,            // 同枚举动态场景的真实ID。
+    registry: crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog,         // 已校验目录中的清单句柄。
+    manifests: Res<Assets<SceneManifestAsset>>,  // 完整清单加载后才解析积水字段。
     asset_server: Res<AssetServer>,            // 后台加载KTX，不在系统中读文件。
     mut images: ResMut<Assets<Image>>,         // 只移动已解码Image，不克隆整图数据。
-    live: crate::maps::dynamic_map::author_sources::TerrainAuthorRes<MapPuddleLiveOverride>,          // 编辑器只发布完整、身份有效的草稿图片。
-    mut handoff: crate::maps::dynamic_map::author_sources::TerrainAuthorResMut<MapPuddleSaveHandoff>, // 只有精确文件版本采用后才清除保存回执。
-    authoring: Option<Res<WeatherAuthoringPreview>>, // F12可预览不同于当前玩法图的作者地图。
+    live: crate::scenes::dynamic_scene::author_sources::TerrainAuthorRes<ScenePuddleLiveOverride>,          // 编辑器只发布完整、身份有效的草稿图片。
+    mut handoff: crate::scenes::dynamic_scene::author_sources::TerrainAuthorResMut<ScenePuddleSaveHandoff>, // 只有精确文件版本采用后才清除保存回执。
+    authoring: Option<Res<WeatherAuthoringPreview>>, // F12可预览不同于当前玩法图的作者场景。
     mut state: InstanceResMut<PuddleRuntimeState>,     // 一个候选与一个活动文件版本。
     mask: Option<InstanceResMut<SurfacePuddleMask>>,   // 无环境渲染插件的逻辑宿主安全跳过。
     mut cache: Option<ResMut<PuddleFileCache>>,
@@ -91,34 +91,34 @@ pub(crate) fn resolve_puddle_mask(
     let Some(mut mask) = mask else {
         return;
     }; // 无渲染宿主无需加载图片。
-    let gameplay_map = current_map(*scene.get(), &dynamic); // 先取得正式身份。
+    let gameplay_scene = current_scene(*scene.get(), &dynamic); // 先取得正式身份。
     let author_active = frame.instance().is_none() && authoring
         .as_deref()
         .is_some_and(WeatherAuthoringPreview::active); // 只在真正F12预览时接受异图覆盖。
-    let map_id = if author_active && live.map_id.is_some() {
-        live.map_id.clone()
+    let scene_id = if author_active && live.scene_id.is_some() {
+        live.scene_id.clone()
     } else {
-        gameplay_map
-    }; // 未保存跨图预览以明确作者身份为准。
-    if state.map_id != map_id {
-        // 同GameScene切到另一MapId同样必须失效。
-        let comparison = state.comparison.take(); // 换图时在途任务继续占用唯一槽位，防止快速换图无限启动工作。
+        gameplay_scene
+    }; // 未保存跨场景预览以明确作者身份为准。
+    if state.scene_id != scene_id {
+        // 同GameScene切到另一SceneId同样必须失效。
+        let comparison = state.comparison.take(); // 切换场景时在途任务继续占用唯一槽位，防止快速切换场景无限启动工作。
         let comparison_ticket = state.comparison_ticket.take(); // 保留旧身份以便完成后明确丢弃。
         *state = PuddleRuntimeState {
-            map_id: map_id.clone(),
+            scene_id: scene_id.clone(),
             ..default()
         }; // 丢弃旧源、候选和世界范围。
         state.comparison = comparison;
         state.comparison_ticket = comparison_ticket; // 旧任务结束前不再发起另一份比较。
-        publish_mask(&mut mask, None); // 不能让旧地图纹理出现在下一地图。
-    } // 完成换图失效。
-    let Some(map_id) = map_id else {
+        publish_mask(&mut mask, None); // 不能让旧场景纹理出现在下一场景。
+    } // 完成切换场景失效。
+    let Some(scene_id) = scene_id else {
         // 菜单和加载态无积水范围。
         publish_mask(&mut mask, None); // 空身份明确禁用。
         state.preview = false; // 不遗留作者蓝色覆盖。
-        return; // 不读取或加载任何地图纹理。
+        return; // 不读取或加载任何场景纹理。
     }; // 完成玩法/作者身份门。
-    if live.map_id.as_ref() == Some(&map_id) {
+    if live.scene_id.as_ref() == Some(&scene_id) {
         // Some身份+None纹理表示作者显式空图，不能回退磁盘旧图。
         let valid_bounds = live.world_min.is_finite()
             && live.world_max.is_finite()
@@ -134,27 +134,27 @@ pub(crate) fn resolve_puddle_mask(
             state.preview = author_active && live.preview; // 关闭F12后保留真实积水但不保留蓝色调试层。
             publish_mask(&mut mask, live.mask.clone()); // 不复制Arc源或Image像素。
         } // 非法草稿保持上一完整结果。
-        if handoff.map_id.as_ref() != Some(&map_id) {
+        if handoff.scene_id.as_ref() != Some(&scene_id) {
             return;
         } // 普通作者草稿不加载磁盘，保存交接则继续处理新正式文件。
     } // 完成完整作者覆盖。
     state.preview = false; // 返回文件权威时始终显示真实材质。
     let Some(manifest) = registry
-        .handles(&map_id)
+        .handles(&scene_id)
         .and_then(|handles| manifests.get(&handles.manifest))
     else {
         return;
     }; // 文件未到保留同图旧完整结果。
-    if manifest.id != map_id {
+    if manifest.id != scene_id {
         return;
-    } // 拒绝迟到或错误MapId的清单。
+    } // 拒绝迟到或错误SceneId的清单。
     let Some(bounds) = manifest.world_bounds() else {
         return;
     }; // 无效范围不能进入Shader。
     let requested_bounds = Vec4::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y); // 当前清单完整范围。
     let Some(descriptor) = manifest.puddles.as_ref() else {
         // 旧图和显式移除均表示不积水。
-        if handoff.map_id.as_ref() == Some(&map_id) {
+        if handoff.scene_id.as_ref() == Some(&scene_id) {
             return;
         } // 首次保存的清单热更尚未到达，不能用旧None清空已保存作者画面。
         state.requested = None;
@@ -164,9 +164,9 @@ pub(crate) fn resolve_puddle_mask(
         state.file_descriptor = None; // 清理已采用规格，避免下一份候选误用旧范围身份。
         state.bounds = requested_bounds; // 仍保留合法范围供将来作者接入。
         publish_mask(&mut mask, None); // 湿润仍由天气独立驱动。
-        return; // 不为旧地图制造全图纹理。
+        return; // 不为旧场景制造全图纹理。
     }; // 完成可选作者字段解析。
-    let saving = handoff.map_id.as_ref() == Some(&map_id); // 保存交接期间旧同规格文件不能抢占最新作者图。
+    let saving = handoff.scene_id.as_ref() == Some(&scene_id); // 保存交接期间旧同规格文件不能抢占最新作者图。
     if saving
         && (handoff.texture_path.as_ref() != Some(&descriptor.texture_path)
             || handoff.expected_mask.is_none())
@@ -180,18 +180,18 @@ pub(crate) fn resolve_puddle_mask(
         {
             // 不阻塞帧关键路径。
             state.comparison = None; // 完成后释放单任务槽位。
-            if let Some((ticket_map, revision, path, specification, ticket_bounds)) =
+            if let Some((ticket_scene, revision, path, specification, ticket_bounds)) =
                 state.comparison_ticket.take()
             {
                 // 获取完成结果准确身份。
                 if saving
                     && handoff.revision == revision
-                    && ticket_map == map_id
+                    && ticket_scene == scene_id
                     && handoff.texture_path.as_ref() == Some(&path)
                     && descriptor == &specification
                     && ticket_bounds == requested_bounds
                 {
-                    // 拒收换图、重保存和清单修订迟到结果。
+                    // 拒收切换场景、重保存和清单修订迟到结果。
                     if matches && validate_image(&image, descriptor) {
                         // 完整像素与本次保存相同且元数据仍合法。
                         state.file_mask = Some(images.add(image));
@@ -199,7 +199,7 @@ pub(crate) fn resolve_puddle_mask(
                         state.file_descriptor = Some(descriptor.clone()); // O(1)采用后台归还图像。
                         state.file_bounds = requested_bounds;
                         state.error = None; // 与完整纹理同次采用范围。
-                        handoff.map_id = None;
+                        handoff.scene_id = None;
                         handoff.expected_mask = None;
                         handoff.texture_path = None; // 成功回执允许编辑器归还live覆盖。
                         if let Some(source) = state.source.as_ref() {
@@ -211,7 +211,7 @@ pub(crate) fn resolve_puddle_mask(
                     } else {
                         report_error(&mut state, "正式积水纹理尚未匹配本次保存画布".into());
                     } // 旧排队文件或坏文件不得清除最新作者图。
-                } else if saving && ticket_map == map_id && handoff.revision == revision {
+                } else if saving && ticket_scene == scene_id && handoff.revision == revision {
                     // 同次保存期间清单范围或规格变化使旧比较失效。
                     asset_server.reload(descriptor.texture_path.clone()); // 请求当前版本重新验证，避免已移走源图后保存回执永远悬挂。
                 } // 其他迟到结果直接丢弃，不影响新保存已经请求的加载。
@@ -220,7 +220,7 @@ pub(crate) fn resolve_puddle_mask(
     } // 完成单次非阻塞轮询。
     if state.requested.as_ref() != Some(descriptor) {
         // 规格真正变化时才校验字符串和请求异步加载。
-        if let Err(error) = validate_descriptor(&map_id, descriptor) {
+        if let Err(error) = validate_descriptor(&scene_id, descriptor) {
             report_error(&mut state, error);
             return;
         } // 坏热更保持旧完整纹理。
@@ -229,7 +229,7 @@ pub(crate) fn resolve_puddle_mask(
             descriptor.texture_path.clone(),
             false,
             false,
-            "map_puddle_source",
+            "scene_puddle_source",
         ); // 独立R8采用线性Clamp和Mip过滤。
         state.requested = Some(descriptor.clone()); // 候选保存准确的尺寸与私有路径身份。
         state.source = Some(source); // 原源句柄一直持有，以接收下一次热更新。
@@ -250,7 +250,7 @@ pub(crate) fn resolve_puddle_mask(
                         let count =
                             descriptor.resolution[0] as usize * descriptor.resolution[1] as usize; // 只比较基级R8，后续Mip不属于原始画布。
                         state.comparison_ticket = Some((
-                            map_id.clone(),
+                            scene_id.clone(),
                             handoff.revision,
                             descriptor.texture_path.clone(),
                             descriptor.clone(),
@@ -289,7 +289,7 @@ pub(crate) fn resolve_puddle_mask(
         state.file_mask = Some(image); state.file_descriptor = Some(descriptor.clone());
         state.file_bounds = requested_bounds; state.error = None;
     } // 每个引用取得同一个受检完整版本，不争抢或深复制AssetServer返回的像素所有权。
-    if handoff.map_id.as_ref() != Some(&map_id)
+    if handoff.scene_id.as_ref() != Some(&scene_id)
         && state.file_descriptor.as_ref() == Some(descriptor)
         && state.file_mask.is_some()
     {
@@ -299,7 +299,7 @@ pub(crate) fn resolve_puddle_mask(
         publish_mask(&mut mask, state.file_mask.clone()); // 撤销未保存同规格草稿时恢复已采用文件版。
     } // 完成同图范围单独修订。
     // 首次保存或改规格后源仍在加载时，保留当前完整作者遮罩及其范围；失败候选也不能清空它。
-} // 完成地图积水权威桥。
+} // 完成场景积水权威桥。
 
 pub(super) fn prune_puddle_file_cache(mut cache: ResMut<PuddleFileCache>, mut events: MessageReader<AssetEvent<Image>>) {
     for event in events.read().take(128) {
@@ -321,7 +321,7 @@ pub(super) fn publish_surface_weather(
     let Some(mut gpu) = gpu else {
         return;
     }; // 逻辑测试不要求渲染插件。
-    let active = state.map_id.is_some(); // 主菜单不显示天气材质变化。
+    let active = state.scene_id.is_some(); // 主菜单不显示天气材质变化。
     let quality = match settings
         .as_deref()
         .map_or(EffectsQuality::High, |settings| {
@@ -346,7 +346,7 @@ pub(super) fn publish_surface_weather(
             )
         } else {
             Vec4::ZERO
-        }, // 无地图时天气回退为关闭。
+        }, // 无场景时天气回退为关闭。
         wind_quality: Vec4::new(
             output.wind_direction.x,
             output.wind_direction.y,

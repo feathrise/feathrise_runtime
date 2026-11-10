@@ -25,7 +25,7 @@ pub enum BillboardTextSystems {
     SyncTemporalGuides,
 }
 
-/// 时间引导层使用内联位图最后一层，避免进入默认、小地图、角色预览或离屏烘焙相机。
+/// 时间引导层使用内联位图最后一层，避免进入默认、小场景、角色预览或离屏烘焙相机。
 const BILLBOARD_TEMPORAL_GUIDE_LAYER: usize = 63;
 
 /// 记录当前由本插件临时扩展 RenderLayers 的唯一主相机及精确回退信息。
@@ -188,7 +188,7 @@ pub fn spawn_billboard_texts(
 /// PostUpdate：只在完整时间重建主视图中启用字形 Deferred/Motion 引导层。
 ///
 /// `AlphaMode::Blend` 最终文字仍负责软边与原色；引导子实体使用专属 RenderLayer，
-/// 因而不会被缺少 Deferred phase 的小地图、角色预览或其他 Forward 相机收集。
+/// 因而不会被缺少 Deferred phase 的小场景、角色预览或其他 Forward 相机收集。
 pub(crate) fn sync_billboard_temporal_guides(
     mut commands: Commands,
     mut state: ResMut<BillboardTemporalGuideState>,

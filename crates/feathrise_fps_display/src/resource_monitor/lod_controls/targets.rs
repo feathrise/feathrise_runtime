@@ -1,7 +1,7 @@
 //! 固定九槽的已解析诊断身份；绑定或目录退出时仍能精确归还上一批被调试隐藏的节点。
 
 use super::{LodControlContent, LodControlPresetBindings};
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::resource_monitor) struct Targets {

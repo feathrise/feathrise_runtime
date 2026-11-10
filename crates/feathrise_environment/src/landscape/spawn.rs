@@ -1,5 +1,5 @@
 //! 固定景观实例生成helper。
-//! 【功能设计】地图层提供离线稳定落点，本模块只生成共享Mesh/Material的四档节点并交给Bevy自动实例批处理。
+//! 【功能设计】场景层提供离线稳定落点，本模块只生成共享Mesh/Material的四档节点并交给Bevy自动实例批处理。
 //! 【模块所有权】旧根生成继续作为通用Mesh接管前及失败恢复时的安全基线。
 
 use bevy::camera::visibility::VisibilityRange; // 每个渲染节点携带独立四档可见范围。
@@ -11,7 +11,7 @@ use super::{LandscapeInstance, LandscapeLodMesh, LandscapePlacement, LandscapePr
 
 /// 生成一个由三档现有资产和一档动态代理组成的世界稳定景观实例并返回根实体。
 pub fn spawn_landscape_instance(
-    commands: &mut Commands, // 地图OnEnter系统通过统一命令队列创建根和LOD子节点。
+    commands: &mut Commands, // 场景OnEnter系统通过统一命令队列创建根和LOD子节点。
     prototype: &LandscapePrototype, // 当前类别共享的四档Mesh、Material、LOD与下扎规格。
     placement: LandscapePlacement, // 当前实例的稳定位置、朝向、缩放和碰撞资格。
 ) -> Entity {
@@ -32,10 +32,10 @@ pub fn spawn_landscape_instance(
                 uniform_scale: placement.uniform_scale, // 保存视觉同源体量供简化碰撞缩放。
             }, // 完成景观根运行状态初始化。
             root_transform, // 根变换保存世界位置和稳定朝向，不重复缩放物理代理。
-            Visibility::Inherited, // 地图根可见时四档子节点按自己的范围参与渲染。
+            Visibility::Inherited, // 场景根可见时四档子节点按自己的范围参与渲染。
             GroundSnap::new(-prototype.ground_embed_depth.max(0.0)), // 正下扎深度转换为GroundSnap负偏移。
         ))
-        .id(); // 保存根实体供地图层绑定DespawnOnExit和碰撞代理管理。
+        .id(); // 保存根实体供场景层绑定DespawnOnExit和碰撞代理管理。
     commands.entity(root).with_children(|children| {
         for lod in &prototype.lods {
             let mut child = children.spawn((
@@ -61,5 +61,5 @@ pub fn spawn_landscape_instance(
             } // 完成当前档阴影预算分支。
         } // 完成一个实例的四档共享资产节点。
     }); // 完成单个固定景观实例层级。
-    root // 返回根实体供地图层添加场景生命周期。
+    root // 返回根实体供场景层添加场景生命周期。
 } // 完成固定景观实例生成。

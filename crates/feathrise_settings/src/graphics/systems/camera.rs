@@ -75,7 +75,7 @@ pub(crate) fn apply_antialiasing(
     {
         if !matches!(target, RenderTarget::Window(_)) {
             continue;
-        } // 角色预览、小地图等纹理目标不受全局画质干预。
+        } // 角色预览、小场景等纹理目标不受全局画质干预。
         let runtime_requirements = runtime_leases
             .as_deref()
             .and_then(|registry| registry.requirements_for_camera(entity)); // 每台窗口相机只合并一次当前运行时租约。
@@ -219,7 +219,7 @@ pub(crate) fn reset_taa_history_on_camera_discontinuity(
 ) {
     for (entity, target, global_transform, projection, mut taa, history) in &mut cameras {
         if !matches!(target, RenderTarget::Window(_)) {
-            continue; // 角色预览、小地图等纹理目标不参与全局 TAA 历史管理。
+            continue; // 角色预览、小场景等纹理目标不参与全局 TAA 历史管理。
         }
         let (_, rotation, translation) = global_transform.to_scale_rotation_translation(); // 从最终世界变换提取历史判定所需姿态。
         let current = TaaCameraHistoryPose {

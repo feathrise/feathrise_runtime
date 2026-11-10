@@ -281,7 +281,7 @@ fn fsr_camera_is_eligible(camera: &Camera, projection: &Projection, target: &Ren
         && camera.viewport.is_none()
         && camera.sub_camera_view.is_none()
         && projection_supported
-        && matches!(target, RenderTarget::Window(_)) // 纹理、小地图和角色预览相机完全隔离。
+        && matches!(target, RenderTarget::Window(_)) // 纹理、小场景和角色预览相机完全隔离。
 }
 
 /// 上游时间历史至少需要 `2×2` 输入；更小窗口保持原生路径等待恢复。

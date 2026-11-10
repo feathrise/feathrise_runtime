@@ -1,4 +1,4 @@
-//! 完整地图场景驻留：实体、碰撞、相机、材质与运行时共同暂停/恢复，冷载仍走原流程。
+//! 完整场景场景驻留：实体、碰撞、相机、材质与运行时共同暂停/恢复，冷载仍走原流程。
 
 mod assets;
 mod components;
@@ -66,7 +66,7 @@ pub(crate) fn install(app: &mut App) {
         FixedPostUpdate,
         avian3d::prelude::PhysicsSystems::StepSimulation
             .run_if(feathrise_scene_core::residency::resident_runtime_active),
-    ); // 切图准备时连物理步也不能采用半份碰撞。
+    ); // 切换场景准备时连物理步也不能采用半份碰撞。
     app.configure_sets(
         PostUpdate,
         avian3d::prelude::PhysicsSystems::StepSimulation
@@ -77,7 +77,7 @@ pub(crate) fn install(app: &mut App) {
     }
 }
 
-/// 作者派生节点不一定带DespawnOnExit；只登记明确的地图预览根，不捕获独立资产/角色工作区。
+/// 作者派生节点不一定带DespawnOnExit；只登记明确的场景预览根，不捕获独立资产/角色工作区。
 pub fn register_resident_scene_root<T: Component>(app: &mut App) {
     app.add_observer(entities::register_additional_root::<T>);
 }

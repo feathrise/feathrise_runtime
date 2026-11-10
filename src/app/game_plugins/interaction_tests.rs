@@ -8,8 +8,8 @@ struct RequestedPause { application: bool, editor: bool, collision: bool }
 struct ObservedPause(Vec<(bool, bool)>);
 
 fn collect(request: Res<RequestedPause>, mut editor: ResMut<EditorInputState>, mut collision: ResMut<WorldPauseBlockers>) {
-    editor.map_editor_open = request.editor;
-    collision.map_collision_reload = request.collision;
+    editor.scene_editor_open = request.editor;
+    collision.scene_collision_reload = request.collision;
 }
 fn publish(request: Res<RequestedPause>, mut input: ResMut<InputGateState>) {
     input.time_paused = request.application;

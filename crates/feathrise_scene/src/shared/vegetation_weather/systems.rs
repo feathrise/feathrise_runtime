@@ -11,7 +11,7 @@ use feathrise_settings::EnvironmentPreviewSettings; // 保留settings.json中原
 const CLEAR_WIND: f32 = 0.15; // 晴天基准风力，保持旧十六厘米和1.10倍率观感。
 const CLEAR_ANIMATION_SPEED: f32 = 1.10; // 动画时间倍率，不是米每秒物理风速。
 
-#[derive(Resource, Default)] // 不存地图或逐株状态，仅记当前全局风的时间相位。
+#[derive(Resource, Default)] // 不存场景或逐株状态，仅记当前全局风的时间相位。
 pub(super) struct VegetationWindPhase {
     last_wrapped_time: Option<f32>, // 检测Bevy渲染全局时间的一小时回绕。
     offset: f32,                    // 变速时补偿绝对时间相乘带来的瞬时相位跳变。
@@ -33,7 +33,7 @@ pub(super) fn sync_vegetation_weather_wind(
     settings: Res<EnvironmentPreviewSettings>,         // F12拖动仅改变晴天基准摆幅而不直接争写GPU。
     time: Option<Res<Time>>,             // 渲染Globals使用的同一虚拟时间及回绕周期。
     mut phase: ResMut<VegetationWindPhase>, // 雨天变速时保持草树波形相位连续。
-    interaction: Option<ResMut<GpuBladeInteraction>>, // 无Blade资源的地图插件测试安全跳过。
+    interaction: Option<ResMut<GpuBladeInteraction>>, // 无Blade资源的场景插件测试安全跳过。
 ) {
     let Some(mut interaction) = interaction else {
         return;

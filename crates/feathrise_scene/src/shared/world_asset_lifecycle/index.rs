@@ -6,7 +6,7 @@ use bevy::asset::AssetId;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldAsset;
 
-/// 活动批、隐藏候选和F12预览最多各占一张合法8192根地图。
+/// 活动批、隐藏候选和F12预览最多各占一张合法8192根场景。
 pub(super) const MAX_INDEXED_WORLD_ASSET_ROOTS: usize = 24_576;
 
 /// 根登记失败必须由调用方失败关闭，绝不能遗漏后继续发布Ready。

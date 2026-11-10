@@ -2,7 +2,7 @@
 [package]
 description = "World time, celestial lighting and weather for Bevy scenes"
 name = "feathrise_atmosphere"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"
@@ -14,7 +14,7 @@ bevy_hanabi = { workspace = true } # 玩法相机附近的降雨使用现有 GPU
 # 世界时钟推进显式等待 ESC、TAB、F1、P 的统一暂停应用。
 feathrise_scene_core = { workspace = true }
 feathrise_settings = { workspace = true }
-feathrise_map_content = { workspace = true } # 自动遮雨按实际MapId撤销旧纹理，不把同枚举切图误认成同地图。
+feathrise_scene_content = { workspace = true } # 自动遮雨按实际SceneId撤销旧纹理，不把同枚举切换场景误认成同场景。
 feathrise_environment = { workspace = true, features = ["terrain-surface"] } # 雨丝与地表消费唯一遮雨体快照及同源射线函数。
 half = { workspace = true } # 只缩放最多64²×6的RGBA16F漫反射Cube，不复制高分辨率镜面链。
 serde = { workspace = true }

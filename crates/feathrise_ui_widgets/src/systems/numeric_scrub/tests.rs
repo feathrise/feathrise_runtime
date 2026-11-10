@@ -12,8 +12,8 @@ fn linear_config(sensitivity: f32) -> NumericInputScrubConfig {
             units_per_pixel: 0.1, // 每像素一分米用于水位手感测试。
         },
         drag_step: 0.001,                    // 水位继续保留毫米显示和作者精度。
-        minimum: -10_000.0,                  // 与地图编辑器水位下界一致。
-        maximum: 10_000.0,                   // 与地图编辑器水位上界一致。
+        minimum: -10_000.0,                  // 与场景编辑器水位下界一致。
+        maximum: 10_000.0,                   // 与场景编辑器水位上界一致。
         sensitivity,                         // 测试显式传入字段独立倍率。
         minimum_sensitivity: 0.01,           // 最细仍允许百倍精调。
         maximum_sensitivity: 100.0,          // 最快仍保持固定倍率上限。

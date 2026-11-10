@@ -33,7 +33,7 @@ pub mod prelude {
 
 /// 按Cargo feature安装环境渲染能力的统一顶层插件。
 #[derive(Debug, Default, Clone, Copy)] // 插件没有运行时配置，允许应用按值直接添加并便于测试构造。
-pub struct EnvironmentPlugin; // 具体地图资产、稳定落点、密度图和生命周期仍由消费者负责。
+pub struct EnvironmentPlugin; // 具体场景资产、稳定落点、密度图和生命周期仍由消费者负责。
 
 impl Plugin for EnvironmentPlugin {
     // 聚合层保持原有插件安装顺序并避免跨实现隐式耦合。

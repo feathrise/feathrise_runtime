@@ -7,11 +7,11 @@ mod tree_cleanup; // 实体树exclusive回收与规划数据析构使用独立�
 
 pub(crate) use tree_cleanup::cleanup_retired_placement_trees; // 插件层保持原系统路径不变。
 
-use feathrise_scene_core::residency::{InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use bevy::prelude::*; // 批次显隐、场景根注销、父子关系断边与叶实体回收。
 
 use super::super::resources::{
-    MapPlacementRuntimeState, PendingPlacementPlan, PendingPlacementRevision,
+    ScenePlacementRuntimeState, PendingPlacementPlan, PendingPlacementRevision,
     PlacementCandidatePlanRetirement, PlacementPlanRetirement, PlacementPlanRetirementCursor,
     PlacementPlanning, PlacementPlanningRetirement, PlacementRecordPlanning,
     PlacementSceneLoadTracker, PlacementTreeCleanup, PlacementWaterIdentityRetirement,
@@ -22,7 +22,7 @@ pub(super) const PLACEMENT_PLAN_RETIRE_WATER_BUDGET_PER_FRAME: usize = 64; // �
 pub(super) const PLACEMENT_PLAN_RETIRE_PATH_BUDGET_PER_FRAME: usize = 512; // 节点路径字符串最多释放五百一十二段。
 pub(super) const PLACEMENT_PLAN_RETIRE_STRING_BYTES_PER_FRAME: usize = 32 * 1024; // ID、资产路径、网格名和路径段合计三十二KiB。
 pub(super) const PLACEMENT_TREE_CLEANUP_BUDGET_PER_FRAME: usize = 128; // 退役树每帧只处理固定数量静默、断边或叶销毁操作。
-const MAX_RETIRED_PLACEMENT_TREES: usize = 3; // 既有退役树加活动/候选换图最多形成三个清理所有权。
+const MAX_RETIRED_PLACEMENT_TREES: usize = 3; // 既有退役树加活动/候选切换场景最多形成三个清理所有权。
 
 /// 单帧退役真实工作量；测试用它证明四组独立预算都没有被嵌套析构绕过。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -88,7 +88,7 @@ enum RetirementStep {
 
 /// 把水绑定转换为不会一次析构完整节点路径的拥有型游标。
 fn water_surface_cursor(
-    surface: feathrise_map_content::MapPlacementWaterSurface,
+    surface: feathrise_scene_content::ScenePlacementWaterSurface,
 ) -> PlacementWaterIdentityRetirement {
     PlacementWaterIdentityRetirement {
         node_path: surface.node_path.into_iter(), // Vec::into_iter只移动缓冲所有权，不扫描路径段。
@@ -117,7 +117,7 @@ fn pending_plan_cursor(plan: PendingPlacementPlan) -> PlacementPlanRetirementCur
 
 /// 把规划中未完成的单记录转换为与正式计划相同的嵌套析构游标。
 fn current_record_cursor(
-    record: feathrise_map_content::MapPlacementRecord,
+    record: feathrise_scene_content::ScenePlacementRecord,
 ) -> PlacementPlanRetirementCursor {
     PlacementPlanRetirementCursor {
         id: Some(record.id),                 // 已冻结ID仍按字符串字节预算释放。
@@ -427,7 +427,7 @@ pub(super) fn advance_retired_plan(
 }
 
 /// 把当前规划/候选大容器原样移入唯一固定容量退役槽。
-pub(super) fn retire_plan_data(state: &mut MapPlacementRuntimeState) {
+pub(super) fn retire_plan_data(state: &mut ScenePlacementRuntimeState) {
     let has_plan_data =
         state.planning.is_some() || state.pending.is_some() || state.scene_load.is_some(); // O(1)判断是否需要占用退役槽。
     if !has_plan_data {
@@ -453,7 +453,7 @@ pub(super) fn retire_plan_data(state: &mut MapPlacementRuntimeState) {
 
 pub(super) fn queue_retired_tree(
     commands: &mut Commands,
-    state: &mut MapPlacementRuntimeState,
+    state: &mut ScenePlacementRuntimeState,
     root: Entity,
     roots: Vec<Entity>,
 ) {
@@ -467,17 +467,17 @@ pub(super) fn queue_retired_tree(
         .push_back(PlacementTreeCleanup::new(root, roots)); // Vec所有权O(1)移动，不在取消帧复制8192根。
 }
 
-pub(super) fn retire_candidate(commands: &mut Commands, state: &mut MapPlacementRuntimeState) {
+pub(super) fn retire_candidate(commands: &mut Commands, state: &mut ScenePlacementRuntimeState) {
     if let Some(staging) = state.staging.take() {
         staging.gate.retire(); // 取消候选永久进入退役态，物理Pending标记残留也不能再冒充保存证明。
         queue_retired_tree(commands, state, staging.root, staging.roots);
         state.retired_trees.back_mut().expect("刚登记候选树").restore_carry = staging.reuse.carry;
     }
-    retire_plan_data(state); // 文件换代或换图只做O(1)所有权转移，旧游标和Scene身份立即失效。
+    retire_plan_data(state); // 文件换代或切换场景只做O(1)所有权转移，旧游标和Scene身份立即失效。
     state.asset_retry_requested = false;
 }
 
-pub(super) fn retire_active_batch(commands: &mut Commands, state: &mut MapPlacementRuntimeState) {
+pub(super) fn retire_active_batch(commands: &mut Commands, state: &mut ScenePlacementRuntimeState) {
     if let Some(active) = state.active.take() {
         active.gate.retire(); // O(1)永久撤销整批正式身份，旧根即使尚未销毁也不再提供保存证据或接受作者写入。
         super::super::terrain_collision::retire_formal_terrain(commands, &active.terrain_roots);
@@ -486,7 +486,7 @@ pub(super) fn retire_active_batch(commands: &mut Commands, state: &mut MapPlacem
 }
 
 /// 每帧只释放固定数量规划项；完成前唯一退役槽对新候选形成明确背压。
-pub(crate) fn cleanup_retired_placement_plan(mut state: InstanceResMut<MapPlacementRuntimeState>) {
+pub(crate) fn cleanup_retired_placement_plan(mut state: InstanceResMut<ScenePlacementRuntimeState>) {
     let Some(retired) = state.retired_plan.as_mut() else {
         return; // 稳定帧无退役所有权时O(1)返回。
     };

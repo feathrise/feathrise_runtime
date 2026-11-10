@@ -72,13 +72,13 @@ jobs:
           $patchRevision = git -C $patchRoot rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $patchRevision -ne $env:FEATHRISE_PATCH_REV) { throw '补丁仓检出身份与指定修订不一致。' }
           # SDK 自己的 Cargo 配置加载同级补丁仓，验证独立检出的默认入口。
-          $cargoArguments = @('check', '--locked', '-p', 'feathrise_runtime', '-p', 'feathrise_scene_core', '-p', 'feathrise_map_content', '-p', 'feathrise_scene', '-p', 'feathrise_environment', '-p', 'feathrise_fps_display', '-p', 'feathrise_plugin_api', '-p', 'feathrise_sdk_workspace_tests', '--tests', '--examples')
+          $cargoArguments = @('check', '--locked', '-p', 'feathrise_runtime', '-p', 'feathrise_scene_core', '-p', 'feathrise_scene_content', '-p', 'feathrise_scene', '-p', 'feathrise_environment', '-p', 'feathrise_fps_display', '-p', 'feathrise_plugin_api', '-p', 'feathrise_sdk_workspace_tests', '--tests', '--examples')
           if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_runtime/validation') }
           elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
           cargo @cargoArguments
           if ($LASTEXITCODE -ne 0) { throw "Cargo 检查失败，退出码 $LASTEXITCODE。" }
-          # 场景基础五模块归并后，CI 继续执行原活动门、驻留和状态回归。
-          cargo test --locked -p feathrise_plugin_api -p feathrise_scene_core --all-features --lib
-          if ($LASTEXITCODE -ne 0) { throw '公共插件接口或场景基础测试失败。' }
+          # 一起验证场景资产、跨进程协议与原生插件的版本边界，并保留原场景状态回归。
+          cargo test --locked -p feathrise_plugin_api -p feathrise_editor_protocol -p feathrise_scene_content -p feathrise_scene_core --all-features --lib
+          if ($LASTEXITCODE -ne 0) { throw '插件接口、预览协议或场景契约测试失败。' }
           cargo build --manifest-path examples/native_plugin/Cargo.toml --target-dir target --lib
           if ($LASTEXITCODE -ne 0) { throw '无编辑器源码的中性插件编译失败。' }

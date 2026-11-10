@@ -75,7 +75,7 @@ fn restored_items_keep_queue_identity_and_do_not_reappear_after_removal() {
     ); // 销毁与隐藏语义保持原样。
 } // retained 项生命周期测试结束。
 
-#[test] // 地图切换销毁原相机时，不得用上一帧 UI 重新创建空壳视图。
+#[test] // 场景切换销毁原相机时，不得用上一帧 UI 重新创建空壳视图。
 fn destroyed_main_view_drops_its_retained_ui_phase() {
     // 验证旧视图来源身份失效的清理路径。
     let mut app = App::new(); // 同样只使用 ECS。

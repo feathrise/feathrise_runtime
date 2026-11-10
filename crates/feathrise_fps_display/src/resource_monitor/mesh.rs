@@ -1,11 +1,11 @@
 //! F3 按素材预设显示通用 Mesh 原型与已发布的运行时统计。
-//! 只读现有完整快照，不在监控刷新帧遍历地图实例或网格。
+//! 只读现有完整快照，不在监控刷新帧遍历场景实例或网格。
 
 use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_environment::vegetation::{
     VegetationMeshPrototypeRegistry, VegetationMeshRenderStats, VegetationPrototypeId,
 };
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 use feathrise_scene::DynamicVegetationStatus;
 
 #[derive(SystemParam)]
@@ -47,7 +47,7 @@ pub(super) fn build_mesh_report(
     );
     // 总数明确标为全图共享快照，不能冒充单个素材的逐株统计；各作者层精确值由F4既有缓存显示。
     let runtime = queries.runtime.as_deref().map_or_else(
-        || "当前地图植被未激活".to_owned(),
+        || "当前场景植被未激活".to_owned(),
         |status| {
             format!(
                 "运行时全图汇总：Mesh实例 {} | 空间批次 {} | 渲染节点 {} | 近场碰撞 {}\n{}",

@@ -303,7 +303,7 @@ fn lod_transition_uses_complete_hierarchical_clusters() {
     ); // 麦田和杂粮LOD3不得把远景资产直接稀释到六十四格代理，复用三号槽的沙洲草也不得误命中补偿。
     assert!(
         DRAW_SHADER_SOURCE.contains("fn profile_proxy_horizontal_scale(") // 需要覆盖守恒的内容使用profile开关共享四级水平补偿。
-            && DRAW_SHADER_SOURCE.contains("profile.cool_tint.w >= 0.5") // 只有地图显式打开标志的profile才扩大粗级代理。
+            && DRAW_SHADER_SOURCE.contains("profile.cool_tint.w >= 0.5") // 只有场景显式打开标志的profile才扩大粗级代理。
             && DRAW_SHADER_SOURCE.contains("1u << min(geometry_lod, 7u)") // 水平跨度跟随全部八档的二倍格距。
             && DRAW_SHADER_SOURCE
                 .contains("* profile_proxy_horizontal_scale(profile, vertex.packed_appearance);"), // 绘制顶点必须真实消费当前profile覆盖比例。
@@ -435,7 +435,7 @@ fn hierarchical_proxy_reference_has_no_overlap_or_hole() {
 }
 
 #[test] // 负世界坐标的父格必须向负无穷取整，不能因整数向零截断在世界原点两侧产生接缝。
-fn signed_world_cells_map_to_euclidean_lod_parents() {
+fn signed_world_cells_scene_to_euclidean_lod_parents() {
     let floor_parent = |value: i32, side: f32| (value as f32 / side).floor() as i32; // 复现WGSL floor_parent_cell的逐轴公式。
     assert_eq!(
         (-5..=4)

@@ -79,7 +79,7 @@ fn desired_view_scale(
         || !matches!(target, RenderTarget::Window(_))
         || camera.viewport.is_some()
     {
-        return None; // UI 预览、小地图和分屏/编辑器自定义视口都不进入全窗口空间放大路径。
+        return None; // UI 预览、小场景和分屏/编辑器自定义视口都不进入全窗口空间放大路径。
     }
     let output_size = camera.physical_target_size()?; // 相机刚生成或窗口最小化时等待 CameraUpdateSystems 完成。
     let render_size = scaled_physical_size(output_size, quality.scale_factor())?;
@@ -186,7 +186,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixed_tiers_map_1080p_to_even_internal_resolutions() {
+    fn fixed_tiers_scene_1080p_to_even_internal_resolutions() {
         let output = UVec2::new(1920, 1080);
         assert_eq!(
             scaled_physical_size(output, RenderScaleQuality::Performance.scale_factor()),

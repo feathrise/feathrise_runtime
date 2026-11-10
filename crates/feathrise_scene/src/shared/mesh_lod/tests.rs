@@ -5,7 +5,7 @@ use bevy::{
     camera::{ComputedCameraValues, RenderTargetInfo, primitives::Aabb},
     mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
-use feathrise_map_content::{MapId, MapPlacementRecord};
+use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 use std::time::{Duration, Instant};
 
 pub(super) fn grid() -> Mesh {
@@ -50,13 +50,13 @@ pub(super) fn app() -> App {
 }
 
 pub(super) fn owner_root(world: &mut World, building: bool) -> Entity {
-    let record: MapPlacementRecord = serde_json::from_value(serde_json::json!({
-        "id":"static", "asset_path":"maps/LOD/static.glb", "translation":[0,0,0], "yaw_degrees":0,"scale":[1,1,1],
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"static", "asset_path":"scenes/LOD/static.glb", "translation":[0,0,0], "yaw_degrees":0,"scale":[1,1,1],
         "building_preset_id": if building {Some("house")} else {None},
     })).unwrap();
     world
         .spawn((
-            crate::MapPlacementInstance::new(&MapId::parse("MAP-LOD").unwrap(), &record),
+            crate::ScenePlacementInstance::new(&SceneId::parse("MAP-LOD").unwrap(), &record),
             avian3d::prelude::RigidBody::Static,
             Transform::default(),
             GlobalTransform::IDENTITY,
@@ -224,7 +224,7 @@ fn external_mesh_replacement_and_owner_removal_never_adopt_previous_lod_source()
     });
     app.world_mut()
         .entity_mut(root)
-        .remove::<crate::MapPlacementInstance>();
+        .remove::<crate::ScenePlacementInstance>();
     app.update();
     assert!(app.world().get::<StaticMeshLodOriginal>(entity).is_none());
     assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, replacement);
@@ -270,7 +270,7 @@ fn late_parent_source_registration_uses_bounded_discovery_and_dynamic_props_are_
     let temporary = owner_root(app.world_mut(), false);
     let identity = app
         .world()
-        .get::<crate::MapPlacementInstance>(temporary)
+        .get::<crate::ScenePlacementInstance>(temporary)
         .unwrap()
         .clone();
     app.world_mut().entity_mut(root).insert(identity);
@@ -518,7 +518,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
         runtime.queue_cache(new_key);
         runtime.upload = Some(Upload {
             key: new_key,
-            pending: vec![feathrise_map_terrain::StaticMeshLod {
+            pending: vec![feathrise_terrain::StaticMeshLod {
                 mesh: pending,
                 max_error: 0.0,
             }]

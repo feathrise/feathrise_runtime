@@ -4,7 +4,7 @@
 mod helpers; // 风力安全化、LOD细节分级、GPU统一布局和树高参考边界纯函数。
 mod material; // 项目自有扩展材质创建、逐帧历史风参数更新和插件注册。
 mod noise; // 固定尺寸周期值噪声生成及Startup唯一Image登记系统。
-mod resources; // 地图装配层等待的共享风噪声资源类型。
+mod resources; // 场景装配层等待的共享风噪声资源类型。
 mod shaders; // crate内置风位移库、主渲染和预通道Shader注册入口。
 mod types; // CPU帧参数、GPU固定Uniform和材质专用化键等非ECS纯数据。
 
@@ -41,12 +41,12 @@ impl Plugin for MeshWindPlugin {
 }
 
 pub use material::{
-    // 地图层从共享Mesh风子域取得完整GPU风材质生命周期接口。
+    // 场景层从共享Mesh风子域取得完整GPU风材质生命周期接口。
     TreeWindMaterial,
     combine_tree_part_aabbs,
     create_tree_wind_material, // 创建阶段复用现有PBR并合并树干树冠完整高度。
     expanded_tree_wind_culling_aabb,
     update_tree_wind_material, // 运行期扩展剔除范围并推进当前/上一帧风参数。
     update_tree_wind_material_with_phase, // 项目天气桥在保留旧API的同时补偿变速相位。
-}; // 对地图层只公开树木与灌木需要的材质生命周期和AABB接口，不暴露散布系统。
-pub use resources::TreeWindNoiseTexture; // 保持地图装配层原公共名称，由本crate自有资源替代第三方类型身份。
+}; // 对场景层只公开树木与灌木需要的材质生命周期和AABB接口，不暴露散布系统。
+pub use resources::TreeWindNoiseTexture; // 保持场景装配层原公共名称，由本crate自有资源替代第三方类型身份。

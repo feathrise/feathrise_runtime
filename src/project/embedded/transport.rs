@@ -135,7 +135,7 @@ pub(super) fn start(
             let mut guard = SessionGuard::new(identity);
             let mut previous = std::sync::Arc::new(super::asset_overlay::Files::new());
             let mut accepted_revision = 0;
-            let mut selected_map: Option<String> = None;
+            let mut selected_scene: Option<String> = None;
             let result = (|| -> Result<(), String> {
                 let hello =
                     feathrise_editor_protocol::read_frame(&mut read, &Limits::default())
@@ -151,22 +151,22 @@ pub(super) fn start(
                     feathrise_editor_protocol::read_frame(&mut read, &Limits::default())
                         .map_err(|e| e.to_string())?
                 {
-                    if let Message::Snapshot { map_id, .. } = &envelope.message {
+                    if let Message::Snapshot { scene_id, .. } = &envelope.message {
                         if envelope.identity.generation == guard.identity().generation {
-                            if selected_map
+                            if selected_scene
                                 .as_ref()
-                                .is_some_and(|selected| selected != map_id)
+                                .is_some_and(|selected| selected != scene_id)
                             {
-                                return Err("同一地图代次不能替换地图身份".into());
+                                return Err("同一场景代次不能替换场景身份".into());
                             }
                         } else if envelope.identity.generation
                             == guard.identity().generation.saturating_add(1)
                         {
-                            if selected_map
+                            if selected_scene
                                 .as_ref()
-                                .is_none_or(|selected| selected == map_id)
+                                .is_none_or(|selected| selected == scene_id)
                             {
-                                return Err("下一代次必须由实际不同地图的完整快照发起".into());
+                                return Err("下一代次必须由实际不同场景的完整快照发起".into());
                             }
                             guard
                                 .advance_generation(envelope.identity.generation)
@@ -180,20 +180,20 @@ pub(super) fn start(
                     }
                     let generation = envelope.identity.generation;
                     let input = match envelope.message {
-                        Message::Preview { kind, sequence, map_id, format } => {
-                            if selected_map.as_deref() != Some(&map_id) {
-                                return Err("实时预览必须属于已选择地图".into());
+                        Message::Preview { kind, sequence, scene_id, format } => {
+                            if selected_scene.as_deref() != Some(&scene_id) {
+                                return Err("实时预览必须属于已选择场景".into());
                             }
-                            Inbound::Preview(super::preview::prepare(kind, sequence, generation, &map_id,
+                            Inbound::Preview(super::preview::prepare(kind, sequence, generation, &scene_id,
                                 &format, envelope.payload.as_deref().ok_or("实时预览缺少正文")?)?)
                         }
                         Message::Snapshot {
                             transaction,
                             revision,
-                            map_id,
+                            scene_id,
                             format,
                         } => {
-                            selected_map = Some(map_id.clone());
+                            selected_scene = Some(scene_id.clone());
                             if revision <= accepted_revision {
                                 Inbound::Rejected {
                                     transaction,
@@ -209,7 +209,7 @@ pub(super) fn start(
                             } else {
                                 match prepare(
                                     envelope.payload.as_deref().ok_or("作者快照缺少正文")?,
-                                    &map_id,
+                                    &scene_id,
                                     transaction,
                                     revision,
                                     &project,

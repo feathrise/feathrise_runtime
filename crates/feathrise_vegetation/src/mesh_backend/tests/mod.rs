@@ -277,7 +277,7 @@ fn registry_adopts_explicit_layer_and_unregister_reclaims_owned_hierarchy() {
     assert_eq!(status.layers[0].selected_instances, 1); // 当前布局选择唯一候选。
     app.world_mut()
         .resource_mut::<VegetationMeshPrototypeRegistry>()
-        .remove(TEST_PROTOTYPE); // 地图离场可用原型注销作为显式释放信号。
+        .remove(TEST_PROTOTYPE); // 场景离场可用原型注销作为显式释放信号。
     app.update(); // 注册表generation变化触发PostUpdate回收。
     assert!(app.world().get_entity(root).is_err()); // 根与linked-spawn子节点已经一并销毁。
     assert!(managed_roots(app.world_mut()).is_empty()); // 私有活动所有权表同步归零。
@@ -482,7 +482,7 @@ fn root_topology_changes_preserve_single_ownership_without_revision_bump() {
             },
             transform, // 晚到旧根继续保留公共最终变换。
         ))
-        .id(); // 模拟地图系统在稳定revision中重新生成旧根。
+        .id(); // 模拟场景系统在稳定revision中重新生成旧根。
     app.update(); // 根拓扑变化触发自动根回收，不等待registry或layout变化。
     assert!(app.world().get_entity(managed_root).is_err()); // 通用根及Children已经主动让出。
     assert_eq!(

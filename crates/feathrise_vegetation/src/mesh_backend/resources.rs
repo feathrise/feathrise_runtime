@@ -186,7 +186,7 @@ impl VegetationMeshPrototypeRegistry {
         if removed.is_some() {
             self.advance_generation(); // 只有真实移除才触发生命周期回收。
         } // 不存在的ID保持注册表代次稳定。
-        removed // 返回旧原型供地图适配层按需处理。
+        removed // 返回旧原型供场景适配层按需处理。
     } // 完成单原型移除。
 
     /// 清空全部原型；空表不重复推进变化代次。

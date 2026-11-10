@@ -1,19 +1,19 @@
 //! 开发者植被预设到通用 GPU Blade 运行时规格的适配层。
 //!
-//! 【功能设计】地图只保存目录中的稳定预设 ID；本模块在当前资源修订内解析四级网格、
-//! 外观、风或水流驱动和包围参数。GPU 批次及局部槽由动态地图随后派生，绝不写回地图。
+//! 【功能设计】场景只保存目录中的稳定预设 ID；本模块在当前资源修订内解析四级网格、
+//! 外观、风或水流驱动和包围参数。GPU 批次及局部槽由动态场景随后派生，绝不写回场景。
 
 use bevy::prelude::*; // AssetServer、Mesh/Image 强句柄和 GPU 配置向量。
 use feathrise_environment::vegetation::blade::{
     GpuBladeConfig, GpuBladeProfile, GpuBladeProfileSlot, GpuBladeUltraLodBudget,
     GpuBladeViewLodConfig,
 }; // 公共后端纯值类型保持项目内容与渲染 ABI 解耦。
-use feathrise_map_content::{
+use feathrise_scene_content::{
     BladePresetAppearance, BladePresetLod, BladePresetMotion, BladePresetUltraLodBudget,
     BladePresetViewLod, VegetationPresetDescriptor, VegetationPresetRuntime,
-}; // 开发者 JSON 的完整 Blade 描述由地图内容 crate 唯一定义。
+}; // 开发者 JSON 的完整 Blade 描述由场景内容 crate 唯一定义。
 
-/// 当前地图修订使用的一档拥有名称所有权的 Blade 候选窗口。
+/// 当前场景修订使用的一档拥有名称所有权的 Blade 候选窗口。
 #[derive(Clone, Debug)]
 pub struct RuntimeBladeLodSpec {
     pub name: String,          // F3 与实体名使用目录提供的可读名称。
@@ -35,7 +35,7 @@ impl RuntimeBladeLodSpec {
     }
 }
 
-/// 当前地图修订使用的一种完整 Blade 纯值规格。
+/// 当前场景修订使用的一种完整 Blade 纯值规格。
 #[derive(Clone, Debug)]
 pub struct RuntimeBladeProfileSpec {
     pub id: String,                     // 当前目录规范 ID；旧别名在进入本结构前已迁移。
@@ -85,14 +85,14 @@ pub fn load_blade_preset(
             let texture_path = base_color_texture_path.clone(); // None 明确使用公共白色回退。
             Ok(RuntimeBladeProfileAssets {
                 spec: RuntimeBladeProfileSpec {
-                    id: preset.id.clone(),       // 保存规范 ID 而不是地图引用的历史别名。
+                    id: preset.id.clone(),       // 保存规范 ID 而不是场景引用的历史别名。
                     label: preset.label.clone(), // 诊断使用开发者目录名称。
                     lods: runtime_lods,          // 已按 level 排序的可变档列表。
                     ultra_lod_budget: ultra_budget_from_data(*ultra_lod_budget), // 固定预算枚举一一映射。
                     view_lod: view_lod_from_data(view_lod), // 完整屏幕和常驻参数不套用 HN-01 默认值。
                     density_gain: *density_gain,            // 目录校验已保证有限非负。
                     vegetation_config: GpuBladeConfig::new(
-                        GpuBladeProfileSlot::SLOT_0, // 真正局部槽由当前地图批次打包阶段替换。
+                        GpuBladeProfileSlot::SLOT_0, // 真正局部槽由当前场景批次打包阶段替换。
                         bounds.max_blade_height,     // 最高叶尖参与视锥包围。
                         bounds.max_horizontal_sweep, // 静态、运动和原型共同水平包围。
                         bounds.reference_height,     // 屏幕 LOD 典型高度。

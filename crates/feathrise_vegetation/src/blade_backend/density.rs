@@ -4,7 +4,7 @@ use feathrise_scene_core::residency::SceneResidencyAppExt;
 
 use bevy::prelude::{App, IntoScheduleConfigs, PostUpdate, Update}; // 候选在Update运行，采用状态在延迟命令应用后的PostUpdate观察。
 
-mod async_build; // 大地图候选的纯CPU阶段在AsyncCompute池构建并按身份回收。
+mod async_build; // 大场景候选的纯CPU阶段在AsyncCompute池构建并按身份回收。
 mod atlas; // 基础级量化、完整Mip和脏块局部重建保持为无ECS纯数据模块。
 mod components; // 公开层绑定与私有已采用版本独立于系统实现。
 mod gpu_compose; // 正式源采样、竞争模式和提交块编码只在加载/换版时驱动基础级Compute。
@@ -14,7 +14,7 @@ mod status; // 可见窗口采用当前解析密度的只读阶段独立发布�
 mod systems; // 主世界只在完整候选批次通过后原子更新叶片窗口。
 
 pub use components::VegetationBladeLayer; // crate根继续只导出消费者需要的显式层绑定。
-pub use resources::VegetationBladeValidationLayers; // 迁移地图可先运行不可见正式GPU parity而不切换旧窗口。
+pub use resources::VegetationBladeValidationLayers; // 迁移场景可先运行不可见正式GPU parity而不切换旧窗口。
 pub use status::{VegetationBladeAdoptionPhase, VegetationBladeAdoptionStatus}; // F3和严格烟雾读取真实窗口采用证据。
 
 use async_build::VegetationBladeDensityCpuBuild; // 主世界持有最多一个未登记候选CPU任务。

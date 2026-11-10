@@ -5,8 +5,8 @@
 //! 安装真实 Collider；活动预览和热更保留上一完整形状直到新形状成功。
 
 use super::{
-    MapPlacementInstance,
-    resources::{MapPlacementRuntimeState, MapPlacementRuntimeStatus},
+    ScenePlacementInstance,
+    resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus},
 };
 use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, RigidBody, TrimeshFlags};
 use bevy::world_serialization::WorldInstanceReady;
@@ -133,7 +133,7 @@ pub(super) fn sync_preview_physics_pose(
             &TerrainPatchColliderReady,
             &TerrainPatchCollisionRequest,
             &GlobalTransform,
-            &MapPlacementInstance,
+            &ScenePlacementInstance,
             Option<&FormalTerrainPatchCollider>,
             Option<&TerrainColliderProxy>,
         ),
@@ -175,7 +175,7 @@ pub(super) fn retire_physics_proxy(
 }
 
 pub fn terrain_placement_collision(
-    record: &feathrise_map_content::MapPlacementRecord,
+    record: &feathrise_scene_content::ScenePlacementRecord,
 ) -> Option<(RigidBody, TerrainPatchCollisionRequest)> {
     record.terrain_patch.as_ref()?;
     Some((
@@ -513,7 +513,7 @@ pub(super) fn drive_terrain_collision(
     mut roots: Query<(
         Entity,
         &mut TerrainPatchCollisionRequest,
-        &MapPlacementInstance,
+        &ScenePlacementInstance,
         Option<&WorldAssetRoot>,
         Option<&TerrainWorldReady>,
         Option<&TerrainPatchColliderReady>,
@@ -521,8 +521,8 @@ pub(super) fn drive_terrain_collision(
         &GlobalTransform,
         Option<&FormalTerrainPatchCollider>,
     )>,
-    mut state: ResMut<MapPlacementRuntimeState>,
-    mut status: ResMut<MapPlacementRuntimeStatus>,
+    mut state: ResMut<ScenePlacementRuntimeState>,
+    mut status: ResMut<ScenePlacementRuntimeStatus>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
     deferred: Query<(), With<DeferredTerrainPreviewCollider>>,
     uploading: Query<(), With<super::terrain_mesh_upload::TerrainMeshUpload>>,
@@ -768,7 +768,7 @@ pub(super) fn drive_terrain_collision(
     }
 }
 
-fn root_is_pending(root: Entity, state: &MapPlacementRuntimeState) -> bool {
+fn root_is_pending(root: Entity, state: &ScenePlacementRuntimeState) -> bool {
     state
         .staging
         .as_ref()
@@ -777,7 +777,7 @@ fn root_is_pending(root: Entity, state: &MapPlacementRuntimeState) -> bool {
 
 fn invalidate_candidate(
     root: Entity,
-    state: &mut MapPlacementRuntimeState,
+    state: &mut ScenePlacementRuntimeState,
     commands: &mut Commands,
 ) {
     if let Some(staging) = state
@@ -796,8 +796,8 @@ fn invalidate_candidate(
 
 fn reject(
     pending: bool,
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     error: String,
 ) {
     if pending {

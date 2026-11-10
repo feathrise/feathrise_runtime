@@ -10,7 +10,7 @@ use bevy::{
 };
 
 use crate::components::{
-    GpuBladeClipmapHeight,   // 分页输入必须保持地图、高度与视图修订一致。
+    GpuBladeClipmapHeight,   // 分页输入必须保持场景、高度与视图修订一致。
     GpuBladeDensityMap,      // 可选密度图片句柄决定是否临时保留全部候选。
     GpuBladeHeightMap,       // 可选高度图片句柄决定正式高度输入是否已经就绪。
     GpuBladePatch,           // 只修改渲染世界副本的本帧绘制抑制状态。

@@ -1,6 +1,6 @@
 //! 常驻工程 World 的模式事实和项目玩法运行条件。
 
-pub use feathrise_map_content::embedded_snapshot::*;
+pub use feathrise_scene_content::embedded_snapshot::*;
 
 /// 工程插件可以用此资源或 project_simulation_active 条件安排自己的玩法系统。
 /// 同一进程只创建一次 World；编辑/试玩切换只交接时间、输入和相机。

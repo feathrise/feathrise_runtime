@@ -301,7 +301,7 @@ fn incoming_mist_reverses_without_output_jump() {
 } // 结束入雾过渡连续反向测试。
 
 #[test] // 调试天气索引和预览值必须安全覆盖全部端点。
-fn debug_override_maps_modes_and_clamps_preview() {
+fn debug_override_scenes_modes_and_clamps_preview() {
     let mut debug = WeatherDebugOverride::default(); // 默认从自动模式开始。
     assert_eq!(debug.mode_index(), 0); // 自动模式索引固定为零。
     debug.set_mode_index(5); // 选择第五个天气模式。

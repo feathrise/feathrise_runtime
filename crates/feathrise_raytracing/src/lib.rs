@@ -1,11 +1,11 @@
-//! 数据驱动动态地图地形的 Bevy Solari 隔离实现与有界资源预算。
+//! 数据驱动动态场景地形的 Bevy Solari 隔离实现与有界资源预算。
 //!
 //! 根程序默认 `raytracing` 仅注册 Solari；显式 `rtx_rendering` 与正式发布再加入 DLSS SR/RR。
 //! `test_panel` 提供调试界面；DLSS诊断使用 `rtx_rendering,test_panel`，不再提供旧构建别名。
 
 mod capability; // RenderDevice真实后端与Solari必需features探测。
 mod components; // 私有代理与时间历史组件。
-mod constants; // 动态地图单地形契约、预算与诊断路径。
+mod constants; // 动态场景单地形契约、预算与诊断路径。
 mod custom_materials; // 应用显式登记自身扩展材质，不把游戏相机或透明算法纳入共享依赖。
 mod denoising; // 可选DLSS RR能力门、相机附件所有权、reset同步和精确回退。
 mod environment_lighting; // 把标准天空漫反射与镜面IBL补回跳过Bevy Deferred照明的Solari视图。
@@ -39,7 +39,7 @@ use denoising::{
 use lifecycle::{
     apply_pending_rollback, coordinate_lifecycle, discover_candidates,
     drive_gpu_preparation_and_warmup, maintain_deferred_auxiliary_camera_leases,
-    maintain_deferred_raster_bridge, monitor_source_asset_changes, observe_dynamic_map_target,
+    maintain_deferred_raster_bridge, monitor_source_asset_changes, observe_dynamic_scene_target,
     publish_public_status, reset_solari_history_on_discontinuity,
     restore_deferred_raster_bridge, validate_active_sources,
 };
@@ -66,7 +66,7 @@ pub use types::{
     RaytracingPrototypeStage, RaytracingPrototypeTarget,
 }; // F1只通过项目自有枚举表达RR模式和呈现请求，不依赖厂商SDK类型。
 
-/// 安装地图地形隔离生命周期、资源预算检查和 Bevy 官方实时 Solari；不包含非实时路径追踪器。
+/// 安装场景地形隔离生命周期、资源预算检查和 Bevy 官方实时 Solari；不包含非实时路径追踪器。
 pub struct RaytracingPlugin;
 
 /// 旧 Prototype 插件名称继续作为完整兼容 re-export。
@@ -118,7 +118,7 @@ impl Plugin for RaytracingPlugin {
                     begin_disabled_host_measurement,
                     monitor_source_asset_changes,
                     sync_render_telemetry,
-                    observe_dynamic_map_target, // Ready、未保存Mesh替换和GLB热重载都先换代目标，再推进生命周期。
+                    observe_dynamic_scene_target, // Ready、未保存Mesh替换和GLB热重载都先换代目标，再推进生命周期。
                     coordinate_lifecycle,
                     discover_candidates,
                     capture_mesh_inputs,

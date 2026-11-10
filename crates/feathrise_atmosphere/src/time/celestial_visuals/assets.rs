@@ -19,7 +19,7 @@ pub(super) const MOON_VISUAL_COLOR: Color = Color::srgb(0.78, 0.84, 0.96); // �
 /// 太阳视觉圆盘相对物理光源角直径的艺术放大倍率。
 pub(super) const SUN_VISUAL_RADIUS_MULTIPLIER: f32 = 2.0; // 只放大画面圆盘，不写回SunDisk或改变光栅与Solari软阴影范围。
 /// 太阳柔光纹理单边像素数。
-const SUN_HALO_TEXTURE_SIZE: u32 = 128; // 固定小纹理只在首张动态地图出现时生成一次。
+const SUN_HALO_TEXTURE_SIZE: u32 = 128; // 固定小纹理只在首张动态场景出现时生成一次。
 /// 太阳柔光相对放大后视觉圆盘半径的倍率。
 pub(super) const SUN_HALO_RADIUS_MULTIPLIER: f32 = 8.0; // 柔光跟随两倍视觉核心形成更接近天空盒太阳的宽阔散射感。
 /// 太阳柔光中心相对不透明核心的相机距离倍率。
@@ -61,7 +61,7 @@ pub(super) fn moon_core_hdr_color() -> Color {
     celestial_core_hdr_color(MOON_VISUAL_COLOR, MOON_CORE_HDR_PEAK) // 月盘不依赖月光照度曲线，显隐窗口内始终维持稳定可辨识外观。
 }
 
-/// 可见天体资产强句柄缓存；首个动态地图出现时才创建。
+/// 可见天体资产强句柄缓存；首个动态场景出现时才创建。
 #[derive(Default)] // 晴天、固定场景和菜单切换期间仍保留网格、纹理和三份材质供后续复用。
 pub(in crate::time) struct CelestialVisualAssetCache {
     pub(super) mesh: Option<Handle<Mesh>>, // 太阳核心、太阳柔光和月亮共享一个单位圆盘网格。

@@ -11,16 +11,16 @@ const TEST_WHEAT_CONFIG: GpuBladeConfig =
 const TEST_MIXED_GRAIN_CONFIG: GpuBladeConfig =
     GpuBladeConfig::new(GpuBladeProfileSlot::SLOT_3, 1.18, 0.74, 0.98, 0.04); // 三号槽用于验证分页隔离，不向公共库写入草种预设。
 
-#[test] // 无当前内容窗口时必须丢弃跨地图残留GPU样本。
+#[test] // 无当前内容窗口时必须丢弃跨场景残留GPU样本。
 fn no_grass_windows_discard_stale_gpu_diagnostics() {
     let stale_gpu = GpuBladeGpuReadbackStats {
-        sample_sequence: 42,    // 模拟上一地图已完成回读。
-        rendered_instances: 99, // 模拟上一地图实绘残留。
+        sample_sequence: 42,    // 模拟上一场景已完成回读。
+        rendered_instances: 99, // 模拟上一场景实绘残留。
         ..Default::default()    // 其余字段保持零。
     }; // 完成旧实例样本。
     let stale_timing = GpuBladeGpuTimingStats {
-        sample_sequence: 24,  // 模拟上一地图已完成查询。
-        draw_total_ms: 3.5,   // 模拟上一地图绘制耗时。
+        sample_sequence: 24,  // 模拟上一场景已完成查询。
+        draw_total_ms: 3.5,   // 模拟上一场景绘制耗时。
         ..Default::default()  // 其余字段保持零。
     }; // 完成旧耗时样本。
     let (gpu, timing) = current_gpu_diagnostics(
@@ -54,8 +54,8 @@ fn active_grass_windows_keep_latest_gpu_diagnostics() {
     ); // 当前样本必须原样保留。
 } // 完成活跃内容样本保留验证。
 
-#[test] // 重进地图首载等待阶段必须拒绝上一代异步样本。
-fn reentered_map_waiting_phase_rejects_previous_session_samples() {
+#[test] // 重进场景首载等待阶段必须拒绝上一代异步样本。
+fn reentered_scene_waiting_phase_rejects_previous_session_samples() {
     let stale_gpu = GpuBladeGpuReadbackStats {
         sample_sequence: 17,     // 模拟上一代实例样本。
         rendered_instances: 123, // 模拟上一代实绘量。
@@ -74,21 +74,21 @@ fn reentered_map_waiting_phase_rejects_previous_session_samples() {
     ); // 执行生产代次保护。
     assert_eq!(gpu, GpuBladeGpuReadbackStats::default()); // 首载等待不得显示旧实绘量。
     assert_eq!(timing, GpuBladeGpuTimingStats::default()); // 首载等待不得显示旧GPU耗时。
-} // 完成重进地图代次保护验证。
+} // 完成重进场景代次保护验证。
 
 #[test] // 正式验收摘要必须使用当前分页独立窗口和性能证据。
 fn stage6_report_records_current_profile_performance_evidence() {
     let streaming = GpuBladeStreamingStats {
-        map_code: "HN-01",                       // 模拟正式开封地图身份。
-        content_label: "普通草+全图麦田+杂粮田", // 聚合资源保留地图完整内容名。
-        expected_windows: 12,                    // 地图总计三种叶片内容各四窗。
+        scene_code: "HN-01",                       // 模拟正式开封场景身份。
+        content_label: "普通草+全图麦田+杂粮田", // 聚合资源保留场景完整内容名。
+        expected_windows: 12,                    // 场景总计三种叶片内容各四窗。
         resident_assets: 14,                     // 模拟当前会话只含三类植被的全部共享常驻资产引用。
         expected_resident_assets: 14,            // 锁定三类内容稳定共享资产预算，不混入地表。
         resident_input_bytes: 36 * 1_048_576,    // 使用整 MiB 三类数值输入。
         smoothed_speed: 8.0,                     // 模拟当前玩家奔跑速度。
         peak_speed: 12.0,                        // 模拟本会话最坏移动速度。
         ..Default::default()                     // 其余流送字段保持零。
-    }; // 完成阶段6地图遥测。
+    }; // 完成阶段6场景遥测。
     let gpu = GpuBladeVegetationReadbackStats {
         sampled_windows: 3,       // 故意模拟普通草仍缺少超远窗，显示3/4。
         rendered_instances: 1234, // 模拟当前profile真实实绘量。
@@ -107,7 +107,7 @@ fn stage6_report_records_current_profile_performance_evidence() {
     }; // 完成GPU查询能力样本。
     let report = format_stage6_acceptance_report(
         "普通草",   // 当前测试只验收普通草分页。
-        &streaming, // 提供正式地图与共享资产。
+        &streaming, // 提供正式场景与共享资产。
         &Stage6AcceptanceInputs {
             actual_windows: 3,               // 当前主世界实际普通草窗口数。
             expected_windows: 4,             // 普通草固定四窗规格。
@@ -143,7 +143,7 @@ fn f3_keeps_formal_draw_denominator_and_reports_three_content_gains() {
     assert_eq!(wheat_gain, "麦田1.18"); // 麦田增益不得被普通草覆盖。
     assert_eq!(mixed_grain_gain, "杂粮田1.05"); // 杂粮增益保持独立。
     assert_eq!(expected_draw_command_count(3, 4), 32); // 普通草缺一窗仍保持四乘八桶分母。
-    assert_eq!(expected_draw_command_count(3, 0), 24); // 无地图规格的独立样例按实际三窗。
+    assert_eq!(expected_draw_command_count(3, 0), 24); // 无场景规格的独立样例按实际三窗。
 } // 完成分母与增益验证。
 
 #[test] // 麦田四个窗口必须按自身近中远超远身份显示。

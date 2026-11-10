@@ -26,7 +26,7 @@ impl Plugin for SceneDetailQualityPlugin {
             .init_resident_resource::<SceneDetailQualityState>() // 首帧执行一次兜底同步，稳定帧随后 O(1) 返回。
             .add_observer(capture_scene_detail_visibility_range) // 任意后续场景或热重载节点在生成当下继承当前档。
             .add_observer(register_scene_detail_visibility_range) // 作者备份真实落地后才登记实体，避免瞬时节点留下失效索引。
-            .add_observer(unregister_scene_detail_visibility_range) // 切图或热替换时 O(1) 移除已销毁节点索引。
+            .add_observer(unregister_scene_detail_visibility_range) // 切换场景或热替换时 O(1) 移除已销毁节点索引。
             .add_resident_systems(
                 PostUpdate,
                 apply_scene_detail_quality.before(TransformSystems::Propagate),

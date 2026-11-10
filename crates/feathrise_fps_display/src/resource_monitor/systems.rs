@@ -15,7 +15,7 @@ use feathrise_environment::vegetation::{
     VegetationBladeAdoptionStatus, VegetationMeshRenderMonitorConfig, VegetationMeshRenderStats,
 }; // F3分别读取叶片采用状态与通用Mesh精确RenderApp分箱。
 use super::lod_controls::{LodControlContent, LodControlPresetBindings};
-use feathrise_map_content::VegetationPresetRegistry;
+use feathrise_scene_content::VegetationPresetRegistry;
 
 
 use super::grass::{GrassMonitorQueries, VegetationReportSources, build_vegetation_report}; // 当前页只传入一种内容身份，并共享同一批GPU与流送证据。

@@ -4,14 +4,14 @@ struct ClipmapStitches { edges:array<vec4<f32>,4>, heights:array<array<vec4<f32>
 #ifdef CLIPMAP_STITCH_COMPUTE
 struct BladeClipmapParams {
     stitches:ClipmapStitches,
-    holes:array<vec4<f32>,32>,hole_info:vec4<f32>,map_bounds:vec4<f32>,grid:vec4<f32>,
+    holes:array<vec4<f32>,32>,hole_info:vec4<f32>,scene_bounds:vec4<f32>,grid:vec4<f32>,
     options:vec4<f32>,view:vec4<f32>,heights:vec4<f32>,missing_pages:array<vec4<u32>,16>,bands:array<vec4<u32>,16>,
 }
 @group(0) @binding(9) var<uniform> blade_clipmap:BladeClipmapParams;
 #else
 struct ClipmapHeightParams {
     stitches:ClipmapStitches,
-    map_bounds:vec4<f32>,grid:vec4<f32>,options:vec4<f32>,reserved:vec4<f32>,source_to_world:mat4x4<f32>,world_to_source:mat4x4<f32>,
+    scene_bounds:vec4<f32>,grid:vec4<f32>,options:vec4<f32>,reserved:vec4<f32>,source_to_world:mat4x4<f32>,world_to_source:mat4x4<f32>,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(120) var<uniform> clipmap_params:ClipmapHeightParams;
 #endif

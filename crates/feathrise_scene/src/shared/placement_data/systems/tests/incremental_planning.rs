@@ -1,21 +1,21 @@
 //! placement正式文件增量规划与Scene依赖队列的大规模回归。
 
-use feathrise_scene_core::residency::{InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use std::collections::{HashSet, VecDeque}; // 加载跟踪夹具与生产资源使用同样的去重集和队列。
 
 use bevy::asset::{AssetId, uuid::Uuid}; // 测试生成不依赖AssetServer的唯一类型化资产ID。
 use bevy::prelude::*; // Rect、Handle与App测试世界。
 use bevy::world_serialization::WorldAsset; // 规划与轮询的正式Scene资产类型。
-use feathrise_map_content::{
-    BuildingPresetRegistry, MAX_MAP_PLACEMENT_WATER_SURFACES_PER_PLACEMENT, MapId,
-    MapManifestAsset, MapPlacementAssetTarget, MapPlacementRecord, MapPlacementWaterKind,
-    MapPlacementWaterSurface, MapPlacementsAsset, ResolvedBuildingPresetCatalog,
+use feathrise_scene_content::{
+    BuildingPresetRegistry, MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_PLACEMENT, SceneId,
+    SceneManifestAsset, ScenePlacementAssetTarget, ScenePlacementRecord, ScenePlacementWaterKind,
+    ScenePlacementWaterSurface, ScenePlacementsAsset, ResolvedBuildingPresetCatalog,
 }; // 构造合法普通记录和最大单根水体记录。
 
 use super::super::{loading, planning, retirement}; // 直接验证三个私有阶段的预算和取消边界。
 use crate::BuildingVegetationClearanceState;
 use crate::shared::placement_data::resources::{
-    MapPlacementRuntimeState, PendingPlacementPlan, PendingPlacementPrimitive,
+    ScenePlacementRuntimeState, PendingPlacementPlan, PendingPlacementPrimitive,
     PendingPlacementRevision, PlacementSceneLoadTracker,
 }; // 新修订取消测试通过唯一写侧资源进行。 // 候选夹具携带“已完成但无建筑”的正式净空快照。
 
@@ -38,8 +38,8 @@ fn asset_id<A: Asset>(value: u128) -> AssetId<A> {
 }
 
 /// 构造一条位于测试Rect内的普通placement。
-fn record(index: usize) -> MapPlacementRecord {
-    MapPlacementRecord {
+fn record(index: usize) -> ScenePlacementRecord {
+    ScenePlacementRecord {
         mesh_lod: None,
         terrain_binding: None,
         editor: Default::default(),
@@ -50,7 +50,7 @@ fn record(index: usize) -> MapPlacementRecord {
         building_preset_id: None,                      // 大规模普通资产基线不附带建筑语义。
         courtyard: None,                               // 独立摆放记录不属于任何院落副本。
         translation: [0.0, 0.0, 0.0],                  // 原点位于测试世界范围内。
-        height_mode: feathrise_map_content::MapPlacementHeightMode::FixedHeight, // 规划预算测试不访问R16。
+        height_mode: feathrise_scene_content::ScenePlacementHeightMode::FixedHeight, // 规划预算测试不访问R16。
         terrain_offset: 0.0,        // 固定高度不携带离地偏移。
         yaw_degrees: 0.0,           // 零旋转是有限合法作者值。
         scale: [1.0, 1.0, 1.0],     // 单位缩放处于正式闭区间。
@@ -60,13 +60,13 @@ fn record(index: usize) -> MapPlacementRecord {
 
 #[test]
 fn builtin_cuboid_planning_never_tracks_a_fake_scene_dependency() {
-    let id = MapId::parse("MAP-builtin-planning").unwrap();
+    let id = SceneId::parse("MAP-builtin-planning").unwrap();
     let mut cuboid = record(0);
     cuboid.asset_path.clear();
-    cuboid.asset_target = MapPlacementAssetTarget::DEFAULT_CUBOID;
-    let document = MapPlacementsAsset { schema_version: 1, map_id: id.clone(), placements: vec![cuboid] };
+    cuboid.asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
+    let document = ScenePlacementsAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: id.clone(), placements: vec![cuboid] };
     let mut work = planning::begin_planning(1, 1, id, 1, TEST_BUILDING_PRESET_REVISION,
-        asset_id::<MapManifestAsset>(1), asset_id::<MapPlacementsAsset>(2),
+        asset_id::<SceneManifestAsset>(1), asset_id::<ScenePlacementsAsset>(2),
         Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)), 1);
     let advance = planning::advance_planning(&mut work, &document, &empty_building_registry(), &mut |_| (Handle::default(), None)).unwrap();
     assert!(advance.complete);
@@ -78,12 +78,12 @@ fn builtin_cuboid_planning_never_tracks_a_fake_scene_dependency() {
 
 #[test]
 fn volume_stream_carrier_is_validated_without_loading_scene_or_cutting_author_bbox() {
-    let id = MapId::parse("MAP-stream-planning").unwrap();
+    let id = SceneId::parse("MAP-stream-planning").unwrap();
     let mut r = record(0);
     r.terrain_patch=Some(serde_json::from_value(serde_json::json!({"sculpted_volume":true,"streamed_volume":true,"volume_cell_size":0.25,"cutouts":[{"min":[0,0],"max":[8,8]}]})).unwrap());
-    let doc = MapPlacementsAsset {
-        schema_version: 1,
-        map_id: id.clone(),
+    let doc = ScenePlacementsAsset {
+        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
+        scene_id: id.clone(),
         placements: vec![r.clone()],
     };
     let begin = || {
@@ -93,14 +93,14 @@ fn volume_stream_carrier_is_validated_without_loading_scene_or_cutting_author_bb
             id.clone(),
             1,
             TEST_BUILDING_PRESET_REVISION,
-            asset_id::<MapManifestAsset>(1),
-            asset_id::<MapPlacementsAsset>(2),
+            asset_id::<SceneManifestAsset>(1),
+            asset_id::<ScenePlacementsAsset>(2),
             Rect::from_corners(Vec2::splat(-10.), Vec2::splat(10.)),
             1,
         )
     };
     let mut work = begin();
-    let mut load = |_: &MapPlacementRecord| panic!("v3载体不能走普通GLB实例化");
+    let mut load = |_: &ScenePlacementRecord| panic!("v3载体不能走普通GLB实例化");
     assert!(
         planning::advance_planning(&mut work, &doc, &empty_building_registry(), &mut load)
             .unwrap()
@@ -112,7 +112,7 @@ fn volume_stream_carrier_is_validated_without_loading_scene_or_cutting_author_bb
     assert_eq!(pending.terrain_patch_count, 1);
     assert!(tracker.scene_ids.is_empty());
     r.terrain_patch.as_mut().unwrap().volume_cell_size = None;
-    let bad = MapPlacementsAsset {
+    let bad = ScenePlacementsAsset {
         placements: vec![r],
         ..doc
     };
@@ -123,12 +123,12 @@ fn volume_stream_carrier_is_validated_without_loading_scene_or_cutting_author_bb
 }
 
 /// 为同一placement构造一个唯一且完整合法的水体绑定。
-fn water_surface(index: usize) -> MapPlacementWaterSurface {
-    MapPlacementWaterSurface {
+fn water_surface(index: usize) -> ScenePlacementWaterSurface {
+    ScenePlacementWaterSurface {
         mesh_index: index as u32, // 索引只作诊断，不承担最终唯一性。
         node_path: vec!["场景根".to_owned(), format!("水面对象_{index}")], // 节点路径为每项建立唯一作者身份。
         mesh_name: format!("水面网格_{index}"), // 网格名与路径共同匹配Blender对象。
-        kind: MapPlacementWaterKind::Sloped,    // 类别不影响规划预算。
+        kind: ScenePlacementWaterKind::Sloped,    // 类别不影响规划预算。
         flow_speed: 1.0,                        // 一米每秒处于公开合法范围。
         height_offset: 0.0,                     // 零偏移保留Blender原高程。
     }
@@ -146,20 +146,20 @@ fn pending_plan(index: usize) -> PendingPlacementPlan {
 
 #[test]
 fn eight_thousand_records_are_planned_across_frames_with_fixed_budgets() {
-    let map_id = MapId::parse("MAP-placement-planning-budget").expect("测试地图ID合法"); // 与文档和规划共用同一身份。
-    let document = MapPlacementsAsset {
-        schema_version: 1,      // 规划阶段不重复解释loader已接纳的schema。
-        map_id: map_id.clone(), // 文档必须与当前地图匹配。
-        placements: (0..planning::MAX_PLACEMENTS_PER_MAP).map(record).collect(), // 精确命中八千一百九十二项闭区间上限。
+    let scene_id = SceneId::parse("MAP-placement-planning-budget").expect("测试场景ID合法"); // 与文档和规划共用同一身份。
+    let document = ScenePlacementsAsset {
+        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,      // 规划阶段不重复解释loader已接纳的schema。
+        scene_id: scene_id.clone(), // 文档必须与当前场景匹配。
+        placements: (0..planning::MAX_PLACEMENTS_PER_SCENE).map(record).collect(), // 精确命中八千一百九十二项闭区间上限。
     };
     let mut work = planning::begin_planning(
         7,                                                         // 测试代次。
         3,                                                         // 测试修订。
-        map_id,                                                    // 冻结文档所属地图。
+        scene_id,                                                    // 冻结文档所属场景。
         11,                                                        // 测试目录修订。
         TEST_BUILDING_PRESET_REVISION,                             // 冻结同一建筑目录修订。
-        asset_id::<MapManifestAsset>(1),                           // 测试清单资产身份。
-        asset_id::<MapPlacementsAsset>(2),                         // 测试摆放资产身份。
+        asset_id::<SceneManifestAsset>(1),                           // 测试清单资产身份。
+        asset_id::<ScenePlacementsAsset>(2),                         // 测试摆放资产身份。
         Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)), // 所有记录原点都在范围内。
         document.placements.len(),                                 // 冻结完整文档长度。
     );
@@ -167,7 +167,7 @@ fn eight_thousand_records_are_planned_across_frames_with_fixed_budgets() {
     let mut frames = 0usize; // 统计达到完整计划所需更新帧。
     let mut handle_requests = 0usize; // 每条记录只请求一次Scene0句柄。
     loop {
-        let mut load = |_record: &MapPlacementRecord| {
+        let mut load = |_record: &ScenePlacementRecord| {
             handle_requests += 1; // 关注请求次数，不需要真实AssetServer。
             (Handle::<WorldAsset>::default(), None) // 同一默认ID模拟八千个placement复用一份GLB。
         };
@@ -186,43 +186,43 @@ fn eight_thousand_records_are_planned_across_frames_with_fixed_budgets() {
 
     assert_eq!(
         frames,
-        planning::MAX_PLACEMENTS_PER_MAP / planning::PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME,
+        planning::MAX_PLACEMENTS_PER_SCENE / planning::PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME,
     ); // 八千一百九十二项必须用六十四帧，不得在首帧全扫。
-    assert_eq!(work.plans.len(), planning::MAX_PLACEMENTS_PER_MAP); // 完成后计划不丢记录。
-    assert_eq!(handle_requests, planning::MAX_PLACEMENTS_PER_MAP); // 一条记录对应一个强Scene0句柄请求。
+    assert_eq!(work.plans.len(), planning::MAX_PLACEMENTS_PER_SCENE); // 完成后计划不丢记录。
+    assert_eq!(handle_requests, planning::MAX_PLACEMENTS_PER_SCENE); // 一条记录对应一个强Scene0句柄请求。
     assert_eq!(work.scene_ids.len(), 1); // 加载门按唯一GLB去重，不重复轮询八千次。
     assert_eq!(work.scene_checks.len(), 1); // 首轮依赖检查队列同样只有一个ID。
 }
 
 #[test]
 fn water_bindings_use_a_budget_independent_from_record_count() {
-    let map_id = MapId::parse("MAP-placement-water-budget").expect("测试地图ID合法"); // 文档和规划身份一致。
+    let scene_id = SceneId::parse("MAP-placement-water-budget").expect("测试场景ID合法"); // 文档和规划身份一致。
     let mut placements = Vec::new(); // 四条记录各自命中单根六十四项上限。
     for index in 0..4 {
         let mut placement = record(index); // 复用合法基础变换和路径。
-        placement.water_surfaces = (0..MAX_MAP_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
+        placement.water_surfaces = (0..MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
             .map(|surface| water_surface(index * 100 + surface))
             .collect(); // 每根内部身份唯一，全图精确二百五十六项。
         placements.push(placement); // 文档顺序稳定。
     }
-    let document = MapPlacementsAsset {
-        schema_version: 1,      // 测试不依赖schema分支。
-        map_id: map_id.clone(), // 文档地图身份合法。
+    let document = ScenePlacementsAsset {
+        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,      // 测试不依赖schema分支。
+        scene_id: scene_id.clone(), // 文档场景身份合法。
         placements,             // 四个最大含水根。
     };
     let mut work = planning::begin_planning(
         1,                                                         // 测试代次。
         1,                                                         // 测试修订。
-        map_id,                                                    // 冻结地图ID。
+        scene_id,                                                    // 冻结场景ID。
         1,                                                         // 测试目录修订。
         TEST_BUILDING_PRESET_REVISION,                             // 冻结同一建筑目录修订。
-        asset_id::<MapManifestAsset>(11),                          // 测试清单ID。
-        asset_id::<MapPlacementsAsset>(12),                        // 测试摆放ID。
+        asset_id::<SceneManifestAsset>(11),                          // 测试清单ID。
+        asset_id::<ScenePlacementsAsset>(12),                        // 测试摆放ID。
         Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)), // 全部原点合法。
         document.placements.len(),                                 // 冻结四条记录。
     );
     let building_registry = empty_building_registry(); // 水体预算测试不声明建筑条目。
-    let mut load = |_record: &MapPlacementRecord| (Handle::<WorldAsset>::default(), None); // 本测试只验证水体游标。
+    let mut load = |_record: &ScenePlacementRecord| (Handle::<WorldAsset>::default(), None); // 本测试只验证水体游标。
 
     for expected_completed in 1..=4 {
         let advance =
@@ -240,10 +240,10 @@ fn water_bindings_use_a_budget_independent_from_record_count() {
 #[test]
 fn mesh_lod_policy_enters_complete_plan_and_mid_record_policy_change_rejects_partial_source() {
     for change_policy in [false, true] {
-        let map = MapId::parse("MAP-lod-plan").unwrap();
-        let policy = feathrise_map_content::MeshLodPolicy {
-            display: feathrise_map_content::MeshLodMode::Override(feathrise_map_content::MeshDisplayLodSettings { max_error_pixels: 0.5, ..Default::default() }),
-            collision: feathrise_map_content::MeshLodMode::Disabled,
+        let map = SceneId::parse("MAP-lod-plan").unwrap();
+        let policy = feathrise_scene_content::MeshLodPolicy {
+            display: feathrise_scene_content::MeshLodMode::Override(feathrise_scene_content::MeshDisplayLodSettings { max_error_pixels: 0.5, ..Default::default() }),
+            collision: feathrise_scene_content::MeshLodMode::Disabled,
         };
         let mut first = record(0);
         first.mesh_lod = Some(policy);
@@ -251,12 +251,12 @@ fn mesh_lod_policy_enters_complete_plan_and_mid_record_policy_change_rejects_par
         let mut second = record(1);
         second.mesh_lod = Some(policy);
         second.water_surfaces = (0..64).map(|index| water_surface(100 + index)).collect();
-        let mut document = MapPlacementsAsset { schema_version: 1, map_id: map.clone(), placements: vec![first, second] };
+        let mut document = ScenePlacementsAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: map.clone(), placements: vec![first, second] };
         let mut work = planning::begin_planning(1, 1, map, 1, TEST_BUILDING_PRESET_REVISION,
-            asset_id::<MapManifestAsset>(71), asset_id::<MapPlacementsAsset>(72),
+            asset_id::<SceneManifestAsset>(71), asset_id::<ScenePlacementsAsset>(72),
             Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)), document.placements.len());
         let registry = empty_building_registry();
-        let mut load = |value: &MapPlacementRecord| {
+        let mut load = |value: &ScenePlacementRecord| {
             assert_eq!(value.mesh_lod, Some(policy));
             (Handle::<WorldAsset>::default(), None)
         };
@@ -278,34 +278,34 @@ fn mesh_lod_policy_enters_complete_plan_and_mid_record_policy_change_rejects_par
 
 #[test]
 fn primitive_target_enters_plan_with_direct_mesh_and_material_handles() {
-    let map_id = MapId::parse("MAP-placement-primitive-plan").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-placement-primitive-plan").expect("测试场景ID合法");
     let mut primitive_record = record(0);
-    primitive_record.asset_target = MapPlacementAssetTarget::Primitive {
+    primitive_record.asset_target = ScenePlacementAssetTarget::Primitive {
         mesh: 6,
         primitive: 0,
         material: Some(2),
     };
-    let document = MapPlacementsAsset {
-        schema_version: 1,
-        map_id: map_id.clone(),
+    let document = ScenePlacementsAsset {
+        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
+        scene_id: scene_id.clone(),
         placements: vec![primitive_record],
     };
     let mut work = planning::begin_planning(
         1,
         1,
-        map_id,
+        scene_id,
         1,
         TEST_BUILDING_PRESET_REVISION,
-        asset_id::<MapManifestAsset>(41),
-        asset_id::<MapPlacementsAsset>(42),
+        asset_id::<SceneManifestAsset>(41),
+        asset_id::<ScenePlacementsAsset>(42),
         Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)),
         1,
     );
     let building_registry = empty_building_registry(); // primitive 记录同样绑定建筑目录修订。
-    let mut load = |record: &MapPlacementRecord| {
+    let mut load = |record: &ScenePlacementRecord| {
         assert!(matches!(
             record.asset_target,
-            MapPlacementAssetTarget::Primitive {
+            ScenePlacementAssetTarget::Primitive {
                 mesh: 6,
                 primitive: 0,
                 material: Some(2),
@@ -332,14 +332,14 @@ fn primitive_target_enters_plan_with_direct_mesh_and_material_handles() {
 
 #[test]
 fn new_input_identity_cancels_an_old_partial_plan() {
-    let map_id = MapId::parse("MAP-placement-cancel").expect("测试地图ID合法"); // 旧规划所属地图。
-    let manifest_id = asset_id::<MapManifestAsset>(21); // 旧新规划共用清单。
-    let old_document_id = asset_id::<MapPlacementsAsset>(22); // 旧JSON资产身份。
-    let new_document_id = asset_id::<MapPlacementsAsset>(23); // 热更后新JSON资产身份。
+    let scene_id = SceneId::parse("MAP-placement-cancel").expect("测试场景ID合法"); // 旧规划所属场景。
+    let manifest_id = asset_id::<SceneManifestAsset>(21); // 旧新规划共用清单。
+    let old_document_id = asset_id::<ScenePlacementsAsset>(22); // 旧JSON资产身份。
+    let new_document_id = asset_id::<ScenePlacementsAsset>(23); // 热更后新JSON资产身份。
     let old = planning::begin_planning(
         5,                                                       // 旧代次。
         8,                                                       // 旧尝试修订。
-        map_id.clone(),                                          // 地图ID未变，只替换JSON。
+        scene_id.clone(),                                          // 场景ID未变，只替换JSON。
         13,                                                      // 目录修订未变。
         TEST_BUILDING_PRESET_REVISION,                           // 建筑目录修订未变。
         manifest_id,                                             // 清单句柄未变。
@@ -350,7 +350,7 @@ fn new_input_identity_cancels_an_old_partial_plan() {
     assert!(planning::planning_matches_inputs(
         &old,                          // 旧规划。
         5,                             // 同代次。
-        &map_id,                       // 同地图。
+        &scene_id,                       // 同场景。
         13,                            // 同目录修订。
         TEST_BUILDING_PRESET_REVISION, // 同建筑目录修订。
         manifest_id,                   // 同清单。
@@ -359,7 +359,7 @@ fn new_input_identity_cancels_an_old_partial_plan() {
     assert!(!planning::planning_matches_inputs(
         &old,                          // 旧规划。
         5,                             // 同代次。
-        &map_id,                       // 同地图。
+        &scene_id,                       // 同场景。
         13,                            // 同目录修订。
         TEST_BUILDING_PRESET_REVISION, // 同建筑目录修订。
         manifest_id,                   // 同清单。
@@ -367,24 +367,24 @@ fn new_input_identity_cancels_an_old_partial_plan() {
     ));
 
     let mut app = App::new(); // 通过生产取消函数验证资源不保留旧规划。
-    let mut state = MapPlacementRuntimeState::default(); // 构造唯一写侧状态。
+    let mut state = ScenePlacementRuntimeState::default(); // 构造唯一写侧状态。
     state.planning = Some(old); // 模拟旧修订已在跨帧规划。
     app.insert_resource(state).add_systems(
         Update,
-        |mut commands: Commands, mut state: InstanceResMut<MapPlacementRuntimeState>| {
+        |mut commands: Commands, mut state: InstanceResMut<ScenePlacementRuntimeState>| {
             retirement::retire_candidate(&mut commands, &mut state); // 新身份检测后生产路径使用同一取消边界。
         },
     );
     app.update(); // 执行一帧取消。
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .planning
             .is_none()
     ); // 旧游标不能在新JSON上继续。
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .retired_plan
             .is_some()
     ); // 取消只移交所有权，旧规划由后续固定预算系统释放。
@@ -392,26 +392,26 @@ fn new_input_identity_cancels_an_old_partial_plan() {
 
 #[test]
 fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
-    let map_id = MapId::parse("MAP-placement-retire-planning").expect("测试地图ID合法"); // 构造中途取消的最大规划前缀。
+    let scene_id = SceneId::parse("MAP-placement-retire-planning").expect("测试场景ID合法"); // 构造中途取消的最大规划前缀。
     let mut work = planning::begin_planning(
         6,                                                       // 测试代次。
         4,                                                       // 测试修订。
-        map_id,                                                  // 规划所属地图。
+        scene_id,                                                  // 规划所属场景。
         2,                                                       // 测试目录修订。
         TEST_BUILDING_PRESET_REVISION,                           // 测试建筑目录修订。
-        asset_id::<MapManifestAsset>(31),                        // 测试清单身份。
-        asset_id::<MapPlacementsAsset>(32),                      // 测试摆放身份。
+        asset_id::<SceneManifestAsset>(31),                        // 测试清单身份。
+        asset_id::<ScenePlacementsAsset>(32),                      // 测试摆放身份。
         Rect::from_corners(Vec2::splat(-1.0), Vec2::splat(1.0)), // 本测试不再推进记录，仅保留合法冻结范围。
-        planning::MAX_PLACEMENTS_PER_MAP,                        // 最大合法记录总量。
+        planning::MAX_PLACEMENTS_PER_SCENE,                        // 最大合法记录总量。
     );
-    work.plans = (0..planning::MAX_PLACEMENTS_PER_MAP)
+    work.plans = (0..planning::MAX_PLACEMENTS_PER_SCENE)
         .map(pending_plan)
         .collect(); // 模拟已完成八千一百九十二条的计划前缀。
-    work.ids = (0..planning::MAX_PLACEMENTS_PER_MAP)
+    work.ids = (0..planning::MAX_PLACEMENTS_PER_SCENE)
         .map(|index| format!("placement-{index}"))
         .collect(); // 重复ID门已持有同规模稳定身份集合。
 
-    let mut state = MapPlacementRuntimeState::default(); // 唯一写侧资源接管待取消规划。
+    let mut state = ScenePlacementRuntimeState::default(); // 唯一写侧资源接管待取消规划。
     state.planning = Some(work); // 模拟输入在规划收尾前换代。
     retirement::retire_plan_data(&mut state); // 取消帧只做O(1)所有权转移。
     assert!(state.planning.is_none()); // 旧输入游标立即从活动状态失效。
@@ -423,7 +423,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
             .expect("旧规划进入唯一退役槽")
             .plans
             .len(),
-        planning::MAX_PLACEMENTS_PER_MAP,
+        planning::MAX_PLACEMENTS_PER_SCENE,
     ); // O(1)移交帧尚未同步析构任何计划项。
 
     let mut app = App::new(); // 独立运行生产固定预算清理系统。
@@ -432,7 +432,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
     app.update(); // 第一帧只能释放计划Vec尾部的固定前缀。
     let retired_planning = app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .retired_plan
         .as_ref()
         .and_then(|retired| retired.planning.as_ref())
@@ -441,13 +441,13 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
         retired_planning.plans.len() + usize::from(retired_planning.current_plan.is_some()); // 下一个计划可O(1)移入游标，但未计费前仍属于未释放总数。
     assert_eq!(
         remaining_plans,
-        planning::MAX_PLACEMENTS_PER_MAP - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
+        planning::MAX_PLACEMENTS_PER_SCENE - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
     ); // 单帧绝不能多释放第一个一百二十八项计划。
 
     let mut frames = 1usize; // 已经执行首个退役帧。
     while app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .retired_plan
         .is_some()
     {
@@ -460,24 +460,24 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
 
 #[test]
 fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
-    let map_id = MapId::parse("MAP-placement-retire-adopted").expect("测试地图ID合法"); // 模拟完整候选原子采用后的大数据所有权。
+    let scene_id = SceneId::parse("MAP-placement-retire-adopted").expect("测试场景ID合法"); // 模拟完整候选原子采用后的大数据所有权。
     let pending = PendingPlacementRevision {
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 9, // 候选代次仅作为固定大小壳保留。
         revision: 7,   // 候选修订仅作为固定大小壳保留。
-        map_id,        // 地图身份与计划同代退役。
+        scene_id,        // 场景身份与计划同代退役。
         building_preset_revision: TEST_BUILDING_PRESET_REVISION, // 退役夹具仍保留候选目录身份。
         building_clearances: BuildingVegetationClearanceState::empty_regions(), // 无建筑也表示完整净空快照。
         building_clearance_floor_heights: Default::default(),
-        plans: (0..planning::MAX_PLACEMENTS_PER_MAP)
+        plans: (0..planning::MAX_PLACEMENTS_PER_SCENE)
             .map(pending_plan)
             .collect(), // 最大合法候选含八千一百九十二个强句柄计划。
     };
     let tracker = PlacementSceneLoadTracker {
         generation: 9, // Scene跟踪身份与候选一致。
         revision: 7,   // Scene跟踪身份与候选一致。
-        placement_ids: (0..planning::MAX_PLACEMENTS_PER_MAP)
+        placement_ids: (0..planning::MAX_PLACEMENTS_PER_SCENE)
             .map(|index| format!("placement-{index}"))
             .collect(), // 规划唯一性集合不得在采用帧整表析构。
         scene_ids: HashSet::new(), // 本测试聚焦最大placement集合。
@@ -485,7 +485,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
         queued_scene_ids: HashSet::new(), // 无额外排队身份。
         scene_checks: VecDeque::new(), // 无额外检查队列。
     };
-    let mut state = MapPlacementRuntimeState::default(); // 构造采用前的正式候选阶段。
+    let mut state = ScenePlacementRuntimeState::default(); // 构造采用前的正式候选阶段。
     state.pending = Some(pending); // 完整计划仍供候选根生成使用。
     state.scene_load = Some(tracker); // Scene身份仍用于采用前热更事件门。
     retirement::retire_plan_data(&mut state); // 采用边界只移动两份所有权。
@@ -498,7 +498,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
             .expect("强计划仍由退役槽持有")
             .plans
             .len(),
-        planning::MAX_PLACEMENTS_PER_MAP,
+        planning::MAX_PLACEMENTS_PER_SCENE,
     ); // 采用调用本身没有同步析构大Vec。
     assert_eq!(
         retired
@@ -507,7 +507,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
             .expect("Scene跟踪器与计划同代退役")
             .placement_ids
             .len(),
-        planning::MAX_PLACEMENTS_PER_MAP,
+        planning::MAX_PLACEMENTS_PER_SCENE,
     ); // 稳定ID集合同样完整转移。
 
     let mut app = App::new(); // 使用生产清理系统验证采用后的退役预算。
@@ -516,7 +516,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
     app.update(); // 第一帧优先释放pending计划。
     let retired_candidate = app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .retired_plan
         .as_ref()
         .and_then(|retired| retired.candidate.as_ref())
@@ -525,20 +525,20 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
         retired_candidate.plans.len() + usize::from(retired_candidate.current_plan.is_some()); // O(1)取出的下一计划仍由嵌套游标完整持有。
     assert_eq!(
         remaining_plans,
-        planning::MAX_PLACEMENTS_PER_MAP - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
+        planning::MAX_PLACEMENTS_PER_SCENE - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
     ); // 最坏候选采用后每帧只释放一百二十八条计划。
 }
 
 #[test]
 fn nested_water_paths_cannot_hide_inside_one_top_level_plan_drop() {
-    let map_id = MapId::parse("MAP-placement-retire-water-paths").expect("测试地图ID合法"); // 构造一个最大单根水绑定计划。
+    let scene_id = SceneId::parse("MAP-placement-retire-water-paths").expect("测试场景ID合法"); // 构造一个最大单根水绑定计划。
     let mut plan = pending_plan(0); // 从普通合法计划添加嵌套水路径。
-    plan.record.water_surfaces = (0..MAX_MAP_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
-        .map(|surface| MapPlacementWaterSurface {
+    plan.record.water_surfaces = (0..MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
+        .map(|surface| ScenePlacementWaterSurface {
             mesh_index: surface as u32, // 诊断索引不影响退役身份。
             node_path: (0..64).map(|segment| format!("p{segment}")).collect(), // 每个绑定命中六十四段路径深度上限。
             mesh_name: format!("水面_{surface}"), // 每项保留独立有界网格名。
-            kind: MapPlacementWaterKind::Sloped,  // 固定大小枚举在转游标时直接释放。
+            kind: ScenePlacementWaterKind::Sloped,  // 固定大小枚举在转游标时直接释放。
             flow_speed: 1.0,                      // 固定大小数值不占字符串预算。
             height_offset: 0.0,                   // 固定大小数值不占字符串预算。
         })
@@ -548,13 +548,13 @@ fn nested_water_paths_cannot_hide_inside_one_top_level_plan_drop() {
         terrain_patch_count: 0,
         generation: 1,                                           // 测试候选身份。
         revision: 1,                                             // 测试候选修订。
-        map_id,                                                  // 测试地图身份。
+        scene_id,                                                  // 测试场景身份。
         building_preset_revision: TEST_BUILDING_PRESET_REVISION, // 候选目录身份随计划退役。
         building_clearances: BuildingVegetationClearanceState::empty_regions(), // 本测试不包含建筑。
         building_clearance_floor_heights: Default::default(),
         plans: vec![plan], // 只有一个顶层计划，防止顶层数量掩盖嵌套工作。
     };
-    let mut state = MapPlacementRuntimeState::default(); // 构造即将采用的候选。
+    let mut state = ScenePlacementRuntimeState::default(); // 构造即将采用的候选。
     state.pending = Some(pending); // 强计划仍归当前候选。
     retirement::retire_plan_data(&mut state); // 只转换为拥有型嵌套游标。
     let advance =
@@ -570,26 +570,26 @@ fn nested_water_paths_cannot_hide_inside_one_top_level_plan_drop() {
 
 #[test]
 fn nested_water_strings_obey_the_shared_byte_budget() {
-    let map_id = MapId::parse("MAP-placement-retire-string-bytes").expect("测试地图ID合法"); // 构造合法Unicode最坏字节密度路径。
+    let scene_id = SceneId::parse("MAP-placement-retire-string-bytes").expect("测试场景ID合法"); // 构造合法Unicode最坏字节密度路径。
     let long_segment = "🀄".repeat(256); // 二百五十六字符精确占一千零二十四UTF-8字节。
     let mut plan = pending_plan(0); // 单计划排除顶层数量预算影响。
-    plan.record.water_surfaces = (0..MAX_MAP_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
-        .map(|surface| MapPlacementWaterSurface {
+    plan.record.water_surfaces = (0..MAX_SCENE_PLACEMENT_WATER_SURFACES_PER_PLACEMENT)
+        .map(|surface| ScenePlacementWaterSurface {
             mesh_index: surface as u32,               // 固定大小诊断索引。
             node_path: vec![long_segment.clone(); 4], // 每项路径总字符数一千零二十四，仍处于正式上限。
             mesh_name: format!("m{surface}"),         // 小网格名也计入同一字符串预算。
-            kind: MapPlacementWaterKind::Sloped,      // 固定大小语义。
+            kind: ScenePlacementWaterKind::Sloped,      // 固定大小语义。
             flow_speed: 1.0,                          // 固定大小流速。
             height_offset: 0.0,                       // 固定大小高度。
         })
         .collect(); // 全部合法绑定合计远超单帧三十二KiB。
-    let mut state = MapPlacementRuntimeState::default(); // 构造采用终止边界。
+    let mut state = ScenePlacementRuntimeState::default(); // 构造采用终止边界。
     state.pending = Some(PendingPlacementRevision {
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 1,                                           // 测试代次。
         revision: 1,                                             // 测试修订。
-        map_id,                                                  // 测试地图。
+        scene_id,                                                  // 测试场景。
         building_preset_revision: TEST_BUILDING_PRESET_REVISION, // 候选目录身份随计划退役。
         building_clearances: BuildingVegetationClearanceState::empty_regions(), // 本测试不包含建筑。
         building_clearance_floor_heights: Default::default(),
@@ -609,7 +609,7 @@ fn nested_water_strings_obey_the_shared_byte_budget() {
 
 #[test]
 fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
-    let ids = (1..=planning::MAX_PLACEMENTS_PER_MAP)
+    let ids = (1..=planning::MAX_PLACEMENTS_PER_SCENE)
         .map(|index| asset_id::<WorldAsset>(1_000 + index as u128))
         .collect::<Vec<_>>(); // 最坏情况下每条placement引用不同GLB。
     let mut tracker = PlacementSceneLoadTracker {
@@ -631,7 +631,7 @@ fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
         loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
     ); // 首帧精确只查一百二十八项。
     assert_eq!(calls, loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME); // 闭包证明没有隐藏第二遍。
-    assert_eq!(tracker.scene_checks.len(), planning::MAX_PLACEMENTS_PER_MAP); // Waiting轮转不丢ID，也不同帧缩短全队列。
+    assert_eq!(tracker.scene_checks.len(), planning::MAX_PLACEMENTS_PER_SCENE); // Waiting轮转不丢ID，也不同帧缩短全队列。
 
     let mut frames = 0usize; // 所有ID变成Ready必须跨足够多帧。
     while tracker.ready_scene_ids.len() < tracker.scene_ids.len() {
@@ -643,7 +643,7 @@ fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
     }
     assert_eq!(
         frames,
-        planning::MAX_PLACEMENTS_PER_MAP / loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
+        planning::MAX_PLACEMENTS_PER_SCENE / loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
     ); // 八千一百九十二个唯一Scene同样需要六十四帧。
     assert!(tracker.scene_checks.is_empty()); // 全Ready后稳定帧不再轮询任何ID。
 }

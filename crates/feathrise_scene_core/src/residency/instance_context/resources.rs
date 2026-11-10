@@ -1,4 +1,4 @@
-//! 实例运行状态按上下文实体保存；源图身份、作者路径由地图领域另行管理。
+//! 实例运行状态按上下文实体保存；源图身份、作者路径由场景领域另行管理。
 
 use bevy::prelude::*;
 use std::collections::BTreeMap;
@@ -6,18 +6,18 @@ use std::collections::BTreeMap;
 /// 完整三轴姿态与正缩放的源坐标桥；相机/玩家输入逆变换，查询与显示结果正变换。
 /// 作为来源实体组件时保存本次采用的完整世界姿态，叶片跟随在Transform传播前即可读取，避免借用上一帧GlobalTransform。
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub struct MapSourceFrame {
+pub struct SceneSourceFrame {
     pub source_to_world: Mat4,
     pub world_to_source: Mat4,
 }
 
-impl Default for MapSourceFrame {
+impl Default for SceneSourceFrame {
     fn default() -> Self {
         Self { source_to_world: Mat4::IDENTITY, world_to_source: Mat4::IDENTITY }
     }
 }
 
-impl MapSourceFrame {
+impl SceneSourceFrame {
     pub fn from_transform(transform: Transform) -> Self {
         let source_to_world = transform.to_matrix();
         Self { source_to_world, world_to_source: source_to_world.inverse() }
@@ -30,11 +30,11 @@ impl MapSourceFrame {
     }
 }
 
-/// 有界域调度的明确参数；None保留原父地图的资源和坐标行为。
+/// 有界域调度的明确参数；None保留原父场景的资源和坐标行为。
 #[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct MapRuntimeScope {
+pub struct SceneRuntimeScope {
     pub instance: Option<Entity>,
-    pub frame: MapSourceFrame,
+    pub frame: SceneSourceFrame,
 }
 
 /// 每个实例拥有独立任务、票据与采用值；仅不可变源资产句柄可以共享。

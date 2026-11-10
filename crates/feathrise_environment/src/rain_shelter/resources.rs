@@ -14,7 +14,7 @@ pub struct RainShelterGpu {
 
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)] // CPU和GPU都观察同次完整发布。
 pub struct RainShelterState {
-    // 地图宿主负责来源生命周期。
+    // 场景宿主负责来源生命周期。
     pub gpu: RainShelterGpu, // 稳定帧保持相等，避免重新上传。
 } // 完成活动资源。
 

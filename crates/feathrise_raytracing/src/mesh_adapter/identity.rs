@@ -7,9 +7,9 @@ use crate::{
     types::{AdaptationIdentity, RaytracingPrototypeBlocker}, // 后台票据身份与公开失败原因。
 };
 
-/// 判断后台身份是否仍精确对应当前地图代次与源实体。
+/// 判断后台身份是否仍精确对应当前场景代次与源实体。
 pub(super) fn adaptation_identity_matches(
-    runtime: &RaytracingRuntime,      // 当前地图会话和当前候选槽。
+    runtime: &RaytracingRuntime,      // 当前场景会话和当前候选槽。
     identity: AdaptationIdentity,     // 后台完成值携带的完整启动身份。
     revisions: &MeshRevisionRegistry, // 资产事件维护的当前源修订。
     source_meshes: &Query<&Mesh3d>,   // 按明确源实体读取当前Mesh句柄。
@@ -47,7 +47,7 @@ pub(super) fn record_task_failure_if_current(
 
 /// 使用已读取的权威值发布失败，便于锁定“当前失败/迟到失败”边界测试。
 pub(super) fn record_task_failure_if_values_current(
-    runtime: &mut RaytracingRuntime, // 当前地图会话、候选槽与任务票据权威值。
+    runtime: &mut RaytracingRuntime, // 当前场景会话、候选槽与任务票据权威值。
     identity: AdaptationIdentity,    // 后台失败值携带的完整启动身份。
     error: String,                   // 当前失败时写入F1的详情。
     current_revision: u64,           // MeshRevisionRegistry当前修订。
@@ -68,7 +68,7 @@ pub(super) fn record_task_failure_if_values_current(
 
 /// 对比不依赖ECS借用的身份值，所有字段一致才允许成功采用或发布失败。
 pub(super) fn adaptation_identity_values_match(
-    runtime: &RaytracingRuntime,  // 当前地图会话、候选槽与任务票据权威值。
+    runtime: &RaytracingRuntime,  // 当前场景会话、候选槽与任务票据权威值。
     identity: AdaptationIdentity, // 后台完成值携带的完整启动身份。
     current_revision: u64,        // MeshRevisionRegistry当前修订。
     current_source_mesh: Option<AssetId<Mesh>>, // 源实体此刻实际绑定的Mesh身份。
@@ -79,7 +79,7 @@ pub(super) fn adaptation_identity_values_match(
     let Some(candidate) = runtime.candidates.get(identity.contract_index) else {
         return false; // 固定槽不存在时不得按其他候选兜底。
     };
-    runtime.generation == identity.generation // 地图代次必须一致。
+    runtime.generation == identity.generation // 场景代次必须一致。
         && root == identity.root // 目标根实体必须一致。
         && candidate.entity == identity.source_entity // 固定primitive实体必须一致。
         && candidate.mesh_id == identity.source_mesh // 源Mesh AssetId必须一致。

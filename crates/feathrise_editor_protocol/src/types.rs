@@ -4,7 +4,8 @@ use crate::{AuthorToolPreview, AuthorToolValidationError, ProtocolError};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+// 快照与增量消息改用 scene_id，旧进程必须在帧头处被拒绝，不能在进入采用队列后才发现字段不匹配。
+pub const PROTOCOL_VERSION: u32 = 2;
 /// 函数体热补丁是可选开发能力，不改变旧工程必须实现的常驻视口合同。
 pub const FUNCTION_HOTPATCH_CAPABILITY: &str = "function-hotpatch-v1";
 /// 中央作者浮层只允许固定数量的矩形裁剪，避免窗口区域重建随任意UI节点规模增长。
@@ -63,7 +64,7 @@ impl ViewportUiShape {
 }
 pub const MAX_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 
-/// 预算限制字节而非地图对象数量；完整超限返回失败，禁止截断成半份场景。
+/// 预算限制字节而非场景对象数量；完整超限返回失败，禁止截断成半份场景。
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub metadata_bytes: usize,
@@ -85,7 +86,7 @@ pub struct SessionIdentity {
     pub project_id: String,
     /// 每次启动重新生成的 nonce；重启不得复用上一进程的应答。
     pub session: u64,
-    /// 切图或重建换代；同一地图普通草稿只推进 revision。
+    /// 切换场景或重建换代；同一场景普通草稿只推进 revision。
     pub generation: u64,
 }
 
@@ -96,7 +97,7 @@ pub enum Mode {
     Playing,
 }
 
-/// 各作者预览拥有独立的采用序号；传输顺序、地图代次仍由外层会话统一约束。
+/// 各作者预览拥有独立的采用序号；传输顺序、场景代次仍由外层会话统一约束。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PreviewKind {
@@ -128,7 +129,7 @@ pub struct OverlayLine {
     pub end_color: [f32; 4],
 }
 
-/// 原作者相机的固定显示参数，接收端复用同一渲染插件；不交换GPU句柄或地图对象。
+/// 原作者相机的固定显示参数，接收端复用同一渲染插件；不交换GPU句柄或场景对象。
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthorViewState {
@@ -235,7 +236,7 @@ pub enum Message {
     Snapshot {
         transaction: u64,
         revision: u64,
-        map_id: String,
+        scene_id: String,
         format: String,
     },
     SnapshotApplied {
@@ -247,7 +248,7 @@ pub enum Message {
         #[serde(rename = "domain")]
         kind: PreviewKind,
         sequence: u64,
-        map_id: String,
+        scene_id: String,
         format: String,
     },
     PreviewApplied {
@@ -305,7 +306,7 @@ impl Envelope {
             || self.identity.generation == 0
             || self.sequence == 0
         {
-            return Err(fail("工程、会话、地图代次或顺序号无效"));
+            return Err(fail("工程、会话、场景代次或顺序号无效"));
         }
         let payload_bytes = self.payload.as_ref().map_or(0, |bytes| bytes.len());
         if payload_bytes > limits.snapshot_bytes {
@@ -466,13 +467,13 @@ impl Envelope {
             Message::Snapshot {
                 transaction,
                 revision,
-                map_id,
+                scene_id,
                 format,
             } => {
                 if *transaction == 0
                     || *revision == 0
-                    || map_id.is_empty()
-                    || map_id.len() > 256
+                    || scene_id.is_empty()
+                    || scene_id.len() > 256
                     || format.is_empty()
                     || format.len() > 128
                 {
@@ -485,10 +486,10 @@ impl Envelope {
             } if *transaction == 0 || *revision == 0 => {
                 return Err(fail("快照回执身份无效"));
             }
-            Message::Preview { sequence, map_id, format, .. } => {
-                if *sequence == 0 || map_id.is_empty() || map_id.len() > 256
+            Message::Preview { sequence, scene_id, format, .. } => {
+                if *sequence == 0 || scene_id.is_empty() || scene_id.len() > 256
                     || format.is_empty() || format.len() > 128 {
-                    return Err(fail("增量预览缺少有效序号、地图或格式身份"));
+                    return Err(fail("增量预览缺少有效序号、场景或格式身份"));
                 }
             }
             Message::PreviewApplied { sequence, .. } if *sequence == 0 => {

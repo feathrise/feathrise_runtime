@@ -6,7 +6,7 @@ use crate::constants::{PORTAL_EDGE_BEAM_HEIGHT, PORTAL_VISUAL_RADIUS}; // 边缘
 use crate::mesh::build_portal_edge_beam_mesh; // 正式网格与F12预览共享顶部渐隐构造器。
 use crate::resources::{PortalLabelFont, PortalVisualMeshes}; // 字体由应用在启动前明确提供。
 
-/// 启动时只建立一次全部传送点共享的固定网格，地图热更新不再按传送点重复分配几何资产。
+/// 启动时只建立一次全部传送点共享的固定网格，场景热更新不再按传送点重复分配几何资产。
 pub(super) fn setup_portal_visual_meshes(
     mut commands: Commands,           // 共享句柄通过资源提供给正式传送图生成系统。
     mut meshes: ResMut<Assets<Mesh>>, // 五个小型程序网格只在启动阶段登记一次。
@@ -19,7 +19,7 @@ pub(super) fn setup_portal_visual_meshes(
     commands.insert_resource(PortalVisualMeshes {
         base: meshes.add(Mesh::from(Circle::new(PORTAL_VISUAL_RADIUS))), // 原深色圆盘继续表达实际触发范围。
         arrow_head: meshes.add(Mesh::from(Triangle2d::new(
-            Vec2::new(0.0, 1.8),  // 箭头尖端沿局部正Y，铺地后对应地图北向。
+            Vec2::new(0.0, 1.8),  // 箭头尖端沿局部正Y，铺地后对应场景北向。
             Vec2::new(-1.2, 0.0), // 左侧基点保持原路标宽度。
             Vec2::new(1.2, 0.0),  // 右侧基点与左侧对称。
         ))),

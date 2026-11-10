@@ -11,7 +11,7 @@ use self::profile::format_content_gpu_report; // 主报告只编排当前普通�
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use feathrise_map_content::{VegetationPresetRegistry, VegetationPresetRuntime};
+use feathrise_scene_content::{VegetationPresetRegistry, VegetationPresetRuntime};
 use feathrise_environment::vegetation::{VegetationBladeAdoptionStatus, VegetationBladeLayer}; // F3观察当前布局是否真正进入全部可见绑定窗。
 use feathrise_environment::vegetation::blade::{
     GPU_GRASS_DEPTH_BUCKET_COUNT,          // 每个 LOD 固定径向深度桶数量。
@@ -53,7 +53,7 @@ pub(super) struct VegetationReportSources<'a> {
 /// 构建单类叶片植被诊断段，普通草、麦田与杂粮田分页分别调用且不会生成其他内容字符串。
 pub(super) fn build_vegetation_report(
     preset_id: &str, // 当前分页借用消费工程提供的稳定预设，不要求编译期常量。
-    content_label: &'static str,       // 互斥地图复用profile时仍保持普通草与湿地草独立用户身份。
+    content_label: &'static str,       // 互斥场景复用profile时仍保持普通草与湿地草独立用户身份。
     queries: &GrassMonitorQueries<'_, '_>, // 提供主世界草窗与正式地表承接标记查询。
     sources: &VegetationReportSources<'_>, // 当前刷新周期共享的渲染、回读和流送证据。
 ) -> String {
@@ -73,7 +73,7 @@ pub(super) fn build_vegetation_report(
         VegetationPresetRuntime::Blade { lods, .. } => lods.len() as u32,
         _ => return format!("{content_label}：预设不是GPU叶片"),
     };
-    // 按正式层身份筛选，局部GPU槽由绘制批次分配，不能再用地图编号推断草种。
+    // 按正式层身份筛选，局部GPU槽由绘制批次分配，不能再用场景编号推断草种。
     let mut grass_lods = queries.grass_patches.iter()
         .filter(|(_, layer)| layer.0.0 == runtime_layer_id)
         .map(|(patch, _)| *patch)
@@ -87,12 +87,12 @@ pub(super) fn build_vegetation_report(
             .then_with(|| left.grid_spacing().total_cmp(&right.grid_spacing())) // 同起点时再按格距稳定排序。
     });
 
-    let grass_window_count = grass_lods.len(); // 窗口数应与地图 LOD 圈数一致。
-    let has_grass_windows = grass_window_count > 0; // 离开草地图后异步回读资源仍可能保留最后样本，必须以实体生命周期截断。
+    let grass_window_count = grass_lods.len(); // 窗口数应与场景 LOD 圈数一致。
+    let has_grass_windows = grass_window_count > 0; // 离开草场景后异步回读资源仍可能保留最后样本，必须以实体生命周期截断。
     let grass_content_kinds = if has_grass_windows {
         vec![content_kind] // 当前页只允许对应稳定profile进入三行GPU分项。
     } else {
-        Vec::new() // 当前地图没有该内容时不伪造预留profile数据。
+        Vec::new() // 当前场景没有该内容时不伪造预留profile数据。
     }; // 完成当前分页唯一内容列表。
     let grass_candidate_count = grass_lods
         .iter()
@@ -104,16 +104,16 @@ pub(super) fn build_vegetation_report(
     let grass_lod_report = format_lod_report(content_label, &grass_lods); // 独立生成稳定排序的近中远诊断行。
 
     let render_stats = if has_grass_windows {
-        render_stats.copied().unwrap_or_default() // 当前草地图可消费本帧RenderApp渲染快照。
+        render_stats.copied().unwrap_or_default() // 当前草场景可消费本帧RenderApp渲染快照。
     } else {
         GpuBladeRenderStats::default() // 离图后主世界仍可能保留上一帧提取统计，必须随草窗一起清零。
     };
     let streaming = if has_grass_windows {
-        streaming.copied().unwrap_or_default() // 当前地图存在草窗时才允许展示阶段5生命周期。
+        streaming.copied().unwrap_or_default() // 当前场景存在草窗时才允许展示阶段5生命周期。
     } else {
         GpuBladeStreamingStats::default() // 离图后不把上一代阶段、预测或资产计数归给当前场景。
     };
-    let streaming_is_active = streaming.phase != GpuBladeStreamingPhase::Inactive; // 插件全局注册资源不等于当前地图启用了阶段5会话。
+    let streaming_is_active = streaming.phase != GpuBladeStreamingPhase::Inactive; // 插件全局注册资源不等于当前场景启用了阶段5会话。
     let (gpu_stats, gpu_timing) =
         current_gpu_diagnostics(has_grass_windows, streaming.phase, gpu_stats, gpu_timing); // 无草窗或新会话首载等待时截断上一代异步样本。
     let profile_index = content_kind.index() as usize; // 稳定两位GPU profile编号直接索引公开分项数组。
@@ -137,7 +137,7 @@ pub(super) fn build_vegetation_report(
     let grass_aggregate_timing_report = if has_grass_windows {
         format_profile_gpu_timing(content_label, &profile_timing, &gpu_timing) // 当前页只保留自身计算/绘制关键耗时。
     } else {
-        "GPU计算/绘制 无草窗".to_string() // 不把旧地图的GPU耗时残留到当前场景。
+        "GPU计算/绘制 无草窗".to_string() // 不把旧场景的GPU耗时残留到当前场景。
     };
     let grass_lod_count = grass_lods
         .iter()
@@ -161,14 +161,14 @@ pub(super) fn build_vegetation_report(
     let grass_adoption_report = format_blade_adoption_report(has_grass_windows, adoption); // 离图截断旧快照，当前页显示全局三层十二窗采用门。
     let grass_prediction_distance = streaming.prediction_offset.length(); // 前视偏移由场景预测器给出，不把草窗原点误报为加载延迟。
     let grass_anchor_offset = if streaming_is_active {
-        // 只有当前地图存在有效流送会话时才读取近圈参数。
+        // 只有当前场景存在有效流送会话时才读取近圈参数。
         grass_lods.first().map_or(0.0, |patch| {
             // 稳定排序后的首项必定是内半径为零的近圈。
             let origin_focus = patch.origin() - patch.focus(); // 近圈吸附原点与连续玩家中心之差才是真实窗口锚偏。
             Vec2::new(origin_focus.x, origin_focus.z).length() // 只报告地表水平距离，固定参考高度不参与锚点诊断。
         }) // 阶段5资源存在但草窗尚未创建时保持零锚偏。
     } else {
-        // 插件缺失或已离开草地图时不得从残留/独立组件查询推导阶段5数值。
+        // 插件缺失或已离开草场景时不得从残留/独立组件查询推导阶段5数值。
         0.0 // 未启用会话时即使外部手工插入草窗，阶段5诊断仍严格全零。
     }; // 完成近圈真实锚偏与插件缺失回退计算。
     let grass_activation_percent = streaming.activation.clamp(0.0, 1.0) * 100.0; // 防御异常遥测值污染面板百分比。
@@ -176,7 +176,7 @@ pub(super) fn build_vegetation_report(
         expected_draw_command_count(grass_window_count, expected_content_windows); // 当前页缺窗时仍保留自身正式分母。
     let grass_stage6_report = format_stage6_acceptance_report(
         content_label, // 摘要标题严格使用当前分页用户可读内容身份。
-        &streaming,    // 地图层提供正式编号、内容身份、资产与输入显存规格。
+        &streaming,    // 场景层提供正式编号、内容身份、资产与输入显存规格。
         &Stage6AcceptanceInputs {
             actual_windows: grass_window_count, // 主世界实际存在的窗口数量。
             expected_windows: expected_content_windows, // 当前内容固定窗口规格。
@@ -204,22 +204,22 @@ pub(super) fn build_vegetation_report(
          共享槽采样 GPU样本 {grass_gpu_sequence} | 窗 {grass_gpu_windows} | 候选 {grass_gpu_candidates} | 最终 {grass_gpu_rendered} ({grass_compacted_percent:.2}%) | 几何 顶点 {grass_submitted_vertices} 索引 {grass_submitted_indices} | 容量 {grass_gpu_capacity}/{grass_compact_mebibytes:.1}MiB | {grass_aggregate_timing_report} | 溢出 {grass_gpu_overflow}\n\
          GPU按共享槽采样，可能包含其他预设；逐层数据见F4\n\
          {grass_content_gpu_report}\n\
-         共享回读 三缓冲丢样 {grass_gpu_dropped} | 截断窗 {grass_gpu_truncated} | 映射错误 {grass_gpu_map_errors}\n\
+         共享回读 三缓冲丢样 {grass_gpu_dropped} | 截断窗 {grass_gpu_truncated} | 映射错误 {grass_gpu_scene_errors}\n\
          共享后端 跳过阶段 {grass_missing_phases} 主网格 {grass_missing_mesh_instances} GPU网格 {grass_missing_gpu_meshes} 特化 {grass_specialization_errors}",
         grass_extracted = render_stats.extracted_windows, // RenderApp 提取到的草窗口数。
         grass_input_ready = render_stats.input_ready_windows, // 高度与植被密度输入均已就绪的窗口数。
         grass_height_waiting = render_stats.height_waiting_windows, // 等待 GPU 高度纹理的窗口数。
         grass_density_waiting = render_stats.density_waiting_windows, // 等待 GPU 密度纹理的窗口数。
         grass_bind_groups = render_stats.prepared_bind_groups, // 已建立窗口绑定组数。
-        grass_streaming_generation = streaming.generation, // 每次进入草地图或重建整组驻留资源时递增。
-        grass_resident_assets = streaming.resident_assets, // 当前地图会话已真实可达的叶片网格、高度和植被密度资产数量。
-        grass_expected_resident_assets = streaming.expected_resident_assets, // 地图规格声明的稳定输出完整资产数。
+        grass_streaming_generation = streaming.generation, // 每次进入草场景或重建整组驻留资源时递增。
+        grass_resident_assets = streaming.resident_assets, // 当前场景会话已真实可达的叶片网格、高度和植被密度资产数量。
+        grass_expected_resident_assets = streaming.expected_resident_assets, // 场景规格声明的稳定输出完整资产数。
         grass_streaming_speed = streaming.smoothed_speed, // 预测器使用的平滑水平速度，不是CPU任务吞吐。
         grass_anchor_updates = streaming.anchor_updates,  // 本会话跨越22.4米吸附单元的次数。
         grass_resident_reused = if streaming_is_active {
-            render_stats.resident_reused_windows // 当前草地图本帧继续消费上一份有效GPU输出的窗口数。
+            render_stats.resident_reused_windows // 当前草场景本帧继续消费上一份有效GPU输出的窗口数。
         } else {
-            0 // 离图或未启用阶段5时不得把全局渲染残留显示成当前地图状态。
+            0 // 离图或未启用阶段5时不得把全局渲染残留显示成当前场景状态。
         },
         grass_uniform_waiting = render_stats.uniform_waiting_windows, // 等待动态 uniform 的窗口数。
         grass_compute_ready = render_stats.compute_pipeline_ready_stages, // 已完成异步编译并可执行的固定 Compute 阶段数。
@@ -248,7 +248,7 @@ pub(super) fn build_vegetation_report(
         grass_gpu_rendered = profile_stats.rendered_instances, // 当前内容间接绘制最终消费实例数。
         grass_gpu_overflow = profile_stats.overflow_instances, // 当前内容容量不足时未进入绘制的存活数。
         grass_gpu_dropped = gpu_stats.dropped_samples, // 槽位忙时丢弃诊断样本，不代表渲染丢帧。
-        grass_gpu_map_errors = gpu_stats.map_errors,   // WebGPU 异步映射错误累计。
+        grass_gpu_scene_errors = gpu_stats.scene_errors,   // WebGPU 异步映射错误累计。
         grass_missing_phases = render_stats.missing_phase_views, // 缺少 AlphaMask3d 阶段的目标视图数。
         grass_missing_mesh_instances = render_stats.missing_mesh_instances, // 缺少主世界 Mesh3d 同步数据的窗口数。
         grass_missing_gpu_meshes = render_stats.missing_gpu_meshes, // 草原型尚未上传 GPU 的窗口数。
@@ -267,10 +267,10 @@ struct Stage6AcceptanceInputs<'a> {
     frame_ms: f64,
 }
 
-/// 生成阶段6正式地图集成与固定路线性能记录摘要。
+/// 生成阶段6正式场景集成与固定路线性能记录摘要。
 fn format_stage6_acceptance_report(
     content_label: &'static str,         // 当前分页唯一用户可读内容身份。
-    streaming: &GpuBladeStreamingStats,  // 地图层发布正式地图身份、应有资源与数值输入字节。
+    streaming: &GpuBladeStreamingStats,  // 场景层发布正式场景身份、应有资源与数值输入字节。
     inputs: &Stage6AcceptanceInputs<'_>, // 当前内容窗口、GPU样本、缓冲与CPU帧耗。
 ) -> String {
     let actual_windows = inputs.actual_windows;
@@ -280,9 +280,9 @@ fn format_stage6_acceptance_report(
     let gpu_timing = inputs.gpu_timing;
     let window_buffer_bytes = inputs.window_buffer_bytes;
     let frame_ms = inputs.frame_ms;
-    if streaming.map_code.is_empty() {
+    if streaming.scene_code.is_empty() {
         return "草正式接入 未启用".to_string(); // 未登记流送遥测时不伪造已通过的验收记录。
-    } // 完成无正式地图身份快速返回。
+    } // 完成无正式场景身份快速返回。
     let gpu_timing_summary = if !gpu_timing.timestamp_supported {
         "不可用".to_string() // 后端未启用通道内时间戳时不以CPU帧耗冒充GPU耗时。
     } else if gpu_timing.sample_sequence == 0 {
@@ -294,7 +294,7 @@ fn format_stage6_acceptance_report(
             profile_timing.draw_total_ms,    // 当前内容近中远全部间接draw总耗时。
         ) // 固定使用“计算/绘制”顺序便于不同截图横向比较。
     }; // 完成GPU计时能力分支。
-    let input_mebibytes = streaming.resident_input_bytes as f64 / 1_048_576.0; // 三份地图专用数值纹理精确换算MiB。
+    let input_mebibytes = streaming.resident_input_bytes as f64 / 1_048_576.0; // 三份场景专用数值纹理精确换算MiB。
     let window_buffer_mebibytes = window_buffer_bytes as f64 / 1_048_576.0; // 实际窗口缓冲精确换算MiB。
     let known_dedicated_mebibytes = streaming
         .resident_input_bytes
@@ -308,7 +308,7 @@ fn format_stage6_acceptance_report(
     format!(
         "{content_label}正式接入 {} | 窗口 {}/{} | 共享资产 {}/{}\n\
          {content_label}验收 实绘 {} | CPU帧 {:.2}ms | GPU计算/绘制 {} | 速度 当前/峰 {:.1}/{:.1}m/s | 已知下界 {:.1}MiB [共享输入 {:.1}+本页窗口 {:.1}]",
-        streaming.map_code,                 // 显示设计文档稳定地图编号。
+        streaming.scene_code,                 // 显示设计文档稳定场景编号。
         actual_windows,                     // 显示主世界实际草窗数量。
         expected_windows,                   // 显示当前内容自身正式规格窗数。
         streaming.resident_assets,          // 显示当前会话真实可达资产数。
@@ -319,7 +319,7 @@ fn format_stage6_acceptance_report(
         streaming.smoothed_speed,           // 显示当前平滑水平速度。
         streaming.peak_speed,               // 显示排除传送后的本会话最坏水平速度。
         known_dedicated_mebibytes,          // 已知数值输入与窗口缓冲总和是显存下界。
-        input_mebibytes,                    // 单独显示地图数值输入方便核对资产预算。
+        input_mebibytes,                    // 单独显示场景数值输入方便核对资产预算。
         window_buffer_mebibytes,            // 单独显示随候选容量变化的窗口缓冲压力。
     )
 }
@@ -327,7 +327,7 @@ fn format_stage6_acceptance_report(
 /// 把通用流送阶段转换为适合 F3 紧凑面板的中文状态。
 fn format_streaming_phase(phase: GpuBladeStreamingPhase) -> &'static str {
     match phase {
-        GpuBladeStreamingPhase::Inactive => "未启用", // 非草地图不应误报为加载失败。
+        GpuBladeStreamingPhase::Inactive => "未启用", // 非草场景不应误报为加载失败。
         GpuBladeStreamingPhase::Waiting => "首载等待", // 尚无可复用驻留结果时允许等待首份输出。
         GpuBladeStreamingPhase::FadingIn => "逐株淡入", // 世界稳定遮罩覆盖率正在零到一推进。
         GpuBladeStreamingPhase::Resident => "稳定输出", // 数值输入、三类内容管线和十个重叠窗口均处于稳定状态。
@@ -343,7 +343,7 @@ fn percent(numerator: u64, denominator: u64) -> f64 {
     numerator as f64 * 100.0 / denominator as f64 // 使用 f64 保持大候选量下的显示精度。
 }
 
-/// 只把异步GPU样本归属给当前仍存在的草窗；RenderApp全局资源本身可以跨地图长期存在。
+/// 只把异步GPU样本归属给当前仍存在的草窗；RenderApp全局资源本身可以跨场景长期存在。
 fn current_gpu_diagnostics(
     has_grass_windows: bool,
     streaming_phase: GpuBladeStreamingPhase,
@@ -362,7 +362,7 @@ fn current_gpu_diagnostics(
 /// 按内容profile与LOD编号格式化普通草、麦田等独立候选窗口。
 fn format_lod_report(content_label: &'static str, grass_lods: &[GpuBladePatch]) -> String {
     if grass_lods.is_empty() {
-        return "草LOD 无".to_string(); // 非草地图或窗口尚未创建时给出明确状态。
+        return "草LOD 无".to_string(); // 非草场景或窗口尚未创建时给出明确状态。
     }
 
     grass_lods
@@ -400,12 +400,12 @@ fn format_lod_report(content_label: &'static str, grass_lods: &[GpuBladePatch]) 
 
 /// 按当前实际内容显示各自独立的密度概率增益。
 fn format_density_gain_report(
-    content_label: &'static str, // 互斥地图复用零号profile时显示当前页面身份。
+    content_label: &'static str, // 互斥场景复用零号profile时显示当前页面身份。
     content_kinds: &[GpuBladeProfileSlot], // 已按稳定profile去重的当前内容列表。
     grass_lods: &[GpuBladePatch], // 当前内容的近中远窗口参数。
 ) -> String {
     if content_kinds.is_empty() {
-        return "无".to_string(); // 非草地图不显示一个容易被误读为普通草配置的零值。
+        return "无".to_string(); // 非草场景不显示一个容易被误读为普通草配置的零值。
     }
     content_kinds
         .iter()
@@ -420,10 +420,10 @@ fn format_density_gain_report(
         .join("/") // 内容较多时仍保持单行紧凑可截图。
 }
 
-/// 计算正式地图应该提交的间接绘制命令数。
+/// 计算正式场景应该提交的间接绘制命令数。
 fn expected_draw_command_count(actual_windows: usize, expected_windows: u32) -> u32 {
     let formal_windows = if expected_windows == 0 {
-        u32::try_from(actual_windows).unwrap_or(u32::MAX) // 独立样例没有地图规格时继续按实际窗口给出兼容口径。
+        u32::try_from(actual_windows).unwrap_or(u32::MAX) // 独立样例没有场景规格时继续按实际窗口给出兼容口径。
     } else {
         expected_windows // 从当前预设读取完整规格，缺窗时仍保留分母以暴露故障。
     };

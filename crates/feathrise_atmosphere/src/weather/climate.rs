@@ -1,23 +1,23 @@
-// 天气气候配置：接受地图输入的自动演化开关、四季权重与局部倍率，不内置地域规则。
+// 天气气候配置：接受场景输入的自动演化开关、四季权重与局部倍率，不内置地域规则。
 
 use crate::{WeatherKind, WeatherRegion}; // 气候表以公开天气种类和共享区域作为稳定键。
 
-/// 地图或天气区域使用的静态气候配置。
+/// 场景或天气区域使用的静态气候配置。
 #[derive(Clone, Copy, Debug, PartialEq)] // 小型只读值可按帧复制给纯抽取逻辑并在测试中直接比较。
 pub struct WeatherClimateProfile {
-    region: WeatherRegion,              // 地图进入后应同步到的共享天气区域。
+    region: WeatherRegion,              // 场景进入后应同步到的共享天气区域。
     automatic_weather: bool,            // 是否允许使用虚拟时间推进并自动抽取天气。
     seasonal_weights: [[f32; 5]; 4],    // 春夏秋冬五类天气相对基础权重。
-    local_weight_multipliers: [f32; 5], // 当前地图对下一次正常抽取施加的局部倍率。
+    local_weight_multipliers: [f32; 5], // 当前场景对下一次正常抽取施加的局部倍率。
 } // 结束天气气候配置声明。
 
 impl WeatherClimateProfile {
-    /// 构造可供后续正式地图显式登记的气候配置。
+    /// 构造可供后续正式场景显式登记的气候配置。
     pub const fn new(
-        region: WeatherRegion,              // 同一region的地图共享一份天气演进过程。
-        automatic_weather: bool,            // 特殊地图可以显式关闭自动演化。
+        region: WeatherRegion,              // 同一region的场景共享一份天气演进过程。
+        automatic_weather: bool,            // 特殊场景可以显式关闭自动演化。
         seasonal_weights: [[f32; 5]; 4],    // 行为春夏秋冬，列顺序必须与WeatherKind::ALL一致。
-        local_weight_multipliers: [f32; 5], // 地图局部修正使用同一列顺序。
+        local_weight_multipliers: [f32; 5], // 场景局部修正使用同一列顺序。
     ) -> Self {
         Self {
             region,
@@ -27,17 +27,17 @@ impl WeatherClimateProfile {
         } // 保存完整静态配置。
     } // 结束气候配置构造。
 
-    /// 返回地图所属共享天气区域。
+    /// 返回场景所属共享天气区域。
     pub const fn region(self) -> WeatherRegion {
         self.region // 当前仅提供中性全局连续性，不根据地点选择概率表。
     } // 结束天气区域读取。
 
-    /// 返回当前地图是否允许自动天气推进。
+    /// 返回当前场景是否允许自动天气推进。
     pub const fn automatic_weather(self) -> bool {
         self.automatic_weather // 调用方可以显式关闭自动演化。
     } // 结束自动演化开关读取。
 
-    /// 返回指定月份和天气的基础权重叠加地图局部倍率后的结果。
+    /// 返回指定月份和天气的基础权重叠加场景局部倍率后的结果。
     pub fn weight(self, kind: WeatherKind, month: u8) -> f32 {
         if !self.automatic_weather {
             return 0.0; // 关闭自动天气的配置不应向抽取池贡献任何候选。
@@ -50,7 +50,7 @@ impl WeatherClimateProfile {
         }; // 完成月份到季节表行映射。
         let index = weather_kind_index(kind); // 把公开枚举稳定映射到权重表列。
         let base = self.seasonal_weights[season][index]; // 读取当前季节基础权重。
-        let multiplier = self.local_weight_multipliers[index]; // 读取当前地图局部修正。
+        let multiplier = self.local_weight_multipliers[index]; // 读取当前场景局部修正。
         if base.is_finite() && multiplier.is_finite() {
             (base.max(0.0) * multiplier.max(0.0)).max(0.0) // 损坏负数只会关闭候选，不允许反转累计权重。
         } else {
@@ -78,7 +78,7 @@ const fn weather_kind_index(kind: WeatherKind) -> usize {
     } // 返回稳定权重列序号。
 } // 结束天气列映射。
 
-#[cfg(test)] // 气候配置测试锁定四季权重与地图修正行为。
+#[cfg(test)] // 气候配置测试锁定四季权重与场景修正行为。
 mod tests {
     use super::*; // 直接验证公开气候常量和权重读取接口。
 

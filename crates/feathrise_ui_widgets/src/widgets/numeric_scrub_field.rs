@@ -40,7 +40,7 @@ pub struct NumericScrubFieldStyle {
 impl Default for NumericScrubFieldStyle {
     fn default() -> Self {
         Self {
-            width: 120.0,         // 与既有地图编辑器紧凑属性框宽度一致。
+            width: 120.0,         // 与既有场景编辑器紧凑属性框宽度一致。
             height: 20.0,         // 保持单行工具栏高度不增长。
             border_radius: 2.0,   // 小圆角适合密集作者工具。
             column_gap: 2.0,      // 信息紧凑但不粘连。
@@ -77,7 +77,7 @@ impl NumericScrubFieldOptions {
             value,               // 规范化延迟到生成时统一执行。
             input,               // 保留业务正式范围与类型。
             scrub,               // 保留当前字段独立灵敏度。
-            style: NumericScrubFieldStyle::default(), // 默认即可直接投入地图编辑器。
+            style: NumericScrubFieldStyle::default(), // 默认即可直接投入场景编辑器。
         }
     }
 
@@ -193,7 +193,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
             Text::default(),
             TextLayout::no_wrap(),
             OverrideClip, // LOD和XYZ窄框及其滚动祖先不能裁掉鼠标旁的实时倍率。
-            GlobalZIndex(951), // 高于参数/设置及帮助，低于加载和切图遮罩；只在数值捕获期间可见。
+            GlobalZIndex(951), // 高于参数/设置及帮助，低于加载和切换场景遮罩；只在数值捕获期间可见。
             Pickable::IGNORE,
             FocusPolicy::Pass,
             Node {

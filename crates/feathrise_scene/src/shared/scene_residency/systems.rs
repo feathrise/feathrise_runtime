@@ -8,14 +8,14 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
 };
-use feathrise_map_content::{ActiveDynamicMap, MapId};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId};
 use feathrise_scene_core::residency::{
     SceneResidencyActivity, restore_resident_resources, take_resident_resources,
 };
 use feathrise_scene_core::state::{ScenePhase, LoadingProgress, PendingSceneTransition};
 
-/// 作者入口先冻结源地图，后台历史与实体暂停并行准备；此时还不更换正式地图身份。
-pub fn prepare_resident_scene(world: &mut World, target: MapId, scene: ScenePhase) {
+/// 作者入口先冻结源场景，后台历史与实体暂停并行准备；此时还不更换正式场景身份。
+pub fn prepare_resident_scene(world: &mut World, target: SceneId, scene: ScenePhase) {
     if !world
         .get_resource::<SceneResidencyActivity>()
         .is_some_and(|state| state.enabled)
@@ -27,7 +27,7 @@ pub fn prepare_resident_scene(world: &mut World, target: MapId, scene: ScenePhas
         if let Some(token) = scenes
             .active
             .as_ref()
-            .and_then(|map| scenes.maps.get(map))
+            .and_then(|map| scenes.scenes.get(map))
             .map(|entry| entry.token)
         {
             world.trigger(feathrise_scene_core::residency::ResidentSceneParking(token));
@@ -70,11 +70,11 @@ pub fn arm_resident_scene_transition(world: &mut World) {
     }
 }
 
-pub fn close_resident_scene(world: &mut World, map: MapId) {
+pub fn close_resident_scene(world: &mut World, map: SceneId) {
     let Some(mut scenes) = world.get_resource_mut::<ResidentScenes>() else {
         return;
     };
-    if let Some(entry) = scenes.maps.get_mut(&map) {
+    if let Some(entry) = scenes.scenes.get_mut(&map) {
         entry.document_open = false;
     }
     if !scenes.closing.contains(&map) {
@@ -85,9 +85,9 @@ pub fn close_resident_scene(world: &mut World, map: MapId) {
     }
 }
 
-pub fn mark_resident_document_open(world: &mut World, map: MapId) {
+pub fn mark_resident_document_open(world: &mut World, map: SceneId) {
     if let Some(mut scenes) = world.get_resource_mut::<ResidentScenes>()
-        && let Some(entry) = scenes.maps.get_mut(&map)
+        && let Some(entry) = scenes.scenes.get_mut(&map)
     {
         entry.document_open = true;
     }
@@ -95,14 +95,14 @@ pub fn mark_resident_document_open(world: &mut World, map: MapId) {
 
 pub(super) fn record_active_scene(
     current: Res<State<ScenePhase>>,
-    active: Option<Res<ActiveDynamicMap>>,
+    active: Option<Res<ActiveDynamicScene>>,
     mut scenes: ResMut<ResidentScenes>,
     mut activity: ResMut<SceneResidencyActivity>,
 ) {
     if !activity.enabled {
         return;
     }
-    let Some(map) = entities::map_for_scene(*current.get(), active.as_deref()) else {
+    let Some(map) = entities::scene_for_scene(*current.get(), active.as_deref()) else {
         return;
     };
     let token = scenes.ensure(map.clone(), *current.get());
@@ -131,18 +131,18 @@ pub(super) fn intercept_scene_transition(world: &mut World) {
         let source_open = scenes
             .active
             .as_ref()
-            .and_then(|id| scenes.maps.get(id))
+            .and_then(|id| scenes.scenes.get(id))
             .is_some_and(|entry| entry.document_open)
             || scenes
                 .active
                 .as_ref()
                 .is_some_and(|id| scenes.closing.contains(id));
         let target =
-            entities::map_for_scene(requested_scene, world.get_resource::<ActiveDynamicMap>())
+            entities::scene_for_scene(requested_scene, world.get_resource::<ActiveDynamicScene>())
                 .filter(|id| {
                     scenes.sleeping(id)
                         && scenes
-                            .maps
+                            .scenes
                             .get(id)
                             .is_some_and(|entry| entry.scene == requested_scene)
                 });
@@ -150,7 +150,7 @@ pub(super) fn intercept_scene_transition(world: &mut World) {
             if let Some(token) = scenes
                 .active
                 .as_ref()
-                .and_then(|map| scenes.maps.get(map))
+                .and_then(|map| scenes.scenes.get(map))
                 .map(|entry| entry.token)
             {
                 world.trigger(feathrise_scene_core::residency::ResidentSceneParking(token));
@@ -182,7 +182,7 @@ pub(super) fn intercept_scene_transition(world: &mut World) {
             let source_scene = transfer
                 .source
                 .as_ref()
-                .and_then(|id| scenes.maps.get(id))
+                .and_then(|id| scenes.scenes.get(id))
                 .map(|entry| entry.scene);
             let mut schedules = world.resource_mut::<Schedules>();
             if let Some(source) = source_scene {
@@ -212,13 +212,13 @@ pub(super) fn advance_scene_residency(world: &mut World) {
             let token = transfer
                 .source
                 .as_ref()
-                .and_then(|id| scenes.maps.get(id))
+                .and_then(|id| scenes.scenes.get(id))
                 .map(|entry| entry.token);
             if let Some(token) = token {
                 for _ in 0..ENTITY_BUDGET {
                     let entity = world
                         .resource::<ResidentEntityIndex>()
-                        .maps
+                        .scenes
                         .get(&token)
                         .and_then(|entities| entities.get(transfer.cursor))
                         .copied();
@@ -230,7 +230,7 @@ pub(super) fn advance_scene_residency(world: &mut World) {
                 }
                 let count = world
                     .resource::<ResidentEntityIndex>()
-                    .maps
+                    .scenes
                     .get(&token)
                     .map_or(0, Vec::len);
                 let parked = world
@@ -253,7 +253,7 @@ pub(super) fn advance_scene_residency(world: &mut World) {
                     return;
                 }
                 let entry = scenes
-                    .maps
+                    .scenes
                     .get_mut(transfer.source.as_ref().unwrap())
                     .unwrap();
                 entry.resources = Some(take_resident_resources(world));
@@ -262,7 +262,7 @@ pub(super) fn advance_scene_residency(world: &mut World) {
             transfer.cursor = 0;
             if transfer.warm {
                 let entry = scenes
-                    .maps
+                    .scenes
                     .get_mut(&transfer.target.as_ref().unwrap().0)
                     .unwrap();
                 if let Some(mut snapshot) = entry.resources.take() {
@@ -275,13 +275,13 @@ pub(super) fn advance_scene_residency(world: &mut World) {
         }
         TransferPhase::Restoring => {
             let entry = scenes
-                .maps
+                .scenes
                 .get(&transfer.target.as_ref().unwrap().0)
                 .unwrap();
             for _ in 0..ENTITY_BUDGET {
                 let entity = world
                     .resource::<ResidentEntityIndex>()
-                    .maps
+                    .scenes
                     .get(&entry.token)
                     .and_then(|entities| entities.get(transfer.cursor))
                     .copied();
@@ -293,7 +293,7 @@ pub(super) fn advance_scene_residency(world: &mut World) {
             }
             let count = world
                 .resource::<ResidentEntityIndex>()
-                .maps
+                .scenes
                 .get(&entry.token)
                 .map_or(0, Vec::len);
             let parked = world
@@ -358,7 +358,7 @@ pub(super) fn finish_scene_transition(world: &mut World) {
         {
             let token = scenes.ensure(target.clone(), scene);
             scenes.active = Some(target.clone());
-            if let Some(entry) = scenes.maps.get_mut(&target) {
+            if let Some(entry) = scenes.scenes.get_mut(&target) {
                 entry.sleeping = false;
             }
             let mut activity = world.resource_mut::<SceneResidencyActivity>();
@@ -396,7 +396,7 @@ pub(super) fn finish_scene_transition(world: &mut World) {
         }
         if let Some(source) = transfer.source
             && scenes
-                .maps
+                .scenes
                 .get(&source)
                 .is_some_and(|entry| !entry.document_open)
             && !scenes.closing.contains(&source)
@@ -440,13 +440,13 @@ pub(super) fn retire_closed_scenes(world: &mut World) {
         world.insert_resource(scenes);
         return;
     };
-    let can_retire = scenes.maps.get(&map).is_none_or(|entry| entry.sleeping
+    let can_retire = scenes.scenes.get(&map).is_none_or(|entry| entry.sleeping
         || (scenes.active.as_ref() != Some(&map) && scenes.transfer.is_none())); // LoadingScene取消的冷目标尚未成为活动图，也必须回收其占位槽。
     if can_retire {
-        let token = scenes.maps.get(&map).map(|entry| entry.token);
+        let token = scenes.scenes.get(&map).map(|entry| entry.token);
         if let Some(token) = token {
             if retire_entity_batch(world, token, &mut scenes) {
-                if let Some(entry) = scenes.maps.remove(&map) {
+                if let Some(entry) = scenes.scenes.remove(&map) {
                     if let Some(snapshot) = entry.resources {
                         scenes.retired_resources.push_back(Box::new(snapshot));
                     }
@@ -462,13 +462,13 @@ pub(super) fn retire_closed_scenes(world: &mut World) {
 
 fn retire_entity_batch(
     world: &mut World,
-    token: feathrise_scene_core::residency::ResidentMapToken,
+    token: feathrise_scene_core::residency::ResidentSceneToken,
     scenes: &mut ResidentScenes,
 ) -> bool {
     for _ in 0..ENTITY_BUDGET {
         let entity = world
             .resource::<ResidentEntityIndex>()
-            .maps
+            .scenes
             .get(&token)
             .and_then(|values| values.last())
             .copied();
@@ -490,9 +490,9 @@ fn retire_entity_batch(
         }
     }
     let mut index = world.resource_mut::<ResidentEntityIndex>();
-    let complete = index.maps.get(&token).is_none_or(Vec::is_empty);
+    let complete = index.scenes.get(&token).is_none_or(Vec::is_empty);
     if complete {
-        index.maps.remove(&token);
+        index.scenes.remove(&token);
         index.parked_counts.remove(&token);
         index.cameras.remove(&token);
     }

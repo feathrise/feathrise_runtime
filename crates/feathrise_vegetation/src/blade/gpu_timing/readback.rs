@@ -101,7 +101,7 @@ struct GpuBladeTimingShared {
     latest: Arc<Mutex<GpuBladeGpuTimingStats>>, // 回调发布和ExtractSchedule复制各锁一次小结构。
     next_sequence: Arc<AtomicU64>,              // 录入解析命令时分配单调序号，与回调完成顺序解耦。
     dropped_samples: Arc<AtomicU64>,            // 回读槽全忙时只增加计数，不阻塞GPU或CPU。
-    map_errors: Arc<AtomicU64>,                 // 映射失败时保留上一份有效样本并累计错误。
+    scene_errors: Arc<AtomicU64>,                 // 映射失败时保留上一份有效样本并累计错误。
     render_frames: Arc<AtomicU64>,              // 控制每四帧才执行一次稀疏查询诊断解析。
 }
 
@@ -124,7 +124,7 @@ impl GpuBladeTimingShared {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()); // 复制固定值类型，不访问GPU缓冲。
         snapshot.dropped_samples = self.dropped_samples.load(Ordering::Relaxed); // 丢样累计值可比有效数据样本更新。
-        snapshot.map_errors = self.map_errors.load(Ordering::Relaxed); // 映射错误同样实时发布。
+        snapshot.scene_errors = self.scene_errors.load(Ordering::Relaxed); // 映射错误同样实时发布。
         snapshot // 返回F3可以直接读取的不可变快照。
     }
 }
@@ -275,7 +275,7 @@ fn init_gpu_grass_timing_resources(
 }
 
 /// 帧首对已提交槽发起非阻塞映射，并发布最近完成样本到主世界。
-fn begin_maps_and_publish_gpu_grass_timing(
+fn begin_scenes_and_publish_gpu_grass_timing(
     mut main_world: ResMut<MainWorld>, // Bevy官方RenderApp到主世界资源写回入口。
     ring: Res<GpuBladeTimingReadbackRing>, // 扫描三个COPY_RECORDED槽。
     queries: Res<GpuBladeTimingQueries>, // 提供设备tick周期和长期支持状态。
@@ -315,7 +315,7 @@ fn begin_maps_and_publish_gpu_grass_timing(
                     let Ok(mapped) = callback_buffer.slice(0..resolved_bytes).get_mapped_range() else {
                         // 映射回调成功后，WGPU 30 的范围借用仍可能失败。
                         callback_buffer.unmap();
-                        callback_shared.map_errors.fetch_add(1, Ordering::Relaxed);
+                        callback_shared.scene_errors.fetch_add(1, Ordering::Relaxed);
                         callback_slot.state.store(SLOT_FREE, Ordering::Release);
                         return;
                     };
@@ -331,7 +331,7 @@ fn begin_maps_and_publish_gpu_grass_timing(
                     callback_buffer.unmap(); // 归还缓冲为下一次COPY_DST使用状态。
                     callback_shared.publish(stats); // 仅当序号更新时替换主世界候选快照。
                 } else {
-                    callback_shared.map_errors.fetch_add(1, Ordering::Relaxed); // 映射失败只影响F3诊断。
+                    callback_shared.scene_errors.fetch_add(1, Ordering::Relaxed); // 映射失败只影响F3诊断。
                 }
                 callback_slot.state.store(SLOT_FREE, Ordering::Release); // 成功或失败后均归还固定槽。
             }); // map_async立即返回，本系统不调用同步poll或等待。
@@ -349,7 +349,7 @@ pub(crate) fn install_gpu_grass_timing(render_app: &mut SubApp) {
     render_app
         .init_resource::<GpuBladeTimingShared>() // 无查询能力时也向F3发布明确支持标记。
         .add_systems(RenderStartup, init_gpu_grass_timing_resources) // 渲染设备建立后一次性创建固定查询与十九点五KiB staging。
-        .add_systems(ExtractSchedule, begin_maps_and_publish_gpu_grass_timing) // 帧首发起非阻塞映射并发布已完成样本。
+        .add_systems(ExtractSchedule, begin_scenes_and_publish_gpu_grass_timing) // 帧首发起非阻塞映射并发布已完成样本。
         .add_systems(
             RenderGraph,
             copy_gpu_grass_timing_readback

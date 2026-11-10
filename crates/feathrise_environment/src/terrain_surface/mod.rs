@@ -11,7 +11,7 @@ pub use volume::{
     build_volume_surface_mesh, volume_surface_key,
 };
 mod render; // 注册材质插件并发布上一完整RenderApp帧的就绪证据。
-mod instance_render; // 子地图候选按实例地址和世代取得独立GPU证据，父图摘要保持隔离。
+mod instance_render; // 子场景候选按实例地址和世代取得独立GPU证据，父图摘要保持隔离。
 mod resources; // 声明地表阶段、主世界快照和渲染帧计数器资源。
 mod shaders; // 注册随crate内置的通用地表WGSL资产。
 mod weather; // 地表与河湖共享固定天气GPU数据，不逐材质推进雨效。
@@ -35,10 +35,10 @@ pub use components::{
     TerrainSurfaceCarrier, TerrainSurfaceMaterialOverride, TerrainSurfaceTextureProbe,
     TerrainSurfaceInstanceScope, TerrainSurfaceInstanceWarmup, TerrainSurfaceWarmup,
     TerrainVolumeSurface,
-}; // 地图适配器安装承接标记、运行时替代租约并创建固定纹理探针。
+}; // 场景适配器安装承接标记、运行时替代租约并创建固定纹理探针。
 pub use images::{
     load_terrain_surface_array, load_terrain_surface_image, terrain_surface_image_failed, terrain_surface_images_loaded,
-}; // 固定采样设置和加载硬门供所有地图适配器复用。
+}; // 固定采样设置和加载硬门供所有场景适配器复用。
 pub use material::{
     // 对外提供固定八层材质描述和Bevy扩展材质类型。
     MAX_TERRAIN_SURFACE_LAYERS,
@@ -51,7 +51,7 @@ pub use material::{
 };
 pub use render::TerrainSurfacePlugin; // 统一安装材质资产、提取组件与RenderApp观察系统。
 pub use resources::{
-    // F3、地图生命周期和内部零权重句柄的公共出口。
+    // F3、场景生命周期和内部零权重句柄的公共出口。
     TerrainSurfaceFailure,
     TerrainSurfaceFallbackImages,
     TerrainSurfacePhase,

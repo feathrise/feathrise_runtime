@@ -20,8 +20,8 @@ pub(crate) fn install(app: &mut App) {
         .add_observer(systems::mesh_inserted)
         .add_observer(ownership::hierarchy_changed)
         .add_observer(ownership::owner_inserted::<crate::TerrainObjectInstance>)
-        .add_observer(ownership::owner_inserted::<crate::MapPlacementInstance>)
-        .add_observer(ownership::owner_inserted::<crate::SubMapActive>)
+        .add_observer(ownership::owner_inserted::<crate::ScenePlacementInstance>)
+        .add_observer(ownership::owner_inserted::<crate::SubsceneActive>)
         .add_observer(ownership::world_ready)
         .add_systems(
             PostUpdate,

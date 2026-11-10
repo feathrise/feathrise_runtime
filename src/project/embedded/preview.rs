@@ -8,10 +8,10 @@ mod surface_trail;
 
 use bevy::prelude::*;
 use feathrise_editor_protocol::{Message, Mode, PreviewKind};
-use feathrise_map_content::{ActiveDynamicMap, MapId};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId};
 
 enum PreparedValue {
-    Placement(feathrise_map_content::embedded_placement_preview::PlacementPreviewCommand),
+    Placement(feathrise_scene_content::embedded_placement_preview::PlacementPreviewCommand),
     Vegetation(vegetation::Prepared),
     AuthorDomain(author_domain::Prepared),
     SurfaceTrail(surface_trail::Prepared),
@@ -19,21 +19,21 @@ enum PreparedValue {
 pub(super) struct PreparedPreview {
     pub generation: u64,
     pub sequence: u64,
-    pub map: MapId,
+    pub scene_id: SceneId,
     value: PreparedValue,
 }
 
 pub(super) fn prepare(kind: PreviewKind, sequence: u64, generation: u64, map: &str,
     format: &str, bytes: &[u8]) -> Result<PreparedPreview, String>
 {
-    let map = MapId::parse(map)?;
+    let map = SceneId::parse(map)?;
     let value = match kind {
         PreviewKind::Placement => PreparedValue::Placement(placement::decode(format, bytes, &map)?),
         PreviewKind::Vegetation => PreparedValue::Vegetation(vegetation::prepare(format, bytes, &map)?),
         PreviewKind::AuthorDomain => PreparedValue::AuthorDomain(author_domain::prepare(format, bytes, &map)?),
         PreviewKind::SurfaceTrail => PreparedValue::SurfaceTrail(surface_trail::prepare(format, bytes, &map)?),
     };
-    Ok(PreparedPreview { generation, sequence, map, value })
+    Ok(PreparedPreview { generation, sequence, scene_id: map, value })
 }
 
 #[derive(Default)]
@@ -85,10 +85,10 @@ pub(super) fn receive(world: &mut World, runtime: &mut super::resources::Runtime
     preview: PreparedPreview) -> Result<(), String>
 {
     if preview.generation != runtime.transport.identity.generation
-        || world.resource::<ActiveDynamicMap>().map_id.as_ref() != Some(&preview.map)
+        || world.resource::<ActiveDynamicScene>().scene_id.as_ref() != Some(&preview.scene_id)
         || world.resource::<super::EmbeddedProjectState>().mode != Mode::Editing
     {
-        return Err("实时预览与当前编辑地图或会话代次不一致".into());
+        return Err("实时预览与当前编辑场景或会话代次不一致".into());
     }
     if runtime.pending.is_some() { return Err("完整快照尚未采用，不能插入实时预览".into()); }
     let kind = match &preview.value {
@@ -101,7 +101,7 @@ pub(super) fn receive(world: &mut World, runtime: &mut super::resources::Runtime
     if preview.sequence <= clock.last { return Err(format!("{}预览域序号倒退", kind_name(kind))); }
     if clock.waiting.is_some() { return Err(format!("{}预览超过单飞预算", kind_name(kind))); }
     match preview.value {
-        PreparedValue::Placement(value) => runtime.previews.placement.receive(world, &preview.map, value)?,
+        PreparedValue::Placement(value) => runtime.previews.placement.receive(world, &preview.scene_id, value)?,
         PreparedValue::Vegetation(value) => runtime.previews.vegetation.receive(value),
         PreparedValue::AuthorDomain(value) => runtime.previews.author_domain.receive(world, value)?,
         PreparedValue::SurfaceTrail(value) => runtime.previews.surface_trail.receive(world, value)?,

@@ -1,7 +1,7 @@
 //! 固定遮雨缓冲仅在完整代理批次变化时编码和上传。
 
 use super::{RainShelterGpu, RainShelterState, RainShelterUpload};
-use bevy::asset::uuid_handle; // 固定资产身份不绑定具体地图。
+use bevy::asset::uuid_handle; // 固定资产身份不绑定具体场景。
 use bevy::prelude::*; // Bevy资源与调度。
 use bevy::render::storage::ShaderBuffer; // 与当前Bevy0.19一致。 // 完整批次和发布顺序。
 

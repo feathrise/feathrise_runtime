@@ -1,4 +1,4 @@
-//! 工程地图与渲染装配；工程插件负责玩法，不隐式创建原RPG玩家。
+//! 工程场景与渲染装配；工程插件负责玩法，不隐式创建原RPG玩家。
 
 use crate::project::{ProjectContext, assets, config, startup};
 #[cfg(feature = "validation")]
@@ -38,7 +38,7 @@ pub fn run(project: ProjectContext, project_plugin: impl Plugin) -> Result<(), S
         // SDK窗口租约会先保存工程请求，再在编辑态临时窗口化；预览归还同一原生窗口。
         force_windowed: saved_play,
     };
-    app.insert_resource(feathrise_map_content::RuntimeAssetRoot::new(
+    app.insert_resource(feathrise_scene_content::RuntimeAssetRoot::new(
         project.asset_root(),
     )?)
     .insert_resource(project.clone())
@@ -48,7 +48,7 @@ pub fn run(project: ProjectContext, project_plugin: impl Plugin) -> Result<(), S
     if let Some(startup) = startup {
         app.insert_resource(startup);
     } else {
-        // 没有作者地图时保持真正空世界，不退回原游戏主菜单或默认地图。
+        // 没有作者场景时保持真正空世界，不退回原游戏主菜单或默认场景。
         app.insert_resource(feathrise_scene_core::state::EditorStartup);
     }
     #[cfg(feature = "rtx_rendering")]
@@ -79,7 +79,7 @@ pub fn run(project: ProjectContext, project_plugin: impl Plugin) -> Result<(), S
         crate::app::scene_loading::ProjectSceneAssetsPlugin,
     )); // 工程资产准备复用公共加载执行器，不伪造旧游戏的 PAK 就绪资源。
     if app.world().contains_resource::<startup::SavedGameStartup>() {
-        app.add_systems(Startup, enter_saved_map);
+        app.add_systems(Startup, enter_saved_scene);
     }
     crate::app::install_vulkan_surface_guard(&mut app);
     crate::project::embedded::install(&mut app);
@@ -92,7 +92,7 @@ pub fn run(project: ProjectContext, project_plugin: impl Plugin) -> Result<(), S
         "NEW_EDITOR_SAVED_GAME_START {}",
         serde_json::json!({
             "root":project.root, "project_id":project.id, "saved_play":saved_play,
-            "map":app.world().get_resource::<startup::SavedGameStartup>().map(|startup| startup.map_id.0.clone()),
+            "scene_id":app.world().get_resource::<startup::SavedGameStartup>().map(|startup| startup.scene_id.0.clone()),
             "runtime":"production-SceneRuntimePlugin",
         })
     );
@@ -102,17 +102,17 @@ pub fn run(project: ProjectContext, project_plugin: impl Plugin) -> Result<(), S
     }
 }
 
-fn enter_saved_map(
+fn enter_saved_scene(
     mut commands: Commands,
     startup: Res<startup::SavedGameStartup>,
-    mut active: ResMut<feathrise_map_content::ActiveDynamicMap>,
+    mut active: ResMut<feathrise_scene_content::ActiveDynamicScene>,
     mut destination: ResMut<feathrise_portal::PortalDestination>,
     mut next: ResMut<NextState<ScenePhase>>,
 ) {
-    active.select(startup.map_id.clone());
-    destination.dynamic_map_id = Some(startup.map_id.0.clone());
+    active.select(startup.scene_id.clone());
+    destination.dynamic_scene_id = Some(startup.scene_id.0.clone());
     destination.spawn_pos = Some(startup.spawn);
-    // false保留明确启动地图及工程配置，不经原游戏菜单选择或重置。
+    // false保留明确启动场景及工程配置，不经原游戏菜单选择或重置。
     commands.insert_resource(
         PendingSceneTransition::named(ScenePhase::Active, &startup.name)
             .with_fresh_world(),

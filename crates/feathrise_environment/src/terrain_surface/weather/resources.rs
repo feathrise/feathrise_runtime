@@ -1,4 +1,4 @@
-//! 表面天气共享GPU数据与上传顺序，所有地图和材质均不增加状态槽位。
+//! 表面天气共享GPU数据与上传顺序，所有场景和材质均不增加状态槽位。
 
 use bevy::prelude::{Handle, Image, Resource, SystemSet, Vec4}; // 固定资源、完整遮罩句柄和宿主排序标签。
 use bevy::render::render_resource::ShaderType; // 按WGSL四向量布局编码。

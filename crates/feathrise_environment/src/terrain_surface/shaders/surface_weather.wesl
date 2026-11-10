@@ -7,7 +7,7 @@ struct SurfaceWeatherGpu { // 必须与Rust四个Vec4保持顺序一致。
     wind_quality: vec4<f32>, // 世界风向X/Z、风强、质量0..3。
     bounds: vec4<f32>, // 当前积水图最小X/Z和最大X/Z。
     options: vec4<f32>, // 积水图启用、作者潜力预览、雨纹距离米、雨纹密度倍率。
-} // 固定64字节，不随地图或水面数量增长。
+} // 固定64字节，不随场景或水面数量增长。
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(119) // 不占用StandardMaterial官方绑定。
 var<storage, read> surface_weather: SurfaceWeatherGpu; // 所有材质读取同一个资产缓冲。

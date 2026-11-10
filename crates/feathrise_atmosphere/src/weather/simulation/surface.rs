@@ -26,7 +26,7 @@ fn approach(value: f32, target: f32, seconds: f32, response: f32) -> f32 {
 } // 结束连续趋近。
 
 impl WeatherState {
-    // 地表历史属于天气区，切图不创建另一套资源。
+    // 地表历史属于天气区，切换场景不创建另一套资源。
     pub(super) fn advance_surface(&mut self, seconds: f32) {
         // 调用方只传入本段实际消费的游戏秒。
         if !seconds.is_finite() || seconds <= 0.0 {

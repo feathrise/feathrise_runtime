@@ -5,16 +5,16 @@ use bevy::{
     pbr::StandardMaterial, // 普通可见源与光追代理的材质类型。
     prelude::*,            // Entity、Handle、Mesh与数学类型。
 };
-use feathrise_environment::terrain_surface::TerrainSurfaceMaterial; // 动态地图共用权重地表扩展材质类型。
+use feathrise_environment::terrain_surface::TerrainSurfaceMaterial; // 动态场景共用权重地表扩展材质类型。
 
-/// 当前隔离Solari会话允许接管的地图级目标；其余地图和内容始终保持光栅。
+/// 当前隔离Solari会话允许接管的场景级目标；其余场景和内容始终保持光栅。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum RaytracingPrototypeTarget {
     /// 当前场景没有受支持且完整就绪的静态目标。
     #[default]
     None,
-    /// 数据驱动动态地图的唯一正式地形primitive。
-    DynamicMapTerrain,
+    /// 数据驱动动态场景的唯一正式地形primitive。
+    DynamicSceneTerrain,
 }
 
 impl RaytracingPrototypeTarget {
@@ -22,7 +22,7 @@ impl RaytracingPrototypeTarget {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::None => "无",
-            Self::DynamicMapTerrain => "动态地图唯一地形",
+            Self::DynamicSceneTerrain => "动态场景唯一地形",
         }
     }
 
@@ -30,7 +30,7 @@ impl RaytracingPrototypeTarget {
     pub(crate) fn expected_instance_count(self) -> u32 {
         match self {
             Self::None => 0,
-            Self::DynamicMapTerrain => crate::constants::DYNAMIC_EXPECTED_INSTANCE_COUNT,
+            Self::DynamicSceneTerrain => crate::constants::DYNAMIC_EXPECTED_INSTANCE_COUNT,
         }
     }
 
@@ -38,7 +38,7 @@ impl RaytracingPrototypeTarget {
     pub(crate) fn expected_unique_material_count(self) -> u32 {
         match self {
             Self::None => 0,
-            Self::DynamicMapTerrain => crate::constants::DYNAMIC_EXPECTED_UNIQUE_MATERIAL_COUNT,
+            Self::DynamicSceneTerrain => crate::constants::DYNAMIC_EXPECTED_UNIQUE_MATERIAL_COUNT,
         }
     }
 }
@@ -49,19 +49,19 @@ use bevy::{
     render::camera::{MipBias, TemporalJitter}, // 精确恢复DLSS required组件中的有值相机附件。
 };
 
-/// 地图地形 Solari 原型的唯一公开阶段枚举。
+/// 场景地形 Solari 原型的唯一公开阶段枚举。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RaytracingPrototypeStage {
     #[default]
     Unavailable, // 后端或设备能力不满足Solari硬要求。
-    RasterReady,           // 完整光栅路径可用，等待请求或目标地图/相机。
+    RasterReady,           // 完整光栅路径可用，等待请求或目标场景/相机。
     DiscoveringCandidates, // 正在核对当前目标的完整资产契约与预算。
     AdaptingMeshes,        // 主线程分帧捕获并由有界后台任务派生兼容Mesh。
     AwaitingGpuAssets,     // 派生Mesh、材质、BLAS和TLAS绑定正在进入RenderApp。
     WarmingSolari, // 光栅材质先完整写入Deferred GBuffer并保留标准阴影，再挂接Solari收集两帧证据。
     Active,        // 当前目标全部光追代理与兼容材质已就绪；其余光栅内容继续生成标准阴影。
     RollingBack,   // 正在撤销代理、材质和相机租约。
-    Failed,        // 当前地图代次发生硬失败，等待关闭重开或新代次。
+    Failed,        // 当前场景代次发生硬失败，等待关闭重开或新代次。
 }
 
 impl RaytracingPrototypeStage {
@@ -150,7 +150,7 @@ impl DlssRayReconstructionDebugView {
 pub enum RaytracingPrototypeBlocker {
     BackendNotVulkan { backend: String }, // P1只批准Vulkan，不静默强制后端或回退DX12。
     MissingDeviceFeatures { features: String }, // 当前设备缺少Solari要求的wgpu能力。
-    WaitingForSupportedMap,               // 当前没有已完成实例化的动态地形目标。
+    WaitingForSupportedScene,               // 当前没有已完成实例化的动态地形目标。
     WaitingForGameplayCamera,             // 当前玩法主相机尚未建立或正在重建。
     CandidateContractMismatch { detail: String }, // 全部候选数量、身份或唯一性不一致。
     AssetBudgetMismatch { detail: String }, // 固定统计或硬预算不一致。
@@ -176,7 +176,7 @@ impl RaytracingPrototypeBlocker {
                 format!("后端为{backend}，P1请以WGPU_BACKEND=vulkan启动")
             }
             Self::MissingDeviceFeatures { features } => format!("设备缺少能力：{features}"),
-            Self::WaitingForSupportedMap => "等待动态地图正式地形目标".to_string(),
+            Self::WaitingForSupportedScene => "等待动态场景正式地形目标".to_string(),
             Self::WaitingForGameplayCamera => "等待主场景相机".to_string(),
             Self::CandidateContractMismatch { detail } => format!("候选资产契约不符：{detail}"),
             Self::AssetBudgetMismatch { detail } => format!("目标预算不符：{detail}"),
@@ -198,7 +198,7 @@ impl RaytracingPrototypeBlocker {
                 format!("等待光栅GBuffer兼容材质：{ready}/{total}")
             }
             Self::StageTimedOut { stage } => format!("{}阶段超过30秒", stage.display_name()),
-            Self::SourceChanged => "地图Mesh或材质已热更新，旧代次已回退".to_string(),
+            Self::SourceChanged => "场景Mesh或材质已热更新，旧代次已回退".to_string(),
             Self::CameraRebuilt => "主场景相机已换代，旧相机状态已回退".to_string(),
         }
     }
@@ -241,7 +241,7 @@ pub(crate) enum DlssRayReconstructionUnavailableReason {
     #[default]
     BuildDisabled, // 普通test_panel没有显式选择需要外部NVIDIA SDK的真实DLSS构建。
     DeviceOrBackendUnsupported, // 当前平台、适配器、Vulkan后端或NGX运行库没有发布RR支持资源。
-    WaitingForSolariCamera,     // 设备支持，但当前地图目标相机尚未进入Solari预热或正在完整回退。
+    WaitingForSolariCamera,     // 设备支持，但当前场景目标相机尚未进入Solari预热或正在完整回退。
     TransitioningFromSuperResolution, // RR请求已确认，等待独立SR组件先从同一相机退出。
     ContextCreationFailed,      // SDK拒绝同一模式/尺寸；释放RR并允许Solari+SR安全回退。
     RequestedOff,               // 用户在F1中明确选择关闭RR，基础Solari保持活动。
@@ -255,7 +255,7 @@ impl DlssRayReconstructionUnavailableReason {
             Self::DeviceOrBackendUnsupported => {
                 "当前设备/后端/NGX运行库不支持DLSS RR，基础Solari仍可用"
             } // AMD等设备不得因此阻断P1光追状态机。
-            Self::WaitingForSolariCamera => "等待当前地图Solari目标相机", // 相机建立前没有可挂接的降噪视图。
+            Self::WaitingForSolariCamera => "等待当前场景Solari目标相机", // 相机建立前没有可挂接的降噪视图。
             Self::TransitioningFromSuperResolution => "等待DLSS SR退出后挂接RR", // 明确显示互斥交接而非能力失败。
             Self::ContextCreationFailed => "DLSS RR上下文创建失败，同一模式/尺寸已停止重试并回退SR",
             Self::RequestedOff => "画质设置已请求关闭DLSS RR，基础Solari仍可用", // 明确区分主动关闭与能力失败。
@@ -281,7 +281,7 @@ pub(crate) enum SolariHistoryResetReason {
     CameraRotation,            // 相机单帧旋转越过四十五度切镜阈值。
     ProjectionChanged,         // FOV、裁剪面或投影类型的矩阵位模式发生变化。
     TargetSizeChanged,         // 窗口或目标纹理的物理尺寸发生变化。
-    MapGenerationChanged,      // 当前地图目标代次已经换代。
+    SceneGenerationChanged,      // 当前场景目标代次已经换代。
     CelestialLightChanged,     // 天体光方向、照度或颜色发生单帧突变。
     MaterialMembershipChanged, // Deferred光栅兼容材质成员发生新增或移除。
     MaterialReprepared,        // 既有兼容材质被热更并重新准备GPU管线。
@@ -300,7 +300,7 @@ impl SolariHistoryResetReason {
             Self::CameraRotation => "相机单帧旋转超过45度",
             Self::ProjectionChanged => "相机投影变化",
             Self::TargetSizeChanged => "渲染目标尺寸变化",
-            Self::MapGenerationChanged => "地图代次变化",
+            Self::SceneGenerationChanged => "场景代次变化",
             Self::CelestialLightChanged => "天体光突变",
             Self::MaterialMembershipChanged => "兼容材质成员变化",
             Self::MaterialReprepared => "兼容材质重新准备",
@@ -310,7 +310,7 @@ impl SolariHistoryResetReason {
     }
 }
 
-/// 一项源 primitive 在当前地图代次中的不可混用身份与统计。
+/// 一项源 primitive 在当前场景代次中的不可混用身份与统计。
 #[derive(Clone, Debug)]
 pub(crate) struct SourceCandidate {
     pub(crate) contract_index: usize,          // 固定白名单顺序索引。
@@ -329,11 +329,11 @@ pub(crate) struct SourceCandidate {
     pub(crate) derived_mesh: Option<Handle<Mesh>>, // 主线程每帧一个登记后的派生Mesh。
 }
 
-/// 后台任务及其结果必须完整携带的地图、源资产和票据身份。
+/// 后台任务及其结果必须完整携带的场景、源资产和票据身份。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AdaptationIdentity {
-    pub(crate) generation: u64,       // 光追自有地图代次，不复用InstanceId。
-    pub(crate) root: Entity,          // 触发WorldInstanceReady的明确地图根。
+    pub(crate) generation: u64,       // 光追自有场景代次，不复用InstanceId。
+    pub(crate) root: Entity,          // 触发WorldInstanceReady的明确场景根。
     pub(crate) source_entity: Entity, // 结果只允许回到同一源primitive。
     pub(crate) source_mesh: AssetId<Mesh>, // 结果只允许对应同一源Mesh资产。
     pub(crate) source_revision: u64,  // 任务启动后热更即使句柄复用也会失效。

@@ -4,9 +4,9 @@ use std::collections::{HashMap, VecDeque};
 
 use avian3d::prelude::{Collider, ColliderDisabled, RigidBodyDisabled};
 use bevy::{asset::{AssetId, RenderAssetUsages}, mesh::{Indices, MeshVertexAttribute, PrimitiveTopology}, prelude::*, render::render_resource::VertexFormat};
-use feathrise_map_content::{EditableMeshGeometry, MapPlacementAssetTarget, EDITABLE_CUBOID_TRIANGLES};
+use feathrise_scene_content::{EditableMeshGeometry, ScenePlacementAssetTarget, EDITABLE_CUBOID_TRIANGLES};
 
-use super::{MapPlacementInstance, MapPlacementPrimitiveVisual};
+use super::{ScenePlacementInstance, ScenePlacementPrimitiveVisual};
 use super::components::{BuiltinPlacementVisual, BuiltinPlacementVisualRoot};
 
 /// 声明UV1承载作者真实边编码；私有固定ID排在标准属性之后，不改变原属性偏移或正式Shader输入。
@@ -33,7 +33,7 @@ struct BuiltinPrimitiveCache {
 }
 
 /// 正式显示与编辑幽灵共用十二三角及逐三角法线，非平面四边面不会假装成单一平面。
-/// 输入必须先通过目标validate；固定36顶点和36索引的构造预算与地图规模无关。
+/// 输入必须先通过目标validate；固定36顶点和36索引的构造预算与场景规模无关。
 pub fn editable_cuboid_mesh(vertices_half_mm: [[i32; 3]; 8]) -> Mesh {
     editable_mesh_mesh(EditableMeshGeometry::from_cuboid_vertices(vertices_half_mm))
 }
@@ -98,19 +98,19 @@ fn parameter_cuboid_uv0(geometry: EditableMeshGeometry) -> Vec<[f32; 2]> {
 
 /// 为内置目标创建或更新唯一可视子节点；返回false表示调用方仍需处理外部GLB目标。
 ///
-/// 根必须先持有匹配的MapPlacementInstance。正式候选的所有内置碰撞归隐藏容器的禁用静态刚体，
+/// 根必须先持有匹配的ScenePlacementInstance。正式候选的所有内置碰撞归隐藏容器的禁用静态刚体，
 /// F12独立预览则由调用方在当前根安装Static刚体；本入口绝不擅自激活玩法碰撞。
 pub fn spawn_builtin_placement_visual(
     commands: &mut Commands,
     root: Entity,
-    target: MapPlacementAssetTarget,
+    target: ScenePlacementAssetTarget,
 ) -> bool {
     let (geometry, color_srgb, roughness_milli, collision) = match target {
-        MapPlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, collision } =>
+        ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, collision } =>
             (BuiltinGeometryKey::Cuboid(size_mm), color_srgb, roughness_milli, collision),
-        MapPlacementAssetTarget::EditableCuboid { vertices_half_mm, color_srgb, roughness_milli, collision } =>
+        ScenePlacementAssetTarget::EditableCuboid { vertices_half_mm, color_srgb, roughness_milli, collision } =>
             (BuiltinGeometryKey::Editable(vertices_half_mm), color_srgb, roughness_milli, collision),
-        MapPlacementAssetTarget::EditableMesh { geometry, color_srgb, roughness_milli, collision } =>
+        ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb, roughness_milli, collision } =>
             (BuiltinGeometryKey::Mesh(geometry), color_srgb, roughness_milli, collision),
         _ => return false,
     };
@@ -118,7 +118,7 @@ pub fn spawn_builtin_placement_visual(
         return true; // 正式校验负责显示错误；防御性阻止其他入口生成坏网格。
     }
     commands.queue(move |world: &mut World| {
-        if world.get::<MapPlacementInstance>(root).is_none_or(|instance| instance.asset_target() != target) {
+        if world.get::<ScenePlacementInstance>(root).is_none_or(|instance| instance.asset_target() != target) {
             return; // 删除、撤销或来源换代后，迟到命令不能覆盖新作者身份。
         }
         world.init_resource::<BuiltinPrimitiveCache>();
@@ -174,7 +174,7 @@ pub fn spawn_builtin_placement_visual(
         let mut child = world.spawn((
             Name::new(if matches!(geometry, BuiltinGeometryKey::Cuboid(_)) { "内置立方体网格" } else { "可编辑网格" }),
             BuiltinPlacementVisual,
-            MapPlacementPrimitiveVisual,
+            ScenePlacementPrimitiveVisual,
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::IDENTITY,
@@ -220,9 +220,9 @@ pub fn set_builtin_placement_collision_enabled(commands: &mut Commands, root: En
 }
 
 /// 正式原子交接可在撤销根身份前同步停用唯一子碰撞；不依赖根自身拥有RigidBody。
-/// 调用后再移除MapPlacementInstance，迟到的启用命令会因缺少当前身份而被拒绝。
+/// 调用后再移除ScenePlacementInstance，迟到的启用命令会因缺少当前身份而被拒绝。
 pub fn set_builtin_placement_collision_enabled_world(world: &mut World, root: Entity, enabled: bool) {
-    if world.get::<MapPlacementInstance>(root).is_none_or(|instance| !instance.asset_target().is_builtin()) {
+    if world.get::<ScenePlacementInstance>(root).is_none_or(|instance| !instance.asset_target().is_builtin()) {
         return;
     }
     let Some(visual) = builtin_visual_for_root(world, root) else { return; };
@@ -255,24 +255,24 @@ mod tests {
     use avian3d::prelude::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::mesh::VertexAttributeValues;
-    use feathrise_map_content::{MapId, MapPlacementRecord, MeshFace};
+    use feathrise_scene_content::{SceneId, ScenePlacementRecord, MeshFace};
 
-    fn record(target: MapPlacementAssetTarget) -> MapPlacementRecord {
+    fn record(target: ScenePlacementAssetTarget) -> ScenePlacementRecord {
         serde_json::from_value(serde_json::json!({
             "id":"builtin-test", "asset_path":"", "asset_target":target,
             "translation":[0,0,0], "yaw_degrees":0, "scale":[1,1,1]
         })).unwrap()
     }
 
-    fn install(world: &mut World, root: Entity, target: MapPlacementAssetTarget) {
+    fn install(world: &mut World, root: Entity, target: ScenePlacementAssetTarget) {
         world.run_system_once(move |mut commands: Commands| {
             assert!(spawn_builtin_placement_visual(&mut commands, root, target));
         }).unwrap();
     }
 
-    fn spawn_root(world: &mut World, target: MapPlacementAssetTarget) -> Entity {
+    fn spawn_root(world: &mut World, target: ScenePlacementAssetTarget) -> Entity {
         let record = record(target);
-        world.spawn((MapPlacementInstance::new(&MapId::parse("MAP-builtin").unwrap(), &record),
+        world.spawn((ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record),
             Transform::IDENTITY, Visibility::Inherited)).id()
     }
 
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn editable_wire_metadata_keeps_twelve_cuboid_edges_and_hides_quad_diagonals() {
-        let geometry = MapPlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
+        let geometry = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
         let mesh = editable_mesh_mesh(geometry);
         assert_eq!(geometry.vertices().len(), 8);
         let edges = assert_only_face_boundary_edges(geometry, &mesh);
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn builtin_wire_mesh_keeps_parameter_uv0_material_and_box_collision() {
-        let target = MapPlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000], color_srgb: [10, 20, 30], roughness_milli: 400, collision: true };
+        let target = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000], color_srgb: [10, 20, 30], roughness_milli: 400, collision: true };
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn builtin_wire_cache_distinguishes_author_face_topology_with_identical_triangles() {
-        let quads = MapPlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
+        let quads = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
         let triangles = quads.triangles().into_iter().map(|triangle| MeshFace::new(&triangle.map(|vertex| vertex as u8)).unwrap()).collect::<Vec<_>>();
         let split = EditableMeshGeometry::from_parts(quads.vertices(), &triangles).unwrap();
         assert_eq!(quads.triangles(), split.triangles());
@@ -398,7 +398,7 @@ mod tests {
         world.init_resource::<Assets<StandardMaterial>>();
         let mut handles = Vec::new();
         for geometry in [quads, quads, split, split] {
-            let target = MapPlacementAssetTarget::EditableMesh { geometry, color_srgb: [160; 3], roughness_milli: 700, collision: false };
+            let target = ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb: [160; 3], roughness_milli: 700, collision: false };
             let root = spawn_root(&mut world, target);
             install(&mut world, root, target);
             let visual = world.get::<Children>(root).unwrap()[0];
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn authoring_wire_layout_stays_distinct_from_plain_uv1_meshes_with_or_without_colors() {
-        let geometry = MapPlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
+        let geometry = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
         for with_colors in [false, true] {
             let mut authoring = editable_mesh_mesh(geometry);
             if with_colors {
@@ -453,7 +453,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+        let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let first = spawn_root(&mut world, target);
         let second = spawn_root(&mut world, target);
         install(&mut world, first, target);
@@ -463,15 +463,15 @@ mod tests {
         assert_eq!(world.get::<Mesh3d>(first_visual).unwrap().0, world.get::<Mesh3d>(second_visual).unwrap().0);
         assert_eq!(world.get::<MeshMaterial3d<StandardMaterial>>(first_visual).unwrap().0, world.get::<MeshMaterial3d<StandardMaterial>>(second_visual).unwrap().0);
         assert!(world.get::<Collider>(first_visual).is_some());
-        assert!(world.get::<MapPlacementPrimitiveVisual>(first_visual).is_some());
+        assert!(world.get::<ScenePlacementPrimitiveVisual>(first_visual).is_some());
         world.run_system_once(move |mut commands: Commands| set_builtin_placement_collision_enabled(&mut commands, first, false)).unwrap();
         assert!(world.get::<ColliderDisabled>(first_visual).is_some());
         world.run_system_once(move |mut commands: Commands| set_builtin_placement_collision_enabled(&mut commands, first, true)).unwrap();
         assert!(world.get::<ColliderDisabled>(first_visual).is_none());
 
-        let changed = MapPlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000], color_srgb: [10, 20, 30], roughness_milli: 400, collision: false };
+        let changed = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000], color_srgb: [10, 20, 30], roughness_milli: 400, collision: false };
         let record = record(changed);
-        world.entity_mut(first).insert(MapPlacementInstance::new(&MapId::parse("MAP-builtin").unwrap(), &record));
+        world.entity_mut(first).insert(ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record));
         install(&mut world, first, changed);
         assert_eq!(world.get::<Children>(first).unwrap().len(), 1);
         assert!(world.get_entity(first_visual).is_err());
@@ -485,9 +485,9 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+        let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let root = spawn_root(&mut world, target);
-        let stale = MapPlacementAssetTarget::Cuboid { size_mm: [1_000; 3], color_srgb: [160; 3], roughness_milli: 700, collision: true };
+        let stale = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000; 3], color_srgb: [160; 3], roughness_milli: 700, collision: true };
         install(&mut world, root, stale);
         assert!(world.get::<Children>(root).is_none());
         world.entity_mut(root).insert(Visibility::Hidden);
@@ -501,16 +501,16 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+        let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let root = spawn_root(&mut world, target);
         install(&mut world, root, target);
         let old_visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         let author_children = (0..1_024).map(|_| world.spawn(ChildOf(root)).id()).collect::<Vec<_>>();
         let author_collider = world.spawn((ChildOf(root), Collider::sphere(0.25))).id();
         let author_leaf = world.spawn(ChildOf(author_children[0])).id();
-        let changed = MapPlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000],
+        let changed = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000],
             color_srgb: [10, 20, 30], roughness_milli: 400, collision: true };
-        world.entity_mut(root).insert(MapPlacementInstance::new(&MapId::parse("MAP-builtin").unwrap(), &record(changed)));
+        world.entity_mut(root).insert(ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record(changed)));
         install(&mut world, root, changed);
         let visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         assert_ne!(visual, old_visual);
@@ -531,7 +531,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+        let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let batch = world.spawn((Transform::IDENTITY, RigidBody::Static)).id();
         let root = spawn_root(&mut world, target);
         let sibling = spawn_root(&mut world, target);
@@ -549,7 +549,7 @@ mod tests {
         assert!(world.get::<ColliderDisabled>(sibling_visual).is_none());
         assert!(world.get::<RigidBodyDisabled>(batch).is_none(), "单根回收不能关闭共享刚体上的其他作者对象");
         assert!(world.get::<bevy_tnua::TnuaNotPlatform>(batch).is_none());
-        world.entity_mut(root).remove::<MapPlacementInstance>();
+        world.entity_mut(root).remove::<ScenePlacementInstance>();
         set_builtin_placement_collision_enabled_world(&mut world, root, true);
         world.run_system_once(move |mut commands: Commands| {
             set_builtin_placement_collision_enabled(&mut commands, root, true);
@@ -562,7 +562,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+        let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let batch = world.spawn((Transform::IDENTITY, RigidBody::Static)).id();
         let root = spawn_root(&mut world, target);
         let sibling = spawn_root(&mut world, target);
@@ -623,7 +623,7 @@ mod tests {
             let mut world = World::new();
             world.init_resource::<Assets<Mesh>>();
             world.init_resource::<Assets<StandardMaterial>>();
-            let target = MapPlacementAssetTarget::DEFAULT_CUBOID;
+            let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
             let root = spawn_root(&mut world, target);
             install(&mut world, root, target);
             let old_visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
@@ -652,7 +652,7 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         for index in 0..BUILTIN_CACHE_ENTRIES + 8 {
-            let target = MapPlacementAssetTarget::Cuboid { size_mm: [index as u32 + 1; 3],
+            let target = ScenePlacementAssetTarget::Cuboid { size_mm: [index as u32 + 1; 3],
                 color_srgb: [(index % 256) as u8, (index / 256) as u8, 0], roughness_milli: 700, collision: false };
             let root = spawn_root(&mut world, target);
             install(&mut world, root, target);
@@ -675,9 +675,9 @@ mod tests {
             .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
         app.finish();
         let batch = app.world_mut().spawn((Transform::IDENTITY, RigidBody::Static, RigidBodyDisabled, bevy_tnua::TnuaNotPlatform)).id();
-        let root = spawn_root(app.world_mut(), MapPlacementAssetTarget::DEFAULT_CUBOID);
+        let root = spawn_root(app.world_mut(), ScenePlacementAssetTarget::DEFAULT_CUBOID);
         app.world_mut().entity_mut(root).insert(ChildOf(batch));
-        install(app.world_mut(), root, MapPlacementAssetTarget::DEFAULT_CUBOID);
+        install(app.world_mut(), root, ScenePlacementAssetTarget::DEFAULT_CUBOID);
         let visual = app.world().get::<Children>(root).unwrap()[0];
         let dynamic = app.world_mut().spawn((RigidBody::Dynamic, LockedAxes::ALL_LOCKED,
             Collider::sphere(0.5), Transform::from_xyz(0.0, 1.1, 0.0))).id();
@@ -704,9 +704,9 @@ mod tests {
             .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f64(1.0 / 60.0)));
         app.finish();
         let group = app.world_mut().spawn((Transform::IDENTITY, RigidBody::Static, RigidBodyDisabled, bevy_tnua::TnuaNotPlatform)).id();
-        let root = spawn_root(app.world_mut(), MapPlacementAssetTarget::DEFAULT_CUBOID);
+        let root = spawn_root(app.world_mut(), ScenePlacementAssetTarget::DEFAULT_CUBOID);
         app.world_mut().entity_mut(root).insert(RigidBody::Static);
-        install(app.world_mut(), root, MapPlacementAssetTarget::DEFAULT_CUBOID);
+        install(app.world_mut(), root, ScenePlacementAssetTarget::DEFAULT_CUBOID);
         let visual = app.world().get::<Children>(root).unwrap()[0];
         // 模拟粘贴：先移除独立预览刚体，再重新写父关系，让Avian寻找公共容器。
         app.world_mut().entity_mut(root).remove::<RigidBody>().insert(ChildOf(group));
@@ -716,9 +716,9 @@ mod tests {
         assert_eq!(app.world_mut().run_system_once(active_ground_hit).unwrap(), None);
     }
 
-    fn sloped_target() -> MapPlacementAssetTarget {
-        let mut target = MapPlacementAssetTarget::DEFAULT_CUBOID.into_editable().unwrap();
-        let MapPlacementAssetTarget::EditableCuboid { ref mut vertices_half_mm, .. } = target else { unreachable!() };
+    fn sloped_target() -> ScenePlacementAssetTarget {
+        let mut target = ScenePlacementAssetTarget::DEFAULT_CUBOID.into_editable().unwrap();
+        let ScenePlacementAssetTarget::EditableCuboid { ref mut vertices_half_mm, .. } = target else { unreachable!() };
         for index in [3, 7] { vertices_half_mm[index][1] = 4_000; }
         assert!(target.validate().is_ok());
         target
@@ -796,8 +796,8 @@ mod tests {
     #[test]
     fn extruded_mesh_visual_and_collider_use_the_same_added_cap_and_sides() {
         use bevy::mesh::VertexAttributeValues;
-        let before = record(MapPlacementAssetTarget::DEFAULT_CUBOID);
-        let after = feathrise_map_content::extruded_placement_record(&before,3,0.5).unwrap();
+        let before = record(ScenePlacementAssetTarget::DEFAULT_CUBOID);
+        let after = feathrise_scene_content::extruded_placement_record(&before,3,0.5).unwrap();
         let geometry = after.asset_target.editable_geometry().unwrap();
         let mut world = World::new(); world.init_resource::<Assets<Mesh>>(); world.init_resource::<Assets<StandardMaterial>>();
         let root = spawn_root(&mut world,after.asset_target); install(&mut world,root,after.asset_target);

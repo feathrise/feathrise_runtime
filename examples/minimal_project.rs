@@ -87,7 +87,7 @@ fn setup(
         },
         Transform::from_xyz(3.0, 8.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    // 没有已保存地图时，示例自行创建唯一视图；地图工程应初始化已有 PrimarySceneView。
+    // 没有已保存场景时，示例自行创建唯一视图；场景工程应初始化已有 PrimarySceneView。
     commands.spawn((
         Camera3d::default(),
         PrimarySceneView,

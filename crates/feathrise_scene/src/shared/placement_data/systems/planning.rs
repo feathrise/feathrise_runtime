@@ -9,11 +9,11 @@ use std::sync::Arc; // 完整建筑净空只在规划收尾冻结一次并移交
 
 use bevy::prelude::*; // Rect、Transform、Handle与GLTF Scene0资产标签。
 use bevy::world_serialization::WorldAsset; // 规划为每条记录建立强WorldAsset句柄。
-use feathrise_map_content::{
-    BuildingPresetRegistry, BuildingWorldQuad, MAX_MAP_PLACEMENT_WATER_NAME_CHARS,
-    MAX_MAP_PLACEMENT_WATER_NODE_PATH_CHARS, MAX_MAP_PLACEMENT_WATER_NODE_PATH_DEPTH,
-    MAX_MAP_PLACEMENTS_PER_MAP, MapId, MapPlacementRecord, MapPlacementWaterSurface,
-    MapPlacementsAsset, valid_building_preset_id,
+use feathrise_scene_content::{
+    BuildingPresetRegistry, BuildingWorldQuad, MAX_SCENE_PLACEMENT_WATER_NAME_CHARS,
+    MAX_SCENE_PLACEMENT_WATER_NODE_PATH_CHARS, MAX_SCENE_PLACEMENT_WATER_NODE_PATH_DEPTH,
+    MAX_SCENE_PLACEMENTS_PER_SCENE, SceneId, ScenePlacementRecord, ScenePlacementWaterSurface,
+    ScenePlacementsAsset, valid_building_preset_id,
 }; // 运行时与编辑器复用同一水体格式与数量硬门。
 
 use super::super::resources::{
@@ -21,7 +21,7 @@ use super::super::resources::{
     PlacementRecordPlanning, PlacementSceneLoadTracker,
 }; // 规划游标存入唯一运行时事务。
 
-pub(super) const MAX_PLACEMENTS_PER_MAP: usize = MAX_MAP_PLACEMENTS_PER_MAP; // 运行时与F12复制动作共享同一显式实例硬门。
+pub(super) const MAX_PLACEMENTS_PER_SCENE: usize = MAX_SCENE_PLACEMENTS_PER_SCENE; // 运行时与F12复制动作共享同一显式实例硬门。
 pub(super) const PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME: usize = 128; // 普通记录的校验、拷贝和句柄请求不得超过本额度。
 pub(super) const PLACEMENT_PLAN_WATER_BUDGET_PER_FRAME: usize = 64; // 复杂节点路径校验独立限流，避免一百二十八根各扫六十四项。
 
@@ -59,8 +59,8 @@ pub(super) fn validate_asset_path(path: &str) -> bool {
 
 /// 校验单条摆放的非水字段，不拷贝整条记录。
 fn validate_record_transform(
-    record: &MapPlacementRecord, // 当前资产中即将被单条冻结的记录。
-    map_id: &MapId,              // 诊断与范围冻结所属地图。
+    record: &ScenePlacementRecord, // 当前资产中即将被单条冻结的记录。
+    scene_id: &SceneId,              // 诊断与范围冻结所属场景。
     bounds: Rect,                // 规划启动时已校验的世界XZ范围。
 ) -> Result<Transform, String> {
     if record.id.len() > MAX_PLACEMENT_ID_BYTES
@@ -73,15 +73,15 @@ fn validate_record_transform(
     {
         return Err(format!("实例{}的ID、模型路径或建筑预设ID无效", record.id)); // 过长值与路径越界同样失败关闭。
     }
-    record.validated_transform(map_id, bounds) // 公共入口保证F12、保存预检和运行时不存在边界分叉。
+    record.validated_transform(scene_id, bounds) // 公共入口保证F12、保存预检和运行时不存在边界分叉。
 }
 
 /// 用O(1)字节长度前置门保证公共Unicode纯校验的单项成本有界。
-fn validate_water_surface_bounded(surface: &MapPlacementWaterSurface) -> Result<(), String> {
-    if surface.node_path.len() > MAX_MAP_PLACEMENT_WATER_NODE_PATH_DEPTH {
+fn validate_water_surface_bounded(surface: &ScenePlacementWaterSurface) -> Result<(), String> {
+    if surface.node_path.len() > MAX_SCENE_PLACEMENT_WATER_NODE_PATH_DEPTH {
         return surface.validate(); // 公共校验会返回统一路径深度诊断。
     }
-    let max_name_bytes = MAX_MAP_PLACEMENT_WATER_NAME_CHARS * MAX_UTF8_BYTES_PER_CHAR; // 任意合法Unicode名称的绝对字节上限。
+    let max_name_bytes = MAX_SCENE_PLACEMENT_WATER_NAME_CHARS * MAX_UTF8_BYTES_PER_CHAR; // 任意合法Unicode名称的绝对字节上限。
     if surface.mesh_name.len() > max_name_bytes
         || surface
             .node_path
@@ -90,10 +90,10 @@ fn validate_water_surface_bounded(surface: &MapPlacementWaterSurface) -> Result<
     {
         return Err(format!(
             "GLB水体节点或网格名称超过{}个Unicode字符",
-            MAX_MAP_PLACEMENT_WATER_NAME_CHARS,
+            MAX_SCENE_PLACEMENT_WATER_NAME_CHARS,
         )); // 异常大单段不再进入chars().count()。
     }
-    let max_path_bytes = MAX_MAP_PLACEMENT_WATER_NODE_PATH_CHARS * MAX_UTF8_BYTES_PER_CHAR; // 合法完整路径的绝对字节上限。
+    let max_path_bytes = MAX_SCENE_PLACEMENT_WATER_NODE_PATH_CHARS * MAX_UTF8_BYTES_PER_CHAR; // 合法完整路径的绝对字节上限。
     let path_bytes = surface
         .node_path
         .iter()
@@ -101,7 +101,7 @@ fn validate_water_surface_bounded(surface: &MapPlacementWaterSurface) -> Result<
     if path_bytes.is_none_or(|bytes| bytes > max_path_bytes) {
         return Err(format!(
             "GLB水体节点路径超过{}个Unicode字符",
-            MAX_MAP_PLACEMENT_WATER_NODE_PATH_CHARS,
+            MAX_SCENE_PLACEMENT_WATER_NODE_PATH_CHARS,
         )); // 不让数千个合法短段组成异常大单项。
     }
     surface.validate() // 数值、稳定名称与真实Unicode字符数继续复用公共入口。
@@ -110,13 +110,13 @@ fn validate_water_surface_bounded(surface: &MapPlacementWaterSurface) -> Result<
 /// 从已确认完整的清单和摆放资产建立空增量事务。
 #[allow(clippy::too_many_arguments)]
 pub(super) fn begin_planning(
-    generation: u32,               // 当前地图代次。
+    generation: u32,               // 当前场景代次。
     revision: u32,                 // 新尝试修订。
-    map_id: MapId,                 // 当前地图稳定ID。
+    scene_id: SceneId,                 // 当前场景稳定ID。
     catalog_revision: u64,         // 当前目录修订。
     building_preset_revision: u64, // 当前建筑目录修订；净空必须与这一快照一致。
-    manifest_id: bevy::asset::AssetId<feathrise_map_content::MapManifestAsset>, // 清单输入身份。
-    document_id: bevy::asset::AssetId<MapPlacementsAsset>, // 摆放JSON输入身份。
+    manifest_id: bevy::asset::AssetId<feathrise_scene_content::SceneManifestAsset>, // 清单输入身份。
+    document_id: bevy::asset::AssetId<ScenePlacementsAsset>, // 摆放JSON输入身份。
     world_bounds: Rect,            // 已校验世界范围。
     total_records: usize,          // 启动时冻结的记录数。
 ) -> PlacementPlanning {
@@ -126,10 +126,10 @@ pub(super) fn begin_planning(
         terrain_holes: Vec::new(),
         generation,                      // 迟到规划必须同时匹配代次。
         revision,                        // 迟到规划必须同时匹配修订。
-        map_id,                          // 迟到规划必须同时匹配地图。
+        scene_id,                          // 迟到规划必须同时匹配场景。
         catalog_revision,                // 目录换句柄时取消本事务。
         building_preset_revision,        // 建筑净空参数换代时取消本事务。
-        manifest_id,                     // 清单身份不在跨帧通过地图ID重新猜测。
+        manifest_id,                     // 清单身份不在跨帧通过场景ID重新猜测。
         document_id,                     // 摆放身份不在跨帧通过路径重新猜测。
         world_bounds,                    // 后续记录仅执行廉价Rect包含检查。
         total_records,                   // 跨帧长度变化不能被混入旧计划。
@@ -149,15 +149,15 @@ pub(super) fn begin_planning(
 /// 确认跨帧事务仍然对应当前目录和资产句柄。
 pub(super) fn planning_matches_inputs(
     planning: &PlacementPlanning,  // 进行中事务的冻结身份。
-    generation: u32,               // 当前地图代次。
-    map_id: &MapId,                // 当前地图ID。
+    generation: u32,               // 当前场景代次。
+    scene_id: &SceneId,                // 当前场景ID。
     catalog_revision: u64,         // 当前目录修订。
     building_preset_revision: u64, // 当前建筑目录修订。
-    manifest_id: bevy::asset::AssetId<feathrise_map_content::MapManifestAsset>, // 当前清单句柄ID。
-    document_id: bevy::asset::AssetId<MapPlacementsAsset>, // 当前摆放句柄ID。
+    manifest_id: bevy::asset::AssetId<feathrise_scene_content::SceneManifestAsset>, // 当前清单句柄ID。
+    document_id: bevy::asset::AssetId<ScenePlacementsAsset>, // 当前摆放句柄ID。
 ) -> bool {
     planning.generation == generation
-        && planning.map_id == *map_id
+        && planning.scene_id == *scene_id
         && planning.catalog_revision == catalog_revision
         && planning.building_preset_revision == building_preset_revision
         && planning.manifest_id == manifest_id
@@ -168,10 +168,10 @@ pub(super) fn planning_matches_inputs(
 #[cfg(test)]
 pub(super) fn advance_planning(
     planning: &mut PlacementPlanning, // 本帧只改动精确游标和已完成前缀。
-    document: &MapPlacementsAsset,    // 当前Assets内与冻结ID相同的资产。
+    document: &ScenePlacementsAsset,    // 当前Assets内与冻结ID相同的资产。
     building_registry: &BuildingPresetRegistry, // 建筑引用、模型来源和净空都从同一原子目录快照解析。
     load_assets: &mut impl FnMut(
-        &MapPlacementRecord,
+        &ScenePlacementRecord,
     ) -> (Handle<WorldAsset>, Option<PendingPlacementPrimitive>), // 生产路径请求Scene0锚点及可选直接网格，测试可注入弱句柄。
 ) -> Result<PlacementPlanningAdvance, String> {
     advance_planning_bound(planning,document,building_registry,load_assets,&mut |_|Ok(None))
@@ -179,18 +179,18 @@ pub(super) fn advance_planning(
 
 pub(super) fn advance_planning_bound(
     planning: &mut PlacementPlanning,
-    document: &MapPlacementsAsset,
+    document: &ScenePlacementsAsset,
     building_registry: &BuildingPresetRegistry,
-    load_assets: &mut impl FnMut(&MapPlacementRecord)->(Handle<WorldAsset>,Option<PendingPlacementPrimitive>),
-    resolve_binding: &mut impl FnMut(&MapPlacementRecord)->Result<Option<feathrise_map_content::TerrainObjectTransform>,String>,
+    load_assets: &mut impl FnMut(&ScenePlacementRecord)->(Handle<WorldAsset>,Option<PendingPlacementPrimitive>),
+    resolve_binding: &mut impl FnMut(&ScenePlacementRecord)->Result<Option<feathrise_scene_content::TerrainObjectTransform>,String>,
 ) -> Result<PlacementPlanningAdvance, String> {
     if building_registry.revision != planning.building_preset_revision {
         return Err("建筑预设目录在显式实例增量规划期间换代".to_owned()); // 不把两个目录修订的净空拼成同一候选。
     }
-    if document.map_id != planning.map_id || document.placements.len() != planning.total_records {
+    if document.scene_id != planning.scene_id || document.placements.len() != planning.total_records {
         return Err(format!(
-            "地图{}的摆放文件在增量规划期间换代",
-            planning.map_id,
+            "场景{}的摆放文件在增量规划期间换代",
+            planning.scene_id,
         )); // 不将新旧文档的记录前缀组成候选。
     }
     let mut advance = PlacementPlanningAdvance::default(); // 本帧真实工作量供heartbeat与测试读取。
@@ -207,30 +207,30 @@ pub(super) fn advance_planning_bound(
                 planning.next_record += 1;
                 record_budget -= 1;
                 advance.records_completed += 1;
-                continue; // 跳过的记录同样消耗固定扫描预算，不能在一帧遍历完整地图。
+                continue; // 跳过的记录同样消耗固定扫描预算，不能在一帧遍历完整场景。
             }
             let transform = validate_record_transform(
                 source,                // 从同一资产记录校验基础字段。
-                &planning.map_id,      // 诊断使用冻结地图ID。
+                &planning.scene_id,      // 诊断使用冻结场景ID。
                 planning.world_bounds, // 范围使用冻结合法Rect。
             )?;
-            let source_pose=feathrise_map_content::TerrainObjectTransform{translation:source.translation,yaw_degrees:source.yaw_degrees,scale:source.scale, ..Default::default()};
+            let source_pose=feathrise_scene_content::TerrainObjectTransform{translation:source.translation,yaw_degrees:source.yaw_degrees,scale:source.scale, ..Default::default()};
             let resolved=resolve_binding(source)?.unwrap_or(source_pose);
             let transform=if source.terrain_binding.is_some() {resolved.as_transform()} else {transform};
             if !planning.ids.insert(source.id.clone()) {
                 return Err(format!(
-                    "地图{}包含重复实例ID {}",
-                    planning.map_id, source.id,
+                    "场景{}包含重复实例ID {}",
+                    planning.scene_id, source.id,
                 )); // 重复ID在首次见到的记录帧立即失败。
             }
             let next_total = planning
                 .total_water_surfaces
                 .checked_add(source.water_surfaces.len())
-                .ok_or_else(|| "单张地图整网格水体绑定总数计算溢出".to_owned())?;
+                .ok_or_else(|| "单个场景整网格水体绑定总数计算溢出".to_owned())?;
             planning.total_water_surfaces = next_total; // 只在当前记录基础门通过后累计。
             planning.current_record = Some(PlacementRecordPlanning {
                 source_pose,
-                record: MapPlacementRecord {
+                record: ScenePlacementRecord {
                     mesh_lod: source.mesh_lod, // 完整候选复制实例策略，不因姿态/水绑定分帧计划退回全局。
                     terrain_binding: source.terrain_binding.clone(),
                     editor: Default::default(),
@@ -346,22 +346,22 @@ pub(super) fn advance_planning_bound(
             // v3载体只记录作者包围范围。附近真实网格由流送域授信，不能整体开洞或实例化标记三角。
             planning.terrain_patch_count += 1;
             if planning.terrain_patch_count > 32 {
-                return Err("地图三维地形作者层超过32项".into());
+                return Err("场景三维地形作者层超过32项".into());
             }
             planning.next_record += 1;
             advance.records_completed += 1;
             continue;
         }
         for hole in holes {
-            if planning.terrain_holes.len() >= feathrise_map_content::MAX_TERRAIN_CUTOUTS {
-                return Err("地图三维地形洞口超过32项预算".into());
+            if planning.terrain_holes.len() >= feathrise_scene_content::MAX_TERRAIN_CUTOUTS {
+                return Err("场景三维地形洞口超过32项预算".into());
             }
             planning.terrain_holes.push(hole);
         }
         if current.record.terrain_patch.is_some() {
             planning.terrain_patch_count += 1;
             if planning.terrain_patch_count > 32 {
-                return Err("地图三维地形实例超过32项预算，请拆分地图内容".into());
+                return Err("场景三维地形实例超过32项预算，请拆分场景内容".into());
             }
         }
         let (scene, primitive) = load_assets(&current.record); // 每帧请求次数不超过记录预算。
@@ -396,7 +396,7 @@ pub(super) fn finish_planning(
         terrain_holes: Arc::from(planning.terrain_holes),
         generation: planning.generation, // 候选根继承规划代次。
         revision: planning.revision,     // 候选根继承规划修订。
-        map_id: planning.map_id,         // 候选根继承规划地图身份。
+        scene_id: planning.scene_id,         // 候选根继承规划场景身份。
         building_preset_revision: planning.building_preset_revision, // 候选携带生成净空的目录身份。
         building_clearances: Arc::from(planning.building_clearances), // Vec零拷贝冻结，后台消费者只浅克隆Arc。
         building_clearance_floor_heights: Arc::from(planning.building_clearance_floor_heights),

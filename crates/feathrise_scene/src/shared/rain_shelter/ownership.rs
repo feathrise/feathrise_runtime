@@ -1,17 +1,17 @@
-//! 显式代理只服从正式地图/placement采用门，隐藏候选与退休旧树不能遮雨。
+//! 显式代理只服从正式场景/placement采用门，隐藏候选与退休旧树不能遮雨。
 
 use super::{resources::RainShelterRegistry, types::ShelterSource};
-use crate::MapPlacementInstance; // 正式只读所有权和批次活动门。
+use crate::ScenePlacementInstance; // 正式只读所有权和批次活动门。
 use bevy::prelude::*; // 有界层级查询。
-use feathrise_map_content::MapId; // placement固定地图身份。
-use feathrise_scene_core::state::ScenePhase; // 静态地图状态。 // 来源及反向索引。
+use feathrise_scene_content::SceneId; // placement固定场景身份。
+use feathrise_scene_core::state::ScenePhase; // 静态场景状态。 // 来源及反向索引。
 
 pub(super) type OwnerQuery<'w, 's> = Query<
     'w,
     's,
     (
         Option<&'static ChildOf>,
-        Option<&'static MapPlacementInstance>,
+        Option<&'static ScenePlacementInstance>,
         Option<&'static DespawnOnExit<ScenePhase>>,
     ),
 >; // 单根查询不扫描世界。
@@ -32,7 +32,7 @@ pub(super) fn resolve_owner(entity: Entity, query: &OwnerQuery) -> Option<(Entit
         }; // 玩法直接插入的独立代理以自身为根。
         current = parent.parent(); // 只沿单条祖先链。
     } // 深度上限之外不继续主线程遍历。
-    None // 过深层级拒绝，不默认为活动地图。
+    None // 过深层级拒绝，不默认为活动场景。
 } // 完成根解析。
 
 pub(super) fn remove_source(
@@ -83,7 +83,7 @@ pub(super) fn insert_source(
 pub(super) fn owner_active(
     owner: Entity,
     query: &OwnerQuery,
-    context: &(ScenePhase, Option<MapId>),
+    context: &(ScenePhase, Option<SceneId>),
 ) -> bool {
     // 稳定帧每个缓存根只做一次get。
     let Ok((_, placement, scoped)) = query.get(owner) else {
@@ -94,8 +94,8 @@ pub(super) fn owner_active(
         let map = match context.0 {
             ScenePhase::Active => context.1.as_ref().map(|id| id.as_str()),
             _ => None,
-        }; // 静态和动态都用真实MapId比较。
-        return placement.is_active() && map == Some(placement.map_id().as_str()); // Pending/Retired无论是否有实体都不遮雨。
+        }; // 静态和动态都用真实SceneId比较。
+        return placement.is_active() && map == Some(placement.scene_id().as_str()); // Pending/Retired无论是否有实体都不遮雨。
     } // 完成placement活动门。
     if let Some(scoped) = scoped {
         return scoped.0 == context.0;

@@ -5,9 +5,10 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-pub const ABI_MAJOR: u32 = 1;
+// 场景领域请求和回执的 JSON 字段随场景格式换代，由 ABI 主版本阻止加载旧插件。
+pub const ABI_MAJOR: u32 = 2;
 pub const ABI_MINOR: u32 = 0;
-pub const ENTRY_SYMBOL: &[u8] = b"feathrise_plugin_api_v1\0";
+pub const ENTRY_SYMBOL: &[u8] = b"feathrise_plugin_api_v2\0";
 pub const OK: i32 = 0;
 pub const INVALID: i32 = -1;
 pub const FAULT: i32 = -2;
@@ -145,7 +146,7 @@ macro_rules! export_plugin {
     };
     ($tool:ty) => {
         #[unsafe(no_mangle)]
-        pub extern "C" fn feathrise_plugin_api_v1() -> *const $crate::PluginApi {
+        pub extern "C" fn feathrise_plugin_api_v2() -> *const $crate::PluginApi {
             static API: $crate::PluginApi = $crate::PluginApi {
                 abi_major: $crate::ABI_MAJOR,
                 abi_minor: $crate::ABI_MINOR,

@@ -10,7 +10,7 @@ use bevy::{
     asset::{AssetId, UntypedAssetId}, // Mesh修订与跨具体类型的RenderApp材质目标身份。
     material::OpaqueRendererMethod,   // 回退必须恢复每份光栅材质原有Forward/Deferred/Auto作者值。
     pbr::StandardMaterial,            // 普通PBR材质兼容桥。
-    platform::collections::HashMap,   // 当前地图候选数量固定且很小。
+    platform::collections::HashMap,   // 当前场景候选数量固定且很小。
     prelude::*,                       // Resource、Entity、Handle与Mesh。
     render::extract_resource::ExtractResource, // 把固定上限的材质目标身份复制到RenderApp核对。
 };
@@ -20,7 +20,7 @@ use feathrise_environment::{
     terrain_surface::TerrainSurfaceMaterial,
 };
 use feathrise_settings::GraphicsRuntimeLeaseId; // 精确释放设置crate中的相机运行时租约。
-use feathrise_scene_core::state::ScenePhase; // 只接受数据驱动动态地图正式目标。
+use feathrise_scene_core::state::ScenePhase; // 只接受数据驱动动态场景正式目标。
 use feathrise_vegetation::VegetationMeshBillboardMaterial; // 远景AlphaMask公告板继续光栅并写入Deferred GBuffer。
 
 use crate::{
@@ -45,44 +45,44 @@ pub(crate) struct RaytracingCapability {
     pub(crate) missing_capabilities: String, // 空集合或缺失features调试文本。
 }
 
-/// 由动态地图地形观察系统更新的地图目标身份。
+/// 由动态场景地形观察系统更新的场景目标身份。
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub(crate) struct RaytracingSceneTracker {
     pub(crate) target: RaytracingPrototypeTarget, // 只记录目录驱动地形的目标类型。
-    pub(crate) root: Option<Entity>, // 动态地图的唯一正式primitive实体。
+    pub(crate) root: Option<Entity>, // 动态场景的唯一正式primitive实体。
     pub(crate) scene: Option<ScenePhase>, // 防止其他场景复用标记后误接管。
     pub(crate) target_mesh: Option<AssetId<Mesh>>, // 动态未保存Live Apply换句柄时立即生成新代次。
-    pub(crate) dynamic_status_revision: u64, // 动态地图Ready修订参与目标身份。
+    pub(crate) dynamic_status_revision: u64, // 动态场景Ready修订参与目标身份。
     pub(crate) terrain_revision: u64, // 已采用洞穴/悬崖集合换代使整个TLAS重新准备。
     pub(crate) generation: u64,      // 每次根ready或动态源换代独立递增。
 }
 
 impl RaytracingSceneTracker {
-    /// 发布一张完整就绪动态地图的唯一地形目标；相同身份稳定帧不重复换代。
+    /// 发布一张完整就绪动态场景的唯一地形目标；相同身份稳定帧不重复换代。
     pub(crate) fn mark_dynamic_ready(
         &mut self,
         root: Entity,
         mesh: AssetId<Mesh>,
         status_revision: u64,
     ) {
-        if self.target == RaytracingPrototypeTarget::DynamicMapTerrain
+        if self.target == RaytracingPrototypeTarget::DynamicSceneTerrain
             && self.root == Some(root)
             && self.target_mesh == Some(mesh)
             && self.dynamic_status_revision == status_revision
         {
-            return; // 稳定地图每帧只做固定字段比较，不反复重建BLAS。
+            return; // 稳定场景每帧只做固定字段比较，不反复重建BLAS。
         }
         self.generation = self.generation.wrapping_add(1).max(1);
-        self.target = RaytracingPrototypeTarget::DynamicMapTerrain;
+        self.target = RaytracingPrototypeTarget::DynamicSceneTerrain;
         self.root = Some(root);
         self.scene = Some(ScenePhase::Active);
         self.target_mesh = Some(mesh);
         self.dynamic_status_revision = status_revision;
     }
 
-    /// 离开动态地图或其Ready证据失效时撤销明确目标，使生命周期完整回退光栅。
+    /// 离开动态场景或其Ready证据失效时撤销明确目标，使生命周期完整回退光栅。
     pub(crate) fn clear_dynamic(&mut self) {
-        if self.target != RaytracingPrototypeTarget::DynamicMapTerrain {
+        if self.target != RaytracingPrototypeTarget::DynamicSceneTerrain {
             return; // 无目标时不重复递增代次。
         }
         self.generation = self.generation.wrapping_add(1).max(1);
@@ -191,7 +191,7 @@ pub(crate) struct RaytracingTelemetryBridge(
 /// 回退完成后要进入的稳定状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RollbackDisposition {
-    RasterReady, // 请求关闭、地图/相机换代后允许后续重新发现。
+    RasterReady, // 请求关闭、场景/相机换代后允许后续重新发现。
     Failed,      // 当前代次硬失败，保持完整光栅直到请求重置或新代次。
 }
 
@@ -205,16 +205,16 @@ pub(crate) struct PendingRollback {
 /// P1 全部暂存状态；任何可见或GPU副作用都能由这里精确撤销。
 #[derive(Resource)]
 pub(crate) struct RaytracingRuntime {
-    pub(crate) generation: u64, // 当前采用或正在构建的地图代次。
-    pub(crate) target: RaytracingPrototypeTarget, // 当前候选与预算使用的地图级契约。
-    pub(crate) root: Option<Entity>, // 动态地图唯一正式地形实体。
+    pub(crate) generation: u64, // 当前采用或正在构建的场景代次。
+    pub(crate) target: RaytracingPrototypeTarget, // 当前候选与预算使用的场景级契约。
+    pub(crate) root: Option<Entity>, // 动态场景唯一正式地形实体。
     pub(crate) camera: Option<Entity>, // 当前明确玩法主相机。
     pub(crate) stage: RaytracingPrototypeStage, // 私有状态机权威值。
     pub(crate) blocker: Option<RaytracingPrototypeBlocker>, // 等待或失败原因。
     pub(crate) stage_elapsed_seconds: f32, // 当前冷启动阶段耗时。
     pub(crate) last_request_enabled: bool, // 识别关闭后重新开启以解除同代失败锁。
     pub(crate) failed_generation: Option<u64>, // 同代硬失败不逐帧自动重试。
-    pub(crate) candidates: Vec<SourceCandidate>, // 当前地图完整白名单顺序候选。
+    pub(crate) candidates: Vec<SourceCandidate>, // 当前场景完整白名单顺序候选。
     pub(crate) budget: RaytracingBudgetSnapshot, // 发现与运行期预算快照。
     pub(crate) capture_cursor: usize, // 下一个尚未启动捕获的候选槽。
     pub(crate) capture_job: Option<MeshCaptureJob>, // 当前唯一主线程分帧捕获。
@@ -313,7 +313,7 @@ impl Default for RaytracingRuntime {
 impl RaytracingRuntime {
     /// 当前事务完整目标数量；发现、预热、活动验证和F1使用同一权威值。
     pub(crate) fn expected_instance_count(&self) -> u32 {
-        if self.target == RaytracingPrototypeTarget::DynamicMapTerrain
+        if self.target == RaytracingPrototypeTarget::DynamicSceneTerrain
             && !self.candidates.is_empty()
         {
             self.candidates.len() as u32
@@ -324,7 +324,7 @@ impl RaytracingRuntime {
 
     /// 当前事务需要的真实材质资产数量。
     pub(crate) fn expected_unique_material_count(&self) -> u32 {
-        if self.target == RaytracingPrototypeTarget::DynamicMapTerrain
+        if self.target == RaytracingPrototypeTarget::DynamicSceneTerrain
             && !self.candidates.is_empty()
         {
             self.budget.unique_materials

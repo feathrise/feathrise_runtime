@@ -19,7 +19,7 @@ pub use batch::{
     VolumeMeshCells, spawn_volume_mesh_batch,
     VegetationMeshBatch, VegetationMeshBatchNode, VegetationMeshBatchPlacement,
     VegetationMeshBatchQuality, VegetationMeshBatchView, spawn_vegetation_mesh_batch,
-}; // 动态地图与编辑器使用无作者总量上限的分块批次入口。
+}; // 动态场景与编辑器使用无作者总量上限的分块批次入口。
 pub use billboard::{
     VegetationMeshBillboardExtension, VegetationMeshBillboardMaterial,
     VegetationMeshBillboardPlugin, create_vegetation_mesh_billboard_material,

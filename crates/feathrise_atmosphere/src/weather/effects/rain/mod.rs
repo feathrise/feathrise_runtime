@@ -1,6 +1,6 @@
 //! 天气 GPU 降雨：复用单个 Hanabi 发射体，在玩法主相机前方生成局部雨幕。
 
-use bevy::camera::visibility::RenderLayers; // 专属渲染层确保小地图和其他辅助相机不绘制雨丝。
+use bevy::camera::visibility::RenderLayers; // 专属渲染层确保小场景和其他辅助相机不绘制雨丝。
 use bevy::ecs::system::SystemParam; // 按天气输入与实体查询职责收拢降雨系统参数。
 use bevy::prelude::*; // ECS查询、资源、Transform、Visibility和资产容器来自Bevy预导入。
 use feathrise_scene_core::view::PrimarySceneView; // 玩法主相机是降雨跟随和场景存在性的权威标记。
@@ -252,7 +252,7 @@ pub(crate) fn sync_weather_rain(
         rain_properties, // 风速和遮雨属性在同一组件中原子交给Hanabi。
         Transform::from_translation(emitter_position), // 初始发射圆盘直接使用相机前方二十米与上方十八米的完整目标位置。
         Visibility::Visible, // 新实体需在暂停预览的首个可编译帧绘制静态雨丝。
-        RenderLayers::layer(WEATHER_EFFECT_LAYER), // 小地图和普通辅助相机不会包含天气专属层。
+        RenderLayers::layer(WEATHER_EFFECT_LAYER), // 小场景和普通辅助相机不会包含天气专属层。
     )); // 生成全局唯一玩法降雨发射体。
 } // 结束GPU降雨同步系统。
 
@@ -433,7 +433,7 @@ pub(super) fn rain_velocity(wind: f32, direction: Vec2) -> Vec3 {
     let wind = finite_unit(wind, 0.0); // 非有限或越界风力先规范化。
     let direction = safe_wind_direction(direction); // 风向异常时统一回退默认+X风向并归一化。
     Vec3::new(
-        direction.x * wind * 7.0, // 满风横向速度固定七米每秒，与默认风向和地图位置无关。
+        direction.x * wind * 7.0, // 满风横向速度固定七米每秒，与默认风向和场景位置无关。
         -30.0,                    // 所有雨量保持快速自然下落，密度而非速度表达雨势。
         direction.y * wind * 7.0, // 世界Z分量直接使用输入风向，避免雨、云和植被各自偏转。
     ) // 返回世界空间雨丝初始速度。

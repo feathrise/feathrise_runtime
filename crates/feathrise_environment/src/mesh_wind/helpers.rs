@@ -111,7 +111,7 @@ pub(super) fn tree_wind_parameters(
         // 构造主渲染与预通道共享的完整风参数。
         direction: safe_direction, // 随机树根朝向会在顶点着色器中转换回各自局部风向。
         strength: TREE_WIND_MACRO_STRENGTH * safe_strength, // 所有实体LOD和部件共享同一宏观弯曲，切档不跳。
-        noise_scale: TREE_WIND_NOISE_SCALE, // 世界空间采样让固定树位自然错相且重进地图可重复。
+        noise_scale: TREE_WIND_NOISE_SCALE, // 世界空间采样让固定树位自然错相且重进场景可重复。
         scroll_speed: TREE_WIND_SCROLL_SPEED_SCALE * safe_animation_speed, // 只缩放风场滚动速度，不另设树木控制项。
         micro_strength: profile.micro_strength * safe_strength, // 局部叶片噪声随F1强度同步归零。
         s_curve_speed: 2.8 * safe_animation_speed, // 叶簇波形比树干宏观漂移快但仍受统一速度控制。

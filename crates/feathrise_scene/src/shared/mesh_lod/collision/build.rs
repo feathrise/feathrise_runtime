@@ -22,7 +22,7 @@ pub(super) fn source_mesh(collider: &Collider) -> Option<&TriMesh> {
 }
 
 pub(super) fn cook(original: Collider) -> Result<Built, String> {
-    let lease = Arc::downgrade(&original.shape().0); // 弱租约阻止地址ABA，不强留已卸载地图的原始BVH。
+    let lease = Arc::downgrade(&original.shape().0); // 弱租约阻止地址ABA，不强留已卸载场景的原始BVH。
     let source =
         source_mesh(&original).ok_or("碰撞LOD只适配真实静态Trimesh；其他形状继续原始碰撞")?;
     if source
@@ -55,7 +55,7 @@ pub(super) fn cook(original: Collider) -> Result<Built, String> {
     ));
     let mut bytes = 0usize;
     let mut levels = Vec::new();
-    for lod in feathrise_map_terrain::build_static_mesh_lods(mesh)? {
+    for lod in feathrise_terrain::build_static_mesh_lods(mesh)? {
         let Some(VertexAttributeValues::Float32x3(positions)) =
             lod.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {

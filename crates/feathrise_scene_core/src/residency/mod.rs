@@ -1,8 +1,8 @@
-//! 三维场景驻留的通用所有权契约；移动资源，保留实体，不克隆地图或GPU资产。
+//! 三维场景驻留的通用所有权契约；移动资源，保留实体，不克隆场景或GPU资产。
 
 mod asset_events;
 mod components;
-mod instance_context; // 同时运行的完整子地图拥有独立状态与源坐标桥。
+mod instance_context; // 同时运行的完整子场景拥有独立状态与源坐标桥。
 mod render;
 mod resources;
 mod snapshot;
@@ -13,7 +13,7 @@ mod tests;
 pub use asset_events::{ResidentAssetEvent, ResidentAssetEventReader};
 pub use instance_context::*;
 pub use components::{
-    ResidentMapEntity, ResidentMapToken, ResidentSceneActivated, ResidentSceneParking,
+    ResidentSceneEntity, ResidentSceneToken, ResidentSceneActivated, ResidentSceneParking,
 };
 pub use resources::{SceneResidencyActivity, SceneResidencyRuntimeSet};
 pub use snapshot::{
@@ -24,7 +24,7 @@ pub use terrain_support::{TerrainActivityPaused, TerrainCollisionRegion, Terrain
 
 use bevy::{ecs::schedule::ScheduleLabel, prelude::*};
 
-/// 场景切换期间只冻结地图运行时；窗口、作者外壳、资产加载与渲染事件循环继续推进。
+/// 场景切换期间只冻结场景运行时；窗口、作者外壳、资产加载与渲染事件循环继续推进。
 pub fn resident_runtime_active(activity: Option<Res<SceneResidencyActivity>>) -> bool {
     activity.is_none_or(|state| !state.switching)
 }

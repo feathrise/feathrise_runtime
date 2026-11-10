@@ -127,7 +127,7 @@ pub(super) struct GpuBladeShadowQueueParams<'w, 's> {
         's,
         (Entity, &'static ViewLightEntities), // 由唯一玩法草地相机取得其方向光级联视图。
         (With<ExtractedView>, With<GpuBladeView>),
-    >, // 小地图和其他辅助相机不重复生成近景草阴影。
+    >, // 小场景和其他辅助相机不重复生成近景草阴影。
     shadow_views: Query<'w, 's, (&'static LightEntity, &'static ExtractedView)>, // 将级联实体映射到保留视图ID。
     directional_lights: Query<
         'w,
@@ -243,7 +243,7 @@ pub(super) fn queue_gpu_grass(
                     patch.lod_level(),            // GPU管线已经创建完成并记录对应近中远身份。
                 ),
                 CachedPipelineState::Queued | CachedPipelineState::Creating(_) => {
-                    // 首次进入地图时允许异步创建若干帧。
+                    // 首次进入场景时允许异步创建若干帧。
                     render_stats.record_pipeline_waiting(); // 把排队中的管线单独显示在F3。
                 } // 完成管线等待分支。
                 CachedPipelineState::Err(
@@ -398,7 +398,7 @@ mod tests {
         let wheat_near = GpuBladePatch::square(Vec3::ZERO, 64.0, 65, 3)
             .with_lod_level(0)
             .with_vegetation_config(crate::types::GpuBladeConfig::new(
-                crate::types::GpuBladeProfileSlot::SLOT_1, // SLOT1承载当前正式地图麦田内容。
+                crate::types::GpuBladeProfileSlot::SLOT_1, // SLOT1承载当前正式场景麦田内容。
                 1.35,                                      // 高秆最高叶尖不影响近景档阴影规则。
                 0.72,                                      // 保守水平扫掠只参与剔除。
                 1.18,                                      // 典型参考高度只参与屏幕LOD。

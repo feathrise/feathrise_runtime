@@ -32,12 +32,12 @@ fn missing_permission_resource_is_not_treated_as_an_implicit_allow() {
 fn editor_and_collision_transactions_cannot_release_each_other() {
     let mut world = World::new();
     world.init_resource::<InputGateState>();
-    world.insert_resource(EditorInputState { map_editor_open: true, ..default() });
-    world.insert_resource(WorldPauseBlockers { map_collision_reload: true });
+    world.insert_resource(EditorInputState { scene_editor_open: true, ..default() });
+    world.insert_resource(WorldPauseBlockers { scene_collision_reload: true });
     assert_eq!(gates(&mut world), (false, false));
-    world.resource_mut::<EditorInputState>().map_editor_open = false;
+    world.resource_mut::<EditorInputState>().scene_editor_open = false;
     assert_eq!(gates(&mut world), (false, false));
-    world.resource_mut::<WorldPauseBlockers>().map_collision_reload = false;
+    world.resource_mut::<WorldPauseBlockers>().scene_collision_reload = false;
     assert_eq!(gates(&mut world), (true, true));
 }
 

@@ -2,7 +2,7 @@
 use super::*;
 use avian3d::prelude::*;
 use feathrise_scene_core::residency::TerrainCollisionRegion;
-use feathrise_scene_core::residency::{InstanceResourceTable, MapInstanceOwner};
+use feathrise_scene_core::residency::{InstanceResourceTable, SceneInstanceOwner};
 
 pub(super) fn region(center: Vec2, extent: f32) -> TerrainCollisionRegion {
     TerrainCollisionRegion { enabled: true, center, max_distance_meters: extent,
@@ -10,7 +10,7 @@ pub(super) fn region(center: Vec2, extent: f32) -> TerrainCollisionRegion {
 }
 
 #[test]
-fn a_terrain_object_can_support_its_map_actor_but_not_another_map_instance() {
+fn a_terrain_object_can_support_its_scene_actor_but_not_another_scene_instance() {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default(), TransformPlugin,
         bevy::mesh::MeshPlugin, PhysicsPlugins::default()))
@@ -20,13 +20,13 @@ fn a_terrain_object_can_support_its_map_actor_but_not_another_map_instance() {
     let map = app.world_mut().spawn(Transform::IDENTITY).id();
     let other = app.world_mut().spawn(Transform::IDENTITY).id();
     let terrain = app.world_mut().spawn((Transform::from_xyz(0.,6.,0.), ChildOf(map),
-        feathrise_scene_core::residency::MapTerrainOwner { map_instance: Some(map) })).id();
+        feathrise_scene_core::residency::SceneTerrainOwner { scene_instance: Some(map) })).id();
     app.world_mut().resource_mut::<InstanceResourceTable<TerrainCollisionRegion>>().values.insert(terrain, region(Vec2::ZERO,10.));
     app.world_mut().spawn((Transform::from_xyz(0.,-0.5,0.), ChildOf(terrain), RigidBody::Static,
-        Collider::cuboid(10.,1.,10.), MapInstanceOwner(terrain)));
+        Collider::cuboid(10.,1.,10.), SceneInstanceOwner(terrain)));
     for _ in 0..4 { app.update(); }
-    let own = app.world_mut().spawn((Transform::from_xyz(0.,9.,0.), GroundSnap::new(0.5), MapInstanceOwner(map))).id();
-    let foreign = app.world_mut().spawn((Transform::from_xyz(1.,9.,0.), GroundSnap::new(0.5), MapInstanceOwner(other))).id();
+    let own = app.world_mut().spawn((Transform::from_xyz(0.,9.,0.), GroundSnap::new(0.5), SceneInstanceOwner(map))).id();
+    let foreign = app.world_mut().spawn((Transform::from_xyz(1.,9.,0.), GroundSnap::new(0.5), SceneInstanceOwner(other))).id();
     for _ in 0..4 { app.update(); }
     assert!(!app.world().get::<GroundSnap>(own).unwrap().is_pending());
     assert!((app.world().get::<Transform>(own).unwrap().translation.y-6.5).abs()<0.001);
@@ -46,12 +46,12 @@ fn child_ground_support_is_independent_and_parented_objects_write_local_height()
     let owner = app.world_mut().spawn(frame).id();
     app.world_mut().resource_mut::<InstanceResourceTable<TerrainCollisionRegion>>().values.insert(owner, region(Vec2::ZERO, 10.0));
     app.world_mut().spawn((Transform::from_xyz(1.0, -0.5, 2.0), ChildOf(owner), RigidBody::Static,
-        Collider::cuboid(4.0, 1.0, 4.0), MapInstanceOwner(owner)));
+        Collider::cuboid(4.0, 1.0, 4.0), SceneInstanceOwner(owner)));
     for _ in 0..4 { app.update(); }
     let world = frame.transform_point(Vec3::new(1.0, 3.0, 2.0));
     let actor = app.world_mut().spawn((Transform::from_translation(world), GroundSnap::new(0.5))).id();
     let portal = app.world_mut().spawn((Transform::from_xyz(1.0, 3.0, 2.0), ChildOf(owner),
-        MapInstanceOwner(owner), GroundSnap::new(0.5))).id();
+        SceneInstanceOwner(owner), GroundSnap::new(0.5))).id();
     for _ in 0..4 { app.update(); }
     assert!(!app.world().get::<GroundSnap>(actor).unwrap().is_pending());
     assert!((app.world().get::<Transform>(actor).unwrap().translation.y - 8.5).abs() < 0.001);

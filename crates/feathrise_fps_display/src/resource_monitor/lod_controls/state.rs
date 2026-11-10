@@ -98,7 +98,7 @@ impl Default for LodControlState {
         Self {
             enabled_masks: [ALL_LODS_ENABLED; CONTROLLED_CONTENT_COUNT], // 游戏启动时九类内容全部恢复正式渲染。
         } // 完成默认全开状态。
-    } // 返回不会写入 settings.json 或地图文件的本次进程状态。
+    } // 返回不会写入 settings.json 或场景文件的本次进程状态。
 } // 完成共享状态默认值。
 
 impl LodControlState {

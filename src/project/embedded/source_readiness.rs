@@ -6,7 +6,7 @@ use bevy::{
     ecs::message::MessageCursor,
     prelude::*,
 };
-use feathrise_map_content::*;
+use feathrise_scene_content::*;
 use std::sync::atomic::Ordering;
 
 pub(super) fn install(app: &mut App) {
@@ -17,20 +17,20 @@ pub(super) fn install(app: &mut App) {
             applied::<$asset>.after(AssetEventSystems));)+ };
     }
     track!(
-        MapCatalogAsset,
-        MapManifestAsset,
-        MapPlacementsAsset,
-        MapPortalsAsset,
-        MapBoundariesAsset,
-        MapSurfaceAsset,
-        MapVegetationAsset,
-        MapWaterAsset,
+        SceneCatalogAsset,
+        SceneManifestAsset,
+        ScenePlacementsAsset,
+        ScenePortalsAsset,
+        SceneBoundariesAsset,
+        SceneSurfaceAsset,
+        SceneVegetationAsset,
+        SceneWaterAsset,
         WorldEnvironmentAsset,
-        MapVoxelTerrainSource,
+        SceneVoxelTerrainSource,
         SparseHeightManifestAsset,
         SparseHeightTileAsset,
-        MapWaterMaskAsset,
-        MapSurfaceSourceAsset,
+        SceneWaterMaskAsset,
+        SceneSurfaceSourceAsset,
         Image,
         Gltf
     );

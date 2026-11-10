@@ -2,7 +2,7 @@
 pub(super) fn queue_output_is_available(instance_count: u32, allocated: bool) -> bool {
     // Queue 早于 Prepare，不能把上一帧有效性当本帧排队门。
     instance_count > 0 && allocated // 最终命令仍拒绝任何未完成或过期结果。
-} // 不修改地图、高度或视图身份校验。
+} // 不修改场景、高度或视图身份校验。
 pub(super) fn draw_output_is_current(instance_count: u32, output_valid: bool) -> bool {
     // 相机执行前 Compute 已通过本帧正式采用检查。
     instance_count > 0 && output_valid // 即使已经排队，过期结果与资源等待仍必须隐藏。
@@ -64,7 +64,7 @@ mod tests {
         // 已分配不等于允许最终绘制。
         assert!(!queue_output_is_available(256, false)); // 缓冲未创建时等待。
         assert!(!queue_output_is_available(0, true)); // 空候选不排队。
-        assert!(!draw_output_is_current(256, false)); // 过期地图/高度/视图结果不绘制。
+        assert!(!draw_output_is_current(256, false)); // 过期场景/高度/视图结果不绘制。
         assert!(!draw_output_is_current(0, true)); // 本帧主动抑制不得显示历史草。
     } // 完成安全边界回归。
 } // 不引入任何逐株 CPU 路径。

@@ -7,12 +7,12 @@ use bevy::{
 }; // 最小资产宿主不创建GPU设备。
 use feathrise_atmosphere::WeatherOutput; // 固定天气输出模拟暂停帧。
 use feathrise_environment::terrain_surface::{SurfacePuddleMask, SurfaceWeatherGpu}; // 检查正式发布资源。
-use feathrise_map_content::MapPuddleSaveHandoff;
-use feathrise_map_content::{
-    ActiveDynamicMap, MapContentHandles, MapContentRegistry, MapId, MapManifestAsset,
-    MapPuddleDescriptor, MapPuddleLiveOverride,
+use feathrise_scene_content::ScenePuddleSaveHandoff;
+use feathrise_scene_content::{
+    ActiveDynamicScene, SceneContentHandles, SceneContentRegistry, SceneId, SceneManifestAsset,
+    ScenePuddleDescriptor, ScenePuddleLiveOverride,
 }; // 真实清单协议与作者覆盖。
-use feathrise_scene_core::state::ScenePhase; // 同场景枚举中切换真实地图。 // 保存回执必须由真实内容验证后清除。
+use feathrise_scene_core::state::ScenePhase; // 同场景枚举中切换真实场景。 // 保存回执必须由真实内容验证后清除。
 
 #[derive(Resource, Default)] // 记录真正消费系统看见的变化，避免依赖App帧尾清理时机。
 struct ChangeCounts(u32, u32); // 分别记录遮罩换版与天气GPU发布次数。
@@ -32,7 +32,7 @@ fn surface_quality_bridge_matches_cpu_budget_without_changing_weather() {
     // 运行真正发布系统，避免只验证静态预算表。
     use feathrise_environment::terrain_surface::surface_effects_quality_profile;
     use feathrise_settings::{EffectsQuality, RenderSettings}; // 使用正式持久设置枚举。 // CPU水花读取的唯一预算函数。
-    let (mut app, _, _) = app(); // 最小完整地图与表面天气桥。
+    let (mut app, _, _) = app(); // 最小完整场景与表面天气桥。
     app.init_resource::<RenderSettings>(); // 模拟用户正常切换特效质量。
     {
         let mut output = app.world_mut().resource_mut::<WeatherOutput>();
@@ -66,11 +66,11 @@ fn surface_quality_bridge_matches_cpu_budget_without_changing_weather() {
     } // 完成四档同源接线回归。
 } // 结束质量与历史隔离测试。
 
-fn descriptor() -> MapPuddleDescriptor {
+fn descriptor() -> ScenePuddleDescriptor {
     // 小尺寸独立作者图规格。
-    MapPuddleDescriptor {
-        source_path: "maps/HN-01/puddles/potential.r8".into(),
-        texture_path: "maps/HN-01/puddles/potential.ktx2".into(),
+    ScenePuddleDescriptor {
+        source_path: "scenes/HN-01/puddles/potential.r8".into(),
+        texture_path: "scenes/HN-01/puddles/potential.ktx2".into(),
         resolution: [2, 2],
     } // 测试私有合法路径。
 } // 结束规格构造。
@@ -95,30 +95,30 @@ fn image(size: u32, format: TextureFormat) -> Image {
     ) // 保留CPU数据用于检查零复制移交。
 } // 结束图片构造。
 
-fn app() -> (App, Handle<Image>, Handle<MapManifestAsset>) {
-    // 建立只含单一地图与预加载候选的最小生产宿主。
+fn app() -> (App, Handle<Image>, Handle<SceneManifestAsset>) {
+    // 建立只含单一场景与预加载候选的最小生产宿主。
     let mut app = App::new(); // 不使用窗口和RenderApp。
     app.add_plugins((MinimalPlugins, AssetPlugin::default())); // 初始化后台资产所需任务池和AssetServer。
-    app.init_asset::<Image>().init_asset::<MapManifestAsset>(); // 使用真实强句柄与资产事件生命周期。
-    app.insert_resource(State::new(ScenePhase::Active)); // 同一场景枚举承载不同真实地图。
-    let map = MapId("HN-01".into()); // 当前地图身份。
-    app.insert_resource(ActiveDynamicMap {
-        map_id: Some(map.clone()),
-    }); // 指向首张地图。
-    let manifest: MapManifestAsset = serde_json::from_value(
+    app.init_asset::<Image>().init_asset::<SceneManifestAsset>(); // 使用真实强句柄与资产事件生命周期。
+    app.insert_resource(State::new(ScenePhase::Active)); // 同一场景枚举承载不同真实场景。
+    let map = SceneId("HN-01".into()); // 当前场景身份。
+    app.insert_resource(ActiveDynamicScene {
+        scene_id: Some(map.clone()),
+    }); // 指向首个场景。
+    let manifest: SceneManifestAsset = serde_json::from_value(
         serde_json::json!({ // 使用公开Serde构造完整清单，避免依赖磁盘资产。
-            "schema_version": 1, "id": "HN-01", "display_name": "测试", "runtime_scene": "DynamicMapScene", // 正式地图身份。
+            "schema_version": 2, "id": "HN-01", "display_name": "测试", "runtime_scene": "data_driven", // 正式场景身份。
             "world_min": [0.0, 0.0], "world_max": [10.0, 10.0], "default_spawn": [0.0, 0.0, 0.0], // 首尾端点范围。
-            "terrain": { "kind": "gltf", "glb_path": "maps/HN-01/terrain.glb", "resolution": [2, 2], "base_height": 0.0, "height_scale": 1.0 }, // 仅满足真实协议的地形规格。
+            "terrain": { "kind": "gltf", "glb_path": "scenes/HN-01/terrain.glb", "resolution": [2, 2], "base_height": 0.0, "height_scale": 1.0 }, // 仅满足真实协议的地形规格。
             "puddles": descriptor() // 正式积水描述。
         }),
     )
     .expect("测试清单"); // 解析失败应直接报告夹具错误。
     let manifest = app
         .world_mut()
-        .resource_mut::<Assets<MapManifestAsset>>()
+        .resource_mut::<Assets<SceneManifestAsset>>()
         .add(manifest); // 登记完整清单。
-    let handles = MapContentHandles {
+    let handles = SceneContentHandles {
         characters_path: None,
         manifest: manifest.clone(),
         portals: default(),
@@ -128,10 +128,10 @@ fn app() -> (App, Handle<Image>, Handle<MapManifestAsset>) {
         water: None,
         boundaries: None,
     }; // 桥只消费清单句柄。
-    app.insert_resource(MapContentRegistry {
+    app.insert_resource(SceneContentRegistry {
         catalog: default(),
         revision: 1,
-        maps: [(map.clone(), handles)].into(),
+        scenes: [(map.clone(), handles)].into(),
         last_error: None,
     }); // 安装真实注册表。
     let source = app
@@ -139,16 +139,16 @@ fn app() -> (App, Handle<Image>, Handle<MapManifestAsset>) {
         .resource_mut::<Assets<Image>>()
         .add(image(2, TextureFormat::R8Unorm)); // 预置已经后台完成的合法源。
     app.insert_resource(PuddleRuntimeState {
-        map_id: Some(map),
+        scene_id: Some(map),
         requested: Some(descriptor()),
         source: Some(source.clone()),
         ..default()
     }); // 绕过磁盘IO，直接测试正式采用分支。
-    app.init_resource::<MapPuddleLiveOverride>()
+    app.init_resource::<ScenePuddleLiveOverride>()
         .init_resource::<SurfacePuddleMask>()
         .init_resource::<SurfaceWeatherGpu>()
         .init_resource::<WeatherOutput>(); // 安装桥所需公共资源。
-    app.init_resource::<MapPuddleSaveHandoff>(); // 未保存时没有交接请求。
+    app.init_resource::<ScenePuddleSaveHandoff>(); // 未保存时没有交接请求。
     app.add_systems(Update, systems::resolve_puddle_mask); // 使用生产身份和纹理采用逻辑。
     app.add_systems(PostUpdate, systems::publish_surface_weather); // 使用生产变化检测和固定GPU数据合成。
     app.init_resource::<ChangeCounts>().add_systems(
@@ -224,13 +224,13 @@ fn image_transfer_keeps_allocation_and_rejects_bad_hot_reload() {
     } // 完成错误候选回归。
 } // 结束独立移交测试。
 
-#[test] // 作者Some身份加None图像必须明确清空，跨图不能残留上张地图遮罩。
-fn explicit_empty_live_override_and_map_change_clear_mask() {
-    // 覆盖作者空图和动态地图身份失效。
-    let (mut app, _, _) = app(); // 建立合法地图图像。
+#[test] // 作者Some身份加None图像必须明确清空，跨场景不能残留上个场景遮罩。
+fn explicit_empty_live_override_and_scene_change_clear_mask() {
+    // 覆盖作者空图和动态场景身份失效。
+    let (mut app, _, _) = app(); // 建立合法场景图像。
     app.update(); // 首次采用磁盘版。
-    app.insert_resource(MapPuddleLiveOverride {
-        map_id: Some(MapId("HN-01".into())),
+    app.insert_resource(ScenePuddleLiveOverride {
+        scene_id: Some(SceneId("HN-01".into())),
         mask: None,
         world_min: Vec2::ZERO,
         world_max: Vec2::splat(10.0),
@@ -238,28 +238,28 @@ fn explicit_empty_live_override_and_map_change_clear_mask() {
     }); // 作者显式擦成空图。
     app.update(); // 作者权威覆盖磁盘图。
     assert!(app.world().resource::<SurfacePuddleMask>().image.is_none()); // 不得回退到旧磁盘积水。
-    app.insert_resource(MapPuddleLiveOverride::default()); // 撤销作者覆盖。
+    app.insert_resource(ScenePuddleLiveOverride::default()); // 撤销作者覆盖。
     app.update(); // 同图恢复完整磁盘版。
     assert!(app.world().resource::<SurfacePuddleMask>().image.is_some()); // 磁盘活动版本仍然有效。
-    app.world_mut().resource_mut::<ActiveDynamicMap>().map_id = Some(MapId("HN-02".into())); // 同枚举切到另一个地图。
-    app.update(); // 新地图清单尚未到达。
-    assert!(app.world().resource::<SurfacePuddleMask>().image.is_none()); // 旧图不得跨地图显示。
+    app.world_mut().resource_mut::<ActiveDynamicScene>().scene_id = Some(SceneId("HN-02".into())); // 同枚举切到另一个场景。
+    app.update(); // 新场景清单尚未到达。
+    assert!(app.world().resource::<SurfacePuddleMask>().image.is_none()); // 旧图不得跨场景显示。
     assert!(
         app.world()
             .resource::<PuddleRuntimeState>()
             .file_mask
             .is_none()
     ); // 旧文件身份同时失效。
-} // 结束作者与地图边界测试。
+} // 结束作者与场景边界测试。
 
-#[test] // 仅地图范围热更应及时采用，暂停稳定帧不能虚假标记共享资源变化。
+#[test] // 仅场景范围热更应及时采用，暂停稳定帧不能虚假标记共享资源变化。
 fn bounds_only_hot_reload_and_stable_publish_are_correct() {
     // 检查元数据独立修订和GPU上传门。
     let (mut app, _, manifest) = app(); // 初始化完整候选。
     app.update(); // 完成图像移交。
     let adopted = app.world().resource::<SurfacePuddleMask>().image.clone(); // 保存活动句柄用于验证不重建像素。
     app.world_mut()
-        .resource_mut::<Assets<MapManifestAsset>>()
+        .resource_mut::<Assets<SceneManifestAsset>>()
         .get_mut(&manifest)
         .unwrap()
         .world_max = [20.0, 30.0]; // 只修改世界端点。
@@ -287,15 +287,15 @@ fn first_saved_live_mask_survives_file_wait_and_invalid_candidate() {
         .world_mut()
         .resource_mut::<Assets<Image>>()
         .add(image(2, TextureFormat::R8Unorm)); // 作者已有完整可见图片。
-    app.insert_resource(MapPuddleLiveOverride {
-        map_id: Some(MapId("HN-01".into())),
+    app.insert_resource(ScenePuddleLiveOverride {
+        scene_id: Some(SceneId("HN-01".into())),
         mask: Some(live_image.clone()),
         world_min: Vec2::ZERO,
         world_max: Vec2::splat(10.0),
         ..default()
     }); // 发布已绘制完成的版本。
     app.update(); // 正式桥采用作者完整版本。
-    app.insert_resource(MapPuddleLiveOverride::default()); // 保存关闭F12归还文件权威。
+    app.insert_resource(ScenePuddleLiveOverride::default()); // 保存关闭F12归还文件权威。
     app.update(); // 文件仍在加载，不得闪退到无积水。
     assert_eq!(
         app.world().resource::<SurfacePuddleMask>().image.as_ref(),
@@ -356,15 +356,15 @@ fn save_handoff_rejects_old_content_then_adopts_matching_pixels() {
     let mut latest = image(2, TextureFormat::R8Unorm); // 新作者画布保持相同规格。
     latest.data.as_mut().unwrap().fill(255); // 仅内容发生变化。
     let live_image = app.world_mut().resource_mut::<Assets<Image>>().add(latest); // 最新完整作者图。
-    app.insert_resource(MapPuddleLiveOverride {
-        map_id: Some(MapId("HN-01".into())),
+    app.insert_resource(ScenePuddleLiveOverride {
+        scene_id: Some(SceneId("HN-01".into())),
         mask: Some(live_image.clone()),
         world_min: Vec2::ZERO,
         world_max: Vec2::splat(10.0),
         ..default()
     }); // 保存完成仍暂时持有live。
-    app.insert_resource(MapPuddleSaveHandoff {
-        map_id: Some(MapId("HN-01".into())),
+    app.insert_resource(ScenePuddleSaveHandoff {
+        scene_id: Some(SceneId("HN-01".into())),
         texture_path: Some(descriptor().texture_path),
         expected_mask: Some(std::sync::Arc::new(vec![255; 4])),
         revision: 7,
@@ -375,11 +375,11 @@ fn save_handoff_rejects_old_content_then_adopts_matching_pixels() {
         .expect("旧队列图像"); // 延迟到达的旧文件元数据完全合法。
     app.update(); // 将旧候选O(1)移交后台检查。
     finish_comparison(&mut app); // 等待生产轮询消费不匹配结果。
-    assert_eq!(app.world().resource::<MapPuddleSaveHandoff>().revision, 7); // 保存身份不能被错误结果修改。
+    assert_eq!(app.world().resource::<ScenePuddleSaveHandoff>().revision, 7); // 保存身份不能被错误结果修改。
     assert!(
         app.world()
-            .resource::<MapPuddleSaveHandoff>()
-            .map_id
+            .resource::<ScenePuddleSaveHandoff>()
+            .scene_id
             .is_some()
     ); // 不匹配不能发成功回执。
     assert_eq!(
@@ -396,8 +396,8 @@ fn save_handoff_rejects_old_content_then_adopts_matching_pixels() {
     finish_comparison(&mut app); // 后台完成后由正式桥原子采用。
     assert!(
         app.world()
-            .resource::<MapPuddleSaveHandoff>()
-            .map_id
+            .resource::<ScenePuddleSaveHandoff>()
+            .scene_id
             .is_none()
     ); // 只有精确匹配结果才能成功回执。
     let adopted = app
@@ -423,8 +423,8 @@ fn late_comparison_cannot_acknowledge_a_new_save_revision() {
     // 锁定后台结果的保存身份守卫。
     let (mut app, _, _) = app(); // 构造正式单图宿主。
     app.update(); // 先采用一个旧完整文件版本。
-    app.insert_resource(MapPuddleSaveHandoff {
-        map_id: Some(MapId("HN-01".into())),
+    app.insert_resource(ScenePuddleSaveHandoff {
+        scene_id: Some(SceneId("HN-01".into())),
         texture_path: Some(descriptor().texture_path),
         expected_mask: Some(std::sync::Arc::new(vec![255; 4])),
         revision: 8,
@@ -436,7 +436,7 @@ fn late_comparison_cannot_acknowledge_a_new_save_revision() {
         let mut state = app.world_mut().resource_mut::<PuddleRuntimeState>(); // 只修改测试在途状态。
         state.comparison = Some(task); // 模拟尚未轮询的后台完成结果。
         state.comparison_ticket = Some((
-            MapId("HN-01".into()),
+            SceneId("HN-01".into()),
             7,
             descriptor().texture_path,
             descriptor(),
@@ -444,7 +444,7 @@ fn late_comparison_cannot_acknowledge_a_new_save_revision() {
         )); // 旧保存修订与当前第八次不符。
     } // 释放资源借用。
     finish_comparison(&mut app); // 正式系统轮询旧结果并复核身份。
-    let handoff = app.world().resource::<MapPuddleSaveHandoff>(); // 最新保存仍需自己的真实内容证明。
+    let handoff = app.world().resource::<ScenePuddleSaveHandoff>(); // 最新保存仍需自己的真实内容证明。
     assert_eq!(handoff.revision, 8); // 迟到结果不能修改新保存身份。
-    assert!(handoff.map_id.is_some()); // 迟到结果不得发布成功回执。
+    assert!(handoff.scene_id.is_some()); // 迟到结果不得发布成功回执。
 } // 结束后台迟到拒收回归。

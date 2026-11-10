@@ -22,7 +22,7 @@ pub(super) fn moon_is_visible(hour: f32) -> bool {
     hour <= SUNRISE_HOUR || hour >= SUNSET_HOUR // 与太阳只在两个地平线端点同时出现，区间内部互斥。
 }
 
-/// 计算可见太阳方向，并应用动态地图统一天体方位角偏移。
+/// 计算可见太阳方向，并应用动态场景统一天体方位角偏移。
 pub(super) fn visible_sun_direction(clock: &WorldClock, azimuth_offset_radians: f32) -> Vec3 {
     let natural = solar_direction(clock.day_of_year(), clock.hour_wrapped()); // 六至十八点直接采用世界本地日间弧线。
     (Quat::from_rotation_y(azimuth_offset_radians) * natural).normalize_or_zero() // 只绕世界Y轴旋转，不改变高度角。
@@ -56,7 +56,7 @@ pub(super) fn celestial_distance(projection: Option<&Projection>) -> Option<f32>
 /// 把角直径转换成给定远景距离下的圆盘世界半径。
 pub(super) fn celestial_radius(distance: f32, angular_diameter_radians: f32) -> f32 {
     let diameter = if angular_diameter_radians.is_finite() && angular_diameter_radians > 0.0 {
-        angular_diameter_radians // 动态地图有效角直径直接决定太阳屏幕尺寸。
+        angular_diameter_radians // 动态场景有效角直径直接决定太阳屏幕尺寸。
     } else {
         0.533_f32.to_radians() // 损坏外部值回退地球平均太阳角直径。
     };
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn map_azimuth_rotates_both_bodies_without_changing_height() {
+    fn scene_azimuth_rotates_both_bodies_without_changing_height() {
         let offset = std::f32::consts::FRAC_PI_2;
         let rotation = Quat::from_rotation_y(offset);
         for (month, day, hour) in [(3, 20, 6.0), (6, 21, 12.0), (12, 21, 21.0)] {
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn angular_size_stays_constant_when_camera_far_plane_changes() {
         let near_distance = 920.0; // 默认千米视锥内的圆盘距离。
-        let far_distance = 9_200.0; // F12大地图透视视锥可能扩大十倍。
+        let far_distance = 9_200.0; // F12大场景透视视锥可能扩大十倍。
         let near_radius = celestial_radius(near_distance, MOON_ANGULAR_DIAMETER_RADIANS); // 计算近相机世界半径。
         let far_radius = celestial_radius(far_distance, MOON_ANGULAR_DIAMETER_RADIANS); // 计算远相机世界半径。
         assert!((far_radius / near_radius - 10.0).abs() < 0.000_1); // 距离和半径同比放大后屏幕角直径不变。

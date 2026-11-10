@@ -1,7 +1,7 @@
 // 游戏设置 — 窗口目标 3D 相机画面亮度 / 曝光补偿应用系统。
 
 use bevy::{
-    camera::RenderTarget,       // 区分窗口输出与角色预览、小地图等纹理输出。
+    camera::RenderTarget,       // 区分窗口输出与角色预览、小场景等纹理输出。
     prelude::*,                 // ECS、Camera3d 与系统参数。
     render::view::ColorGrading, // 全局曝光补偿在色调映射前以 EV 档应用。
 };
@@ -142,14 +142,14 @@ mod tests {
         app.world_mut()
             .resource_mut::<RenderSettings>()
             .exposure_compensation = -0.6; // 在创建相机前选择变暗档。
-        let window_camera = spawn_window_camera(&mut app, 0.1); // 模拟后续切图生成的玩法相机。
+        let window_camera = spawn_window_camera(&mut app, 0.1); // 模拟后续切换场景生成的玩法相机。
         let mut texture_grading = ColorGrading::default(); // 创建角色预览专用颜色分级。
         texture_grading.global.exposure = 0.8; // 作者为预览相机配置独立曝光。
         let texture_camera = app
             .world_mut()
             .spawn((
                 Camera3d::default(),                     // 建立纹理 3D 相机身份。
-                RenderTarget::None { size: UVec2::ONE }, // 模拟角色预览、小地图或无颜色目标。
+                RenderTarget::None { size: UVec2::ONE }, // 模拟角色预览、小场景或无颜色目标。
                 texture_grading,                         // 注入作者专用曝光。
             ))
             .id(); // 保存纹理相机实体。

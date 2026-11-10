@@ -306,7 +306,7 @@ fn dlss_camera_is_eligible(
         && camera.viewport.is_none() // 局部 viewport 与分屏相机明确排除。
         && camera.sub_camera_view.is_none() // 大视图子相机同样不满足完整输出契约。
         && matches!(projection, Projection::Perspective(_)) // 正交相机不提供 DLSS 所需投影语义。
-        && matches!(target, RenderTarget::Window(_)) // 角色预览、小地图和纹理烘焙相机保持作者路径。
+        && matches!(target, RenderTarget::Window(_)) // 角色预览、小场景和纹理烘焙相机保持作者路径。
 }
 
 /// 把项目公开明确模式映射到 Bevy 当前 DLSS 封装枚举；Auto 必须先解析。
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn all_explicit_modes_map_without_forwarding_auto() {
+    fn all_explicit_modes_scene_without_forwarding_auto() {
         assert_eq!(dlss_perf_quality_mode(DlssMode::Off), None); // 关闭不创建组件。
         assert_eq!(dlss_perf_quality_mode(DlssMode::Auto), None); // Auto 必须先按输出解析。
         for mode in [

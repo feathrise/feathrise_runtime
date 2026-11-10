@@ -41,7 +41,7 @@ fn sample_surface_rain_slope( // 调用方仅在实际水面片元调用，并�
     let grid = floor(world_xz / cell_size); // 固定世界单元身份，负坐标同样连续。
     let density = clamp(rain, 0.0, 1.0) * clamp(rain_settings.y, 0.0, 1.0); // 同表密度只改变接纳权重，最坏候选仍为九个。
     var slope = vec2<f32>(0.0); // 所有贡献仅局部累加，不写全局状态。
-    for (var z = -1; z <= 1; z = z + 1) { // 固定三行，不随雨量或地图大小增长。
+    for (var z = -1; z <= 1; z = z + 1) { // 固定三行，不随雨量或场景大小增长。
         for (var x = -1; x <= 1; x = x + 1) { // 固定三列，总计九个雨滴候选。
             let cell = grid + vec2<f32>(f32(x), f32(z)); // 当前邻近单元。
             let event = surface_rain_event(cell, elapsed); // 当前秒事件独立落点，雨量变化不改变相位。

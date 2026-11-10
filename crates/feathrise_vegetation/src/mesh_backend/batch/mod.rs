@@ -28,7 +28,7 @@ pub(super) fn install_batch_backend(app: &mut App) {
     app.add_plugins(ExtractComponentPlugin::<VegetationMeshBatchNode>::default());
     app.init_resource::<VegetationMeshBatchQuality>()
         .init_resident_resource::<VegetationMeshBatchSelectionState>()
-        .init_resource::<selection::Workers>() // 工作席位全局共享，休眠地图不另外创建工作池。
+        .init_resource::<selection::Workers>() // 工作席位全局共享，休眠场景不另外创建工作池。
         .add_observer(selection::inserted).add_observer(selection::removed)
         .add_plugins((
             ExtractComponentPlugin::<VegetationMeshBatchInstances>::default(),

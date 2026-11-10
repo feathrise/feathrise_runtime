@@ -9,7 +9,7 @@ pub struct RainWaterMask {
     // 高度图RGBA16F：RG分段编码世界Y，B为有效水面覆盖。
     pub image: Handle<Image>, // 专用相机渲染目标；雨丝通过Hanabi材质采样。
     pub bounds: Vec4,         // minX、minZ、sizeX、sizeZ，范围外不能Clamp成水。
-    pub active: bool,         // 失效、切图或停雨时立即停止采样旧图。
+    pub active: bool,         // 失效、切换场景或停雨时立即停止采样旧图。
 } // 完成共享只读数据契约。
 
 impl Default for RainWaterMask {

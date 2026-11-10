@@ -1,6 +1,6 @@
 //! 静态网格LOD的不可变来源票据、缓存条目与相机投影规格。
 use bevy::{asset::AssetId, prelude::*};
-use feathrise_map_content::MeshLodPolicy;
+use feathrise_scene_content::MeshLodPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct SourceKey {
@@ -38,5 +38,5 @@ pub(super) struct Owner {
     pub active: bool,
 }
 
-// 正式地图与独立作者承载复用同一投影公式，不让新视口另写距离LOD。
-pub(super) use feathrise_map_terrain::StaticMeshLodView as View;
+// 正式场景与独立作者承载复用同一投影公式，不让新视口另写距离LOD。
+pub(super) use feathrise_terrain::StaticMeshLodView as View;

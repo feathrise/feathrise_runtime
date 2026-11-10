@@ -2,26 +2,26 @@
 
 use super::super::components::PlacementInstanceGate; // 测试根与候选批次共享正式Pending门。
 use super::*; // 测试直接验证私有联合门状态机和observer入口。
-use crate::shared::placement_data::resources::{MapPlacementRuntimePhase, PlacementStaging}; // 构造最小隐藏候选并读取公开失败阶段。
+use crate::shared::placement_data::resources::{ScenePlacementRuntimePhase, PlacementStaging}; // 构造最小隐藏候选并读取公开失败阶段。
 use bevy::world_serialization::{WorldAsset, WorldAssetRoot, WorldInstanceSpawner}; // 根移除与不可伪造实例票据回归共用正式类型。
-use feathrise_map_content::{MapId, MapPlacementHeightMode, MapPlacementRecord}; // 联合结算查询读取普通非建筑根的完整作者身份。
+use feathrise_scene_content::{SceneId, ScenePlacementHeightMode, ScenePlacementRecord}; // 联合结算查询读取普通非建筑根的完整作者身份。
 
 const TEST_BUILDING_PRESET_REVISION: u64 = 17; // 联合门夹具固定到一份空建筑目录快照。
 
 /// 为联合门测试构造一条普通非建筑 Scene0 记录。
-fn ordinary_record(id: &str) -> MapPlacementRecord {
-    MapPlacementRecord {
+fn ordinary_record(id: &str) -> ScenePlacementRecord {
+    ScenePlacementRecord {
         mesh_lod: None,
         terrain_binding: None,
         editor: Default::default(),
         terrain_patch: None,
         id: id.to_owned(),
         asset_path: "gltf/test-settlement.glb".to_owned(),
-        asset_target: MapPlacementAssetTarget::Scene0,
+        asset_target: ScenePlacementAssetTarget::Scene0,
         building_preset_id: None, // 普通根不需要等待建筑碰撞层级门。
         courtyard: None,          // 独立摆放记录不属于任何院落副本。
         translation: [0.0, 0.0, 0.0],
-        height_mode: MapPlacementHeightMode::FixedHeight,
+        height_mode: ScenePlacementHeightMode::FixedHeight,
         terrain_offset: 0.0,
         yaw_degrees: 0.0,
         scale: [1.0; 3],
@@ -29,15 +29,15 @@ fn ordinary_record(id: &str) -> MapPlacementRecord {
     }
 }
 
-fn ordinary_pending_instance(id: &str, gate: PlacementInstanceGate) -> MapPlacementInstance {
-    let map_id = MapId::parse("MAP-settlement-test").expect("测试地图ID合法");
-    MapPlacementInstance::new_pending(&map_id, &ordinary_record(id), gate)
+fn ordinary_pending_instance(id: &str, gate: PlacementInstanceGate) -> ScenePlacementInstance {
+    let scene_id = SceneId::parse("MAP-settlement-test").expect("测试场景ID合法");
+    ScenePlacementInstance::new_pending(&scene_id, &ordinary_record(id), gate)
 }
 
 /// 给测试App安装与正式插件相同的定向结算资源、observer和固定预算系统。
 fn install_settlement_runtime(app: &mut App) {
-    app.init_resource::<MapPlacementRuntimeState>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+    app.init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<PlacementSettlementQueue>()
         .init_resource::<PlacementWorldAssetInvalidations>()
         .init_resource::<WorldAssetLifecycleIndex>()
@@ -50,7 +50,7 @@ fn install_settlement_runtime(app: &mut App) {
 }
 
 /// 为碰撞代次回归构造一条 Scene0 建筑记录。
-fn building_record(id: &str) -> MapPlacementRecord {
+fn building_record(id: &str) -> ScenePlacementRecord {
     let mut record = ordinary_record(id); // 其余字段沿用合法普通Scene0夹具。
     record.building_preset_id = Some("building-test".to_owned()); // 非空预设身份启用建筑联合门。
     record // 返回只改变建筑语义的记录。
@@ -64,8 +64,8 @@ fn state_with_candidate(
     revision: u32,               // 测试修订。
     initially_ready: bool,       // 是否模拟上轮World实例已经取得联合信用。
     gate: PlacementInstanceGate, // 与根共享的正式批次门。
-) -> MapPlacementRuntimeState {
-    let mut state = MapPlacementRuntimeState::default(); // 其余运行时字段保持无活动批次默认值。
+) -> ScenePlacementRuntimeState {
+    let mut state = ScenePlacementRuntimeState::default(); // 其余运行时字段保持无活动批次默认值。
     let ready_roots = if initially_ready {
         std::iter::once(candidate).collect() // 热重载测试从已有旧Ready信用开始。
     } else {
@@ -137,7 +137,7 @@ fn settled_root_keeps_pending_marker_until_whole_candidate_adoption() {
     ); // 一次性World门已经消费。
     assert!(
         world
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("候选仍等待整批采用")
@@ -177,7 +177,7 @@ fn same_frame_world_ready_and_pending_status_are_order_independent() {
         gate,
     )); // 旧实例已经授信。
     {
-        let mut state = app.world_mut().resource_mut::<MapPlacementRuntimeState>(); // 新World ready首先撤销旧信用。
+        let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>(); // 新World ready首先撤销旧信用。
         assert!(invalidate_candidate_root_readiness(
             &mut state, candidate, &pending
         )); // 同修订换代必须命中当前根。
@@ -191,7 +191,7 @@ fn same_frame_world_ready_and_pending_status_are_order_independent() {
     app.update(); // 处理时读取同帧最终Pending值。
     assert!(
         !app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("候选仍存在")
@@ -210,7 +210,7 @@ fn same_frame_world_ready_and_pending_status_are_order_independent() {
     app.update(); // 只有最新最终状态才可授信。
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("候选仍存在")
@@ -225,18 +225,18 @@ fn stale_building_collision_generation_cannot_authorize_reloaded_world() {
     install_settlement_runtime(&mut app); // 使用正式定向联合结算路径。
     let staging_root = app.world_mut().spawn_empty().id(); // 当前隐藏候选容器。
     let gate = PlacementInstanceGate::new(false); // 根和候选共享Pending门。
-    let map_id = MapId::parse("MAP-settlement-test").expect("测试地图ID合法");
+    let scene_id = SceneId::parse("MAP-settlement-test").expect("测试场景ID合法");
     let candidate = app
         .world_mut()
         .spawn((
-            MapPlacementInstance::new_pending(
-                &map_id,
+            ScenePlacementInstance::new_pending(
+                &scene_id,
                 &building_record("reloaded-building"),
                 gate.clone(),
             ), // 明确启用建筑门。
             PlacementPendingInstance, // 根仍属于隐藏候选。
             PlacementPendingRevision {
-                generation: 13, // 当前测试地图代次。
+                generation: 13, // 当前测试场景代次。
                 revision: 9,    // 当前测试文件修订。
             },
             PlacementWorldInstanceReady(0), // 新World已经完成联合结算所需的渲染门。
@@ -266,7 +266,7 @@ fn stale_building_collision_generation_cannot_authorize_reloaded_world() {
     app.update(); // 旧碰撞代次必须保持候选未授信。
     assert!(
         !app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("候选仍存在")
@@ -287,7 +287,7 @@ fn stale_building_collision_generation_cannot_authorize_reloaded_world() {
     app.update();
     assert!(
         app.world()
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("候选仍等待整批采用")
@@ -332,7 +332,7 @@ fn failed_latest_water_keeps_credit_revoked_and_fails_revision() {
     let world = app.world(); // 读取失败诊断和Ready集合。
     assert!(
         !world
-            .resource::<MapPlacementRuntimeState>()
+            .resource::<ScenePlacementRuntimeState>()
             .staging
             .as_ref()
             .expect("失败候选保留等待修复")
@@ -340,12 +340,12 @@ fn failed_latest_water_keeps_credit_revoked_and_fails_revision() {
             .contains(&candidate)
     ); // Failed根不得取得任何旧信用。
     assert_eq!(
-        world.resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Failed
+        world.resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Failed
     ); // 可见状态必须阻止候选原子采用。
     assert!(
         world
-            .resource::<MapPlacementRuntimeStatus>()
+            .resource::<ScenePlacementRuntimeStatus>()
             .detail
             .contains("缺少有效UV0")
     ); // 保留水体模块精确诊断。
@@ -428,14 +428,14 @@ fn removing_world_asset_root_cancels_queued_settlement_and_fails_current_candida
 
     assert_eq!(app.world().resource::<PlacementSettlementQueue>().len(), 0); // 被移除根立即释放FIFO容量。
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Failed
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Failed
     ); // 残缺候选不能继续等待或原子采用。
 }
 
 #[test]
 fn stable_frames_with_8192_pending_roots_leave_directed_queue_empty() {
-    let mut app = App::new(); // 构造地图允许的最坏普通placement根数量。
+    let mut app = App::new(); // 构造场景允许的最坏普通placement根数量。
     install_settlement_runtime(&mut app); // 生产系统只有空FIFO检查。
     for index in 0..8_192usize {
         app.world_mut().spawn((
@@ -450,7 +450,7 @@ fn stable_frames_with_8192_pending_roots_leave_directed_queue_empty() {
     }
     let progress_before = app
         .world()
-        .resource::<MapPlacementRuntimeStatus>()
+        .resource::<ScenePlacementRuntimeStatus>()
         .progress_revision; // 冻结稳定帧heartbeat。
     for _ in 0..300usize {
         app.update(); // 空FIFO每帧只做一次Option检查，不读取8192个根。
@@ -458,7 +458,7 @@ fn stable_frames_with_8192_pending_roots_leave_directed_queue_empty() {
     assert_eq!(app.world().resource::<PlacementSettlementQueue>().len(), 0); // 稳定Pending不会自我重排队。
     assert_eq!(
         app.world()
-            .resource::<MapPlacementRuntimeStatus>()
+            .resource::<ScenePlacementRuntimeStatus>()
             .progress_revision,
         progress_before
     ); // 稳定空帧既不扫描产生副作用，也不伪造真实进展。

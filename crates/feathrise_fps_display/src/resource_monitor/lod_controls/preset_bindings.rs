@@ -20,7 +20,7 @@ impl LodControlPresetBindings {
         self.profiles[content.slot()].as_deref()
     }
 
-    /// 固定九个诊断槽，不随地图像素或实例规模增长。
+    /// 固定九个诊断槽，不随场景像素或实例规模增长。
     pub fn iter(&self) -> impl Iterator<Item = (LodControlContent, &str)> {
         LodControlContent::ALL.into_iter().filter_map(|content| {
             self.profile(content).map(|profile| (content, profile))

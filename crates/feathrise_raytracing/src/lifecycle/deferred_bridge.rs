@@ -427,7 +427,7 @@ fn maintain_asset_events<'a, M: StandardMaterialBacked + 'a>(
         if *tracked_total >= MAX_DEFERRED_RASTER_MATERIAL_COUNT {
             return Err(tracked_total.saturating_add(1)); // 不采用第257项，外层立即完整回退已有集合。
         }
-        backups.insert(id, current); // 新资产保存首次作者方式供关闭/切图精确恢复。
+        backups.insert(id, current); // 新资产保存首次作者方式供关闭/切换场景精确恢复。
         if current == OpaqueRendererMethod::Forward
             && let Some(mut asset) = assets.get_mut(id)
         {

@@ -1,9 +1,9 @@
 //! 验收等待门的真实只读快照；两秒最多一次、单后台写槽、固定文件，不参与任何成功判定。
 use super::*;
 use bevy::ecs::system::SystemState;
-use feathrise_map_content::{ActiveDynamicMap, TerrainId};
-use feathrise_scene::{DynamicBladeDraft, DynamicMapBoundaryStatus, DynamicMapRuntimeStatus, DynamicVegetationStatus,
-    DynamicWaterStatus, MapPlacementRuntimeStatus, TerrainObjectAuthoringTarget, TerrainObjectQueries};
+use feathrise_scene_content::{ActiveDynamicScene, TerrainId};
+use feathrise_scene::{DynamicBladeDraft, DynamicSceneBoundaryStatus, DynamicSceneRuntimeStatus, DynamicVegetationStatus,
+    DynamicWaterStatus, ScenePlacementRuntimeStatus, TerrainObjectAuthoringTarget, TerrainObjectQueries};
 use feathrise_scene_core::residency::InstanceResourceTable;
 use feathrise_vegetation::blade::{GpuBladePatch, GpuBladeView};
 use feathrise_scene_core::state::{LoadingProgress, PendingSceneTransition, ScenePhase, SceneStartupGate};
@@ -49,7 +49,7 @@ pub(super) fn record(world: &mut World, evidence: &mut Evidence) {
     let view = evidence.diagnostics.view.get_or_insert_with(||SystemState::new(world));
     let view = match view.get(world) {
         Ok((patches,cameras,observers)) => json!({
-            // 只读实际采用的最多四窗及唯一观察相机；不按地图规模遍历或重新推算GPU逐株结果。
+            // 只读实际采用的最多四窗及唯一观察相机；不按场景规模遍历或重新推算GPU逐株结果。
             "patches":patches.iter().take(4).map(|(entity,patch,local,global)|json!({
                 "entity":entity.to_bits(),"origin":patch.origin().to_array(),"focus":patch.focus().to_array(),
                 "grid_spacing":patch.grid_spacing(),"candidate_count":patch.instance_count(),
@@ -75,7 +75,7 @@ pub(super) fn record(world: &mut World, evidence: &mut Evidence) {
     let gpu = world.get_resource::<GpuBladeGpuReadbackStats>().copied().unwrap_or_default();
     let render = world.get_resource::<GpuBladeRenderStats>().copied().unwrap_or_default();
     let content = runtime.previews.evidence(world, PreviewKind::Vegetation);
-    let map = world.get_resource::<ActiveDynamicMap>().and_then(|active| active.map_id.as_ref());
+    let map = world.get_resource::<ActiveDynamicScene>().and_then(|active| active.scene_id.as_ref());
     let active_canvases = content["canvases"].as_array().into_iter().flatten().take(4).map(|canvas| {
         let id = canvas["terrain_id"].as_str().and_then(|id| TerrainId::parse(id).ok());
         let entity = map.zip(id.as_ref()).and_then(|(map, id)| queries.as_ref().ok()?.instance(map, id));
@@ -89,9 +89,9 @@ pub(super) fn record(world: &mut World, evidence: &mut Evidence) {
             entity.and_then(|entity| world.get_resource::<InstanceResourceTable<DynamicVegetationStatus>>()?.values.get(&entity))
         };
         json!({"terrain_id":id.as_ref().map(TerrainId::as_str),"entity":entity.map(Entity::to_bits),
-            "root_source":root_source,"draft_revision":map.and_then(|map|draft?.revision_for_map(map)),
-            "layout_revision":map.and_then(|map|draft?.layout_revision_for_map(map)),
-            "source_revision":map.and_then(|map|draft?.for_map(map)).map(|snapshot|snapshot.source_revision),
+            "root_source":root_source,"draft_revision":map.and_then(|map|draft?.revision_for_scene(map)),
+            "layout_revision":map.and_then(|map|draft?.layout_revision_for_scene(map)),
+            "source_revision":map.and_then(|map|draft?.for_scene(map)).map(|snapshot|snapshot.source_revision),
             "status":status.map(vegetation_status)})
     }).collect::<Vec<_>>();
     let report = json!({"source":"real-project-preview-wait","not_capture":true,
@@ -105,14 +105,14 @@ pub(super) fn record(world: &mut World, evidence: &mut Evidence) {
             "fresh_gpu_sample":gpu.sample_sequence>evidence.sample_baseline,"sample_baseline":evidence.sample_baseline,
             "sources_ready":runtime.sources_ready,"sources_settled":runtime.sources_settled,"source_failed":runtime.source_failed,
             "height_sources_ready":world.get_resource::<super::super::systems::HeightSources>().is_some_and(|sources|sources.ready)},
-        "scene":{"map":map.map(|map|map.as_str()),"phase":world.get_resource::<bevy::prelude::State<ScenePhase>>().map(|phase|format!("{:?}",phase.get())),
+        "scene":{"scene_id":map.map(|map|map.as_str()),"phase":world.get_resource::<bevy::prelude::State<ScenePhase>>().map(|phase|format!("{:?}",phase.get())),
             "loading":world.contains_resource::<LoadingProgress>(),"transition":world.contains_resource::<PendingSceneTransition>(),
             "startup_ready":world.get_resource::<SceneStartupGate>().map(|gate|gate.ready),
-            "map_status":world.get_resource::<DynamicMapRuntimeStatus>().map(debug_status),
-            "placements":world.get_resource::<MapPlacementRuntimeStatus>().map(debug_status),
+            "scene_status":world.get_resource::<DynamicSceneRuntimeStatus>().map(debug_status),
+            "placements":world.get_resource::<ScenePlacementRuntimeStatus>().map(debug_status),
             "root_vegetation":world.get_resource::<DynamicVegetationStatus>().map(vegetation_status),
             "water":world.get_resource::<DynamicWaterStatus>().map(debug_status),
-            "boundary":world.get_resource::<DynamicMapBoundaryStatus>().map(debug_status)},
+            "boundary":world.get_resource::<DynamicSceneBoundaryStatus>().map(debug_status)},
         "content":content,"active_canvases":active_canvases,"view":view,"gpu":gpu_status(&gpu),"render":render_status(&render),
         "compute_stages":world.get_resource::<PipelineStages>().map(|stages|[
             "cull_tiles","finalize_tiles","classify_and_compact","finalize_indirect"].into_iter().zip(stages.0)
@@ -128,7 +128,7 @@ pub(super) fn record(world: &mut World, evidence: &mut Evidence) {
 
 fn debug_status(value: &impl std::fmt::Debug) -> String { format!("{value:?}").chars().take(2048).collect() }
 fn vegetation_status(status: &DynamicVegetationStatus) -> Value {
-    json!({"phase":format!("{:?}",status.phase),"map":status.map_id.as_ref().map(|map|map.as_str()),
+    json!({"phase":format!("{:?}",status.phase),"scene_id":status.scene_id.as_ref().map(|map|map.as_str()),
         "revision":status.revision,"input_draft_revision":status.input_draft_revision,
         "applied_draft_revision":status.applied_draft_revision,"applied_density_revision":status.applied_density_revision,
         "layers":status.layer_count,"blade_layers":status.blade_layer_count,"blade_windows":status.blade_window_count,
@@ -139,7 +139,7 @@ fn gpu_status(gpu: &GpuBladeGpuReadbackStats) -> Value {
         "truncated_windows":gpu.truncated_windows,"candidate_count":gpu.candidate_count,"active_tiles":gpu.active_tiles,
         "scanned_candidates":gpu.scanned_candidates,"distance_survivors":gpu.distance_survivors,
         "density_survivors":gpu.density_survivors,"surface_survivors":gpu.surface_survivors,"rendered_instances":gpu.rendered_instances,
-        "rendered_instances_by_lod":gpu.rendered_instances_by_lod,"dropped_samples":gpu.dropped_samples,"map_errors":gpu.map_errors})
+        "rendered_instances_by_lod":gpu.rendered_instances_by_lod,"dropped_samples":gpu.dropped_samples,"scene_errors":gpu.scene_errors})
 }
 fn render_status(render: &GpuBladeRenderStats) -> Value {
     json!({"target_views":render.target_views,"missing_phase_views":render.missing_phase_views,"extracted_windows":render.extracted_windows,

@@ -1,4 +1,4 @@
-//! 多实例地图的完整GPU源证明及实际高度实例路由，沿用官方binder的查询顺序。
+//! 多实例场景的完整GPU源证明及实际高度实例路由，沿用官方binder的查询顺序。
 use crate::{resources::RaytracingRuntime, types::RaytracingPrototypeTarget};
 use bevy::{
     asset::AssetId,
@@ -28,7 +28,7 @@ pub(crate) fn publish_geometry_targets(
     mut route: ResMut<feathrise_scene::ClipmapRaytracingInstanceRoute>,
 ) {
     let mut next = TerrainGeometryTargets::default();
-    if runtime.target == RaytracingPrototypeTarget::DynamicMapTerrain
+    if runtime.target == RaytracingPrototypeTarget::DynamicSceneTerrain
         && runtime.gpu_assets_prepared
         && runtime.pending_rollback.is_none()
     {
@@ -129,7 +129,7 @@ fn complete_instance_route(expected: &[AssetId<Mesh>], actual: &[AssetId<Mesh>])
     if expected.is_empty() || expected.len() != actual.len() || expected.len() > 16 {
         return None;
     }
-    // 每个源产生独立派生Mesh；精确集合比较可拒绝缺项、重复项与其他地图的代理。
+    // 每个源产生独立派生Mesh；精确集合比较可拒绝缺项、重复项与其他场景的代理。
     if actual.iter().any(|id| !expected.contains(id))
         || actual
             .iter()
@@ -145,7 +145,7 @@ fn complete_instance_route(expected: &[AssetId<Mesh>], actual: &[AssetId<Mesh>])
 }
 
 pub(crate) fn geometry_ready(runtime: &RaytracingRuntime) -> bool {
-    runtime.target != RaytracingPrototypeTarget::DynamicMapTerrain
+    runtime.target != RaytracingPrototypeTarget::DynamicSceneTerrain
         || runtime.expected_instance_count() == 1
         || (runtime.render_telemetry.geometry_generation == runtime.generation
             && runtime.render_telemetry.geometry_count == runtime.expected_instance_count()

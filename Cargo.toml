@@ -1,6 +1,6 @@
 [package]
 name = "feathrise_runtime"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
@@ -9,8 +9,8 @@ description = "Shared Bevy runtime and project entry for Feathrise"
 
 # 工程启动与公共装配直接归 SDK 的 project/app 模块，具体能力仍由子库提供。
 [dependencies]
-feathrise_scene_core = { version = "0.2.0", path = "crates/feathrise_scene_core" } # 统一场景视图、状态、活动门和驻留契约。
-feathrise_vegetation = { version = "0.2.0", path = "crates/feathrise_vegetation", optional = true, features = ["blade", "diagnostics"] }
+feathrise_scene_core = { version = "0.3.0", path = "crates/feathrise_scene_core" } # 统一场景视图、状态、活动门和驻留契约。
+feathrise_vegetation = { version = "0.3.0", path = "crates/feathrise_vegetation", optional = true, features = ["blade", "diagnostics"] }
 bevy = { version = "=0.20.1", features = ["file_watcher", "bevy_ui_widgets", "complex_script_segmentation", "jpeg", "pbr_specular_textures"] }
 avian3d = { version = "=0.8.0", features = ["debug-plugin"] }
 bevy_framepace = "=0.23.0"
@@ -20,16 +20,16 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 sha2 = { version = "=0.11.0" } # 嵌入握手独立核对当前真实EXE，不复述宿主提供的构建身份。
 subsecond = { version = "=0.7.9", optional = true } # 与已验证dx固定版本一致；旧补丁库保留到进程退出。
-feathrise_editor_protocol = { version = "0.2.0", path = "crates/feathrise_editor_protocol" }
-feathrise_ui_widgets = { version = "0.2.0", path = "crates/feathrise_ui_widgets" } # 预览工具条与编辑器共用现代拾取三态。
+feathrise_editor_protocol = { version = "0.3.0", path = "crates/feathrise_editor_protocol" }
+feathrise_ui_widgets = { version = "0.3.0", path = "crates/feathrise_ui_widgets" } # 预览工具条与编辑器共用现代拾取三态。
 raw-window-handle = "=0.6.2"
 wgpu-hal = { version = "=30.0.1", features = ["vulkan"] }
-feathrise_scene = { version = "0.2.0", path = "crates/feathrise_scene", features = ["author_view"] }
-feathrise_map_content = { version = "0.2.0", path = "crates/feathrise_map_content" }
-feathrise_portal = { version = "0.2.0", path = "crates/feathrise_portal" }
-feathrise_settings = { version = "0.2.0", path = "crates/feathrise_settings" }
-feathrise_frame_generation = { version = "0.2.0", path = "crates/feathrise_frame_generation", optional = true }
-feathrise_fsr3_frame_generation = { version = "0.2.0", path = "crates/feathrise_fsr3_frame_generation", optional = true }
+feathrise_scene = { version = "0.3.0", path = "crates/feathrise_scene", features = ["author_view"] }
+feathrise_scene_content = { version = "0.3.0", path = "crates/feathrise_scene_content" }
+feathrise_portal = { version = "0.3.0", path = "crates/feathrise_portal" }
+feathrise_settings = { version = "0.3.0", path = "crates/feathrise_settings" }
+feathrise_frame_generation = { version = "0.3.0", path = "crates/feathrise_frame_generation", optional = true }
+feathrise_fsr3_frame_generation = { version = "0.3.0", path = "crates/feathrise_fsr3_frame_generation", optional = true }
 
 # 公共装配所需的独立能力；原生后端和字体仍显式按需编入。
 feathrise_grounding = { workspace = true }
@@ -73,12 +73,12 @@ members = [".", "crates/*", "tests/workspace"]
 default-members = ["."]
 
 [workspace.dependencies]
-feathrise_scene_core = { version = "0.2.0", path = "crates/feathrise_scene_core" } # 场景基础契约和活动门；不依赖内容或高层运行入口。
-feathrise_plugin_api = { version = "=0.2.0", path = "crates/feathrise_plugin_api" } # 插件开发只消费协议，不依赖编辑器实现。
+feathrise_scene_core = { version = "0.3.0", path = "crates/feathrise_scene_core" } # 场景基础契约和活动门；不依赖内容或高层运行入口。
+feathrise_plugin_api = { version = "=0.3.0", path = "crates/feathrise_plugin_api" } # 插件开发只消费协议，不依赖编辑器实现。
 # 同仓联调使用 path；发布时按 version 获取子库，不将 path 缺失当作自动回退。
 
-feathrise_author_tools = { version = "0.2.0", path = "crates/feathrise_author_tools" } # 无Bevy依赖的笔刷、手柄与选择框语义合同。
-feathrise_editor_protocol = { version = "0.2.0", path = "crates/feathrise_editor_protocol" } # 无 Bevy 依赖的有界常驻视口进程合同。
+feathrise_author_tools = { version = "0.3.0", path = "crates/feathrise_author_tools" } # 无Bevy依赖的笔刷、手柄与选择框语义合同。
+feathrise_editor_protocol = { version = "0.3.0", path = "crates/feathrise_editor_protocol" } # 无 Bevy 依赖的有界常驻视口进程合同。
 
 bevy = { version = "=0.20.1", default-features = true, features = [
     # SDK库可被独立DLL/SO使用；开发动态链接只在实际应用的依赖处开启。
@@ -103,7 +103,7 @@ bevy-tnua = "=0.33.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 meshopt = "=0.6.2" # 分块体积网格在后台按固定误差简化；版本参与私有网格配方，升级须保留旧文件重建兼容。
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 地图编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] } # 场景编辑器回写PNG，并在后台读取常见PBR PNG/JPEG源图派生纹理数组。
 half = "2.7.1" # 天空漫反射Cube保持RGBA16F，在小型有界CPU副本中独立缩放补光通道。
 # 通用 GPU 粒子渲染能力，由消费工程决定具体效果。
 bevy_hanabi = { version = "=0.20.0", default-features = false, features = ["3d"] }
@@ -112,22 +112,22 @@ sha2 = "0.11.0"
 # FSR 固定预编译原生包只需读取 Deflate ZIP。
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
-feathrise_grounding = { version = "0.2.0", path = "crates/feathrise_grounding" } # 统一按 Avian 真实地形高度吸附所有地面实体
-feathrise_scene = { version = "0.2.0", path = "crates/feathrise_scene" } # 工程提供地图与预设，公共层负责场景生命周期。
-feathrise_environment = { version = "0.2.0", path = "crates/feathrise_environment" } # 统一聚合GPU叶片植被、树木及灌木岩石固定景观，消费者通过feature按需启用。
-feathrise_vegetation = { version = "0.2.0", path = "crates/feathrise_vegetation" } # 内容无关的种植分布、空间竞争、足迹净空与可插拔实现后端。
-feathrise_billboard_text = { version = "0.2.0", path = "crates/feathrise_billboard_text" } # 通用离屏烘焙文字 Billboard 插件（可独立开源）
-feathrise_atmosphere = { version = "0.2.0", path = "crates/feathrise_atmosphere" } # 世界时间、天体光照、天气模拟与环境表现
-feathrise_portal = { version = "0.2.0", path = "crates/feathrise_portal" } # 传送门系统（场景切换）
-feathrise_settings = { version = "0.2.0", path = "crates/feathrise_settings" } # 公共渲染请求、质量类型与后端状态。
-feathrise_raytracing = { version = "0.2.0", path = "crates/feathrise_raytracing" } # 正式Solari/RR生命周期；rtx_rendering与调试兼容特性按需引入。
-feathrise_frame_generation = { version = "0.2.0", path = "crates/feathrise_frame_generation" } # Windows Vulkan Streamline/DLSS-G/Reflex隔离运行时。
-feathrise_runtime_manifest = { version = "=0.2.0", path = "crates/feathrise_runtime_manifest" } # 固定同一交付身份版本，不引入厂商 SDK。
-feathrise_frame_generation_ui = { version = "0.2.0", path = "crates/feathrise_frame_generation_ui" } # SDK无关世界UI分离与透明捕获。
-feathrise_fsr3_frame_generation = { version = "0.2.0", path = "crates/feathrise_fsr3_frame_generation" } # Windows Vulkan FidelityFX FSR 3.1固定2×帧生成运行时。
-feathrise_fsr3 = { version = "0.2.0", path = "crates/feathrise_fsr3" } # Vulkan FSR 3时间域超分隔离RenderApp运行时。
-feathrise_map_content = { version = "0.2.0", path = "crates/feathrise_map_content" } # 数据驱动地图清单、私有地图文件与传送图公共资产契约。
-feathrise_map_terrain = { version = "0.2.0", path = "crates/feathrise_map_terrain" } # 动态地图GLB拓扑、内存高度场与白模编码共享纯算法。
+feathrise_grounding = { version = "0.3.0", path = "crates/feathrise_grounding" } # 统一按 Avian 真实地形高度吸附所有地面实体
+feathrise_scene = { version = "0.3.0", path = "crates/feathrise_scene" } # 工程提供场景与预设，公共层负责场景生命周期。
+feathrise_environment = { version = "0.3.0", path = "crates/feathrise_environment" } # 统一聚合GPU叶片植被、树木及灌木岩石固定景观，消费者通过feature按需启用。
+feathrise_vegetation = { version = "0.3.0", path = "crates/feathrise_vegetation" } # 内容无关的种植分布、空间竞争、足迹净空与可插拔实现后端。
+feathrise_billboard_text = { version = "0.3.0", path = "crates/feathrise_billboard_text" } # 通用离屏烘焙文字 Billboard 插件（可独立开源）
+feathrise_atmosphere = { version = "0.3.0", path = "crates/feathrise_atmosphere" } # 世界时间、天体光照、天气模拟与环境表现
+feathrise_portal = { version = "0.3.0", path = "crates/feathrise_portal" } # 传送门系统（场景切换）
+feathrise_settings = { version = "0.3.0", path = "crates/feathrise_settings" } # 公共渲染请求、质量类型与后端状态。
+feathrise_raytracing = { version = "0.3.0", path = "crates/feathrise_raytracing" } # 正式Solari/RR生命周期；rtx_rendering与调试兼容特性按需引入。
+feathrise_frame_generation = { version = "0.3.0", path = "crates/feathrise_frame_generation" } # Windows Vulkan Streamline/DLSS-G/Reflex隔离运行时。
+feathrise_runtime_manifest = { version = "=0.3.0", path = "crates/feathrise_runtime_manifest" } # 固定同一交付身份版本，不引入厂商 SDK。
+feathrise_frame_generation_ui = { version = "0.3.0", path = "crates/feathrise_frame_generation_ui" } # SDK无关世界UI分离与透明捕获。
+feathrise_fsr3_frame_generation = { version = "0.3.0", path = "crates/feathrise_fsr3_frame_generation" } # Windows Vulkan FidelityFX FSR 3.1固定2×帧生成运行时。
+feathrise_fsr3 = { version = "0.3.0", path = "crates/feathrise_fsr3" } # Vulkan FSR 3时间域超分隔离RenderApp运行时。
+feathrise_scene_content = { version = "0.3.0", path = "crates/feathrise_scene_content" } # 数据驱动场景清单、私有场景文件与传送图公共资产契约。
+feathrise_terrain = { version = "0.3.0", path = "crates/feathrise_terrain" } # 动态场景GLB拓扑、内存高度场与白模编码共享纯算法。
 
 # 经常修改的 SDK 工作区源码保持低优化；外部依赖高优化，也避免 Windows 未优化 Bevy 动态库超出 PE 导出表上限。
 [profile.dev]

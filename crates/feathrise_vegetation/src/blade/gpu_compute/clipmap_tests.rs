@@ -131,7 +131,7 @@ fn clipmap_gpu_matches_actual_topology_reference() {
         ),
     );
     }
-    let (pixels, entries) = fixture_pages(); // 四个已采用页覆盖跨页、父级和非方形地图。
+    let (pixels, entries) = fixture_pages(); // 四个已采用页覆盖跨页、父级和非方形场景。
     let atlas = texture(&device, wgpu::TextureFormat::R16Unorm, 257, 257, 4); // 正式二维数组格式。
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
@@ -181,7 +181,7 @@ fn clipmap_gpu_matches_actual_topology_reference() {
         Vec2::new(253.0, 148.5),
         Vec2::new(1.0, 1.5),
         Vec2::new(508.0, 300.0),
-    ]; // 页边、地图近端、非整除远端。
+    ]; // 页边、场景近端、非整除远端。
     for (center, missing_mip, stitched) in centers.into_iter().flat_map(|center| {
         [None, Some(0usize), Some(1usize), Some(2usize)].into_iter().flat_map(move |mip|[false,true].map(move |active|(center,mip,active)))
     }) {
@@ -247,7 +247,7 @@ fn clipmap_gpu_matches_actual_topology_reference() {
             [0.0, 0.0],
             [509.0, 301.5],
             [256.0, 148.5],
-        ]); // 显式检查精确地图与页边。
+        ]); // 显式检查精确场景与页边。
         let encoded = super::clipmap::encode_clipmap(&height); // 与正式准备阶段使用同一参数编码。
         let mut packed=bevy::render::render_resource::encase::UniformBuffer::new(Vec::new());
         packed.write(&encoded).unwrap();let uniform_bytes=packed.into_inner();
@@ -256,7 +256,7 @@ fn clipmap_gpu_matches_actual_topology_reference() {
             label: Some("clipmap_test_uniform"),
             contents: &uniform_bytes,
             usage: wgpu::BufferUsages::UNIFORM,
-        }); // 固定5344字节，不随地图大小增长。
+        }); // 固定5344字节，不随场景大小增长。
         let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("clipmap_test_height"),
             layout: &pipeline.get_bind_group_layout(0),

@@ -48,7 +48,7 @@ fn request_derives_only_two_runtime_ibl_paths_and_rejects_invalid_inputs() {
         15.0,                                            // IBL 绕 Y 轴方向。
         1,                                               // 当前作者修订。
     );
-    assert!(request.validate().is_ok()); // 合法主路径仍兼容旧地图清单。
+    assert!(request.validate().is_ok()); // 合法主路径仍兼容旧场景清单。
     let paths = request.asset_paths().unwrap(); // 运行时只派生两张真正需要加载的资源。
     assert_eq!(paths.source, "textures/test_skybox.ktx2"); // 主路径同时是资源组身份与可选可见Cube路径。
     assert_eq!(paths.diffuse, "textures/test_skybox_diffuse.ktx2"); // 固定余弦卷积后缀。

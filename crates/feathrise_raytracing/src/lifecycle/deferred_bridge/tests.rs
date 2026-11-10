@@ -43,7 +43,7 @@ fn bridge_preserves_auto_and_restores_explicit_forward_exactly() {
         OpaqueRendererMethod::Deferred
     ); // 已Deferred资产保持原值，正式实现也不会取得可变借用制造自发Modified事件。
 
-    restore_assets(&mut materials, &mut backups); // 模拟关闭请求或离开地图。
+    restore_assets(&mut materials, &mut backups); // 模拟关闭请求或离开场景。
 
     assert_eq!(
         materials.get(auto.id()).unwrap().opaque_render_method,

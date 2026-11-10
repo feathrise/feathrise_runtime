@@ -7,7 +7,7 @@ mod render; // GPU深度与矩阵一次发布。
 mod resources; // 主世界身份与完整捕获需求。
 mod systems; // 相机资格、脏状态与生命周期。
 #[cfg(test)] // 无窗口验证真实生命周期和投影协议。
-mod tests; // 覆盖切图、暂停与雨向几何。
+mod tests; // 覆盖切换场景、暂停与雨向几何。
 use bevy::camera::{CameraUpdateSystems, visibility::VisibilitySystems}; // 在相机和视锥计算前更新需求。
 use bevy::prelude::*; // 插件装配。
 use bevy::render::{

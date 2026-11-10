@@ -1,7 +1,7 @@
 //! 全局 Deferred 材质桥的离屏辅助 PBR 视图兼容租约。
 //!
 //! 【功能设计】材质的 `opaque_render_method` 跨相机共享。Solari 会话把世界 PBR 材质临时
-//! 准备为 Deferred 后，小地图、全屏当前地图和角色预览若仍是纯 Forward 视图，就只会留下
+//! 准备为 Deferred 后，小场景、全屏当前场景和角色预览若仍是纯 Forward 视图，就只会留下
 //! 清屏色。本模块只为显式标记的 `RenderTarget::Image` 三维相机声明单采样 Depth/Deferred
 //! 预通道；不传播 Solari、DLSS、HDR、运动历史、双缓冲或窗口后处理。
 

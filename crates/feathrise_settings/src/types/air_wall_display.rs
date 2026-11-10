@@ -9,7 +9,7 @@ pub enum AirWallDisplayMode {
 }
 
 impl AirWallDisplayMode {
-    /// F1按钮使用固定三档循环，不与地图规划或碰撞开关串联。
+    /// F1按钮使用固定三档循环，不与场景规划或碰撞开关串联。
     pub fn next(self) -> Self {
         match self {
             Self::Hidden => Self::Full,

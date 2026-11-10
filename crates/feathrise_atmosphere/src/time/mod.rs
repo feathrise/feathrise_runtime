@@ -1,6 +1,6 @@
 // atmosphere::time：统一管理环境月份日期、世界本地天体弧线、月光与玩法场景环境亮度。
 
-mod celestial_visuals; // 动态地图可见太阳和月亮圆盘、相机跟随与独立昼夜轨迹。
+mod celestial_visuals; // 动态场景可见太阳和月亮圆盘、相机跟随与独立昼夜轨迹。
 mod clock; // 日期推进、新游戏重置与存档恢复功能域。
 pub mod components; // 玩法方向光与环境 IBL 的显式 ECS 标记。
 pub mod constants; // 时间倍率、固定昼夜边界和光照基准。

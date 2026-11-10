@@ -7,7 +7,7 @@ impl GpuBladePatch {
         self // 返回可继续链式配置的草块。
     }
 
-    /// 更新地图密度概率增益，不改变密度图本身的空间形状和零值遮罩。
+    /// 更新场景密度概率增益，不改变密度图本身的空间形状和零值遮罩。
     pub fn set_density_gain(&mut self, gain: f32) {
         if !gain.is_finite() {
             return; // 非有限增益保持上一合法值，禁止GPU概率比较被NaN永久污染。
@@ -17,7 +17,7 @@ impl GpuBladePatch {
 
     /// 返回当前密度图概率增益。
     pub fn density_gain(self) -> f32 {
-        self.lod_density.w // 场景测试可核对地图调优值而不直接访问uniform布局。
+        self.lod_density.w // 场景测试可核对场景调优值而不直接访问uniform布局。
     }
 
     /// 返回当前LOD环带完全不可见的内半径。
@@ -32,7 +32,7 @@ impl GpuBladePatch {
 
     /// 返回正方形候选网格单边格数，供渲染世界建立粗瓦片列表。
     pub(crate) fn grid_side(self) -> u32 {
-        self.grid.x // 字段仍保持私有，避免地图层绕过构造器破坏候选总数一致性。
+        self.grid.x // 字段仍保持私有，避免场景层绕过构造器破坏候选总数一致性。
     }
 
     /// 返回相邻候选草格的世界间距。
@@ -107,8 +107,8 @@ impl GpuBladePatch {
         self.height_world = Vec4::new(
             world_min.x,      // shader按世界X定位512列地形单元。
             world_min.y,      // shader按世界Z定位512行地形单元。
-            safe_world_max.x, // 世界X上界同时用于地图外候选裁剪。
-            safe_world_max.y, // 世界Z上界同时用于地图外候选裁剪。
+            safe_world_max.x, // 世界X上界同时用于场景外候选裁剪。
+            safe_world_max.y, // 世界Z上界同时用于场景外候选裁剪。
         ); // 完成高度纹理的世界矩形打包。
         self.height_decode = Vec4::new(
             height_min,                   // R/G/B/A通道零值对应的米制高度。
@@ -120,7 +120,7 @@ impl GpuBladePatch {
 
     /// 返回当前窗口是否已经启用真实地表高度采样。
     pub fn uses_height_field(self) -> bool {
-        self.height_decode.z > 0.5 // 测试与地图装配可核对固定平面和高度纹理路径。
+        self.height_decode.z > 0.5 // 测试与场景装配可核对固定平面和高度纹理路径。
     }
 
     /// 链式设置整个草窗的稳定抖动激活覆盖率，用于首次驻留数据就绪后的无块状淡入。
@@ -151,21 +151,21 @@ impl GpuBladePatch {
     /// 更新密度纹理的世界范围并显式启用GPU红通道概率采样。
     pub fn set_density_field(&mut self, world_min: Vec2, world_max: Vec2) {
         if !world_min.is_finite() || !world_max.is_finite() {
-            return; // 非有限世界矩形保持旧密度契约，不设置启用位也不产生地图外错误采样。
+            return; // 非有限世界矩形保持旧密度契约，不设置启用位也不产生场景外错误采样。
         } // 完成密度世界范围有限性保护。
         let safe_world_max = world_max.max(world_min + Vec2::splat(0.01)); // 防止零范围导致shader归一化除零。
         self.density_world = Vec4::new(
             world_min.x,      // shader按世界X定位密度图西侧边界。
             world_min.y,      // shader按世界Z定位密度图北侧边界。
-            safe_world_max.x, // 世界X上界同时用于地图外严格禁种。
-            safe_world_max.y, // 世界Z上界同时用于地图外严格禁种。
+            safe_world_max.x, // 世界X上界同时用于场景外严格禁种。
+            safe_world_max.y, // 世界Z上界同时用于场景外严格禁种。
         ); // 完成独立密度世界矩形打包。
         self.grid.w |= DENSITY_FIELD_ENABLED_FLAG; // 只占用最低标志位，不覆盖未来其他绘制模式。
     }
 
     /// 返回当前窗口是否已经启用密度概率采样。
     pub fn uses_density_field(self) -> bool {
-        self.grid.w & DENSITY_FIELD_ENABLED_FLAG != 0 // 测试、地图装配和渲染等待共用同一位定义。
+        self.grid.w & DENSITY_FIELD_ENABLED_FLAG != 0 // 测试、场景装配和渲染等待共用同一位定义。
     }
 
     /// 为当前密度图追加一个世界坐标受控种植矩形。

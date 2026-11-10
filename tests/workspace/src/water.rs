@@ -1,7 +1,7 @@
 //! 完整水片元接线回归：保留生产水/雨/天气库，只用有限桩替代Bevy PBR。
 
-const WATER_SHADER_SOURCE: &str = include_str!("../../../crates/feathrise_scene/src/shared/large_map/water/shaders/water.wesl");
-const WATER_FRAGMENT_SHADER_SOURCE: &str = include_str!("../../../crates/feathrise_scene/src/shared/large_map/water/shaders/fragment.wesl");
+const WATER_SHADER_SOURCE: &str = include_str!("../../../crates/feathrise_scene/src/shared/large_scene/water/shaders/water.wesl");
+const WATER_FRAGMENT_SHADER_SOURCE: &str = include_str!("../../../crates/feathrise_scene/src/shared/large_scene/water/shaders/fragment.wesl");
 
 // 测试桩只表达标准PBR输入输出类型；真实雨纹、岸线、法线和片元分支全部来自生产源码。
 const PBR_STUB: &str = r#"
@@ -95,9 +95,9 @@ fn rain_water_fragment_variants_are_valid_wgsl() {
         let clipmap = if defines.contains(&"CLIPMAP_WATER") {
             let stitches = feathrise_environment::vegetation::blade::clipmap_stitch_shader_source(false)
                 .replace("#{MATERIAL_BIND_GROUP}", "2");
-            let height = preprocess(include_str!("../../../crates/feathrise_scene/src/maps/dynamic_map/clipmap/shaders/height.wesl"), defines);
+            let height = preprocess(include_str!("../../../crates/feathrise_scene/src/scenes/dynamic_scene/clipmap/shaders/height.wesl"), defines);
             let water = preprocess(
-                include_str!("../../../crates/feathrise_scene/src/maps/dynamic_map/water/shaders/clipmap_water.wesl"),
+                include_str!("../../../crates/feathrise_scene/src/scenes/dynamic_scene/water/shaders/clipmap_water.wesl"),
                 defines,
             )
             .replace("clipmap_height::", "");
@@ -116,7 +116,7 @@ fn rain_water_fragment_variants_are_valid_wgsl() {
                 preprocess(weather, defines)
             ),
             preprocess(wet, defines),
-            preprocess(include_str!("../../../crates/feathrise_scene/src/shared/large_map/water/shaders/reflection.wesl"), defines),
+            preprocess(include_str!("../../../crates/feathrise_scene/src/shared/large_scene/water/shaders/reflection.wesl"), defines),
             clipmap,
             preprocess(WATER_FRAGMENT_SHADER_SOURCE, defines)
         )

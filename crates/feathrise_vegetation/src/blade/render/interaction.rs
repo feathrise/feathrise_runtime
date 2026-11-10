@@ -118,7 +118,7 @@ pub(super) fn prepare_gpu_grass_interaction_bind_group(
         render_assets.blade_base_color.clone(), // 兼容批次继续读取既有共享纹理配置。
     ); // 把旧资源适配成和动态目录完全相同的批次输入。
     rebuilt_banks.push(create_profile_bank_gpu(
-        &legacy_bank,              // 批次零始终先建立，旧地图和独立样例无需迁移。
+        &legacy_bank,              // 批次零始终先建立，旧场景和独立样例无需迁移。
         0,                         // GPU 调试标签明确标记兼容批次下标。
         &uniform_binding,          // 所有批次共享同一当前帧风场缓冲。
         &previous_uniform_binding, // 所有批次共享同一上一帧风场缓冲。

@@ -1,10 +1,10 @@
-//! 自有内存地图驱动真实姿态消费者；覆盖按住、取消、正式来源接回及迟到拒绝。
+//! 自有内存场景驱动真实姿态消费者；覆盖按住、取消、正式来源接回及迟到拒绝。
 use super::*;
 #[path = "object_pose_loading_tests.rs"]
 mod loading;
-use feathrise_map_content::{MAP_SCHEMA_VERSION, MapContentHandles, MapTerrainDescriptor};
+use feathrise_scene_content::{SCENE_SCHEMA_VERSION, SceneContentHandles, SceneTerrainDescriptor};
 use feathrise_scene::runtime_test_support::{
-    apply_terrain_pose_preview, install_active_terrain_instances, install_active_sub_map_instance,
+    apply_terrain_pose_preview, install_active_terrain_instances, install_active_subscene_instance,
 };
 use std::{
     collections::BTreeMap,
@@ -13,27 +13,27 @@ use std::{
 
 struct Fixture {
     app: App,
-    map: MapId,
-    manifest: Handle<MapManifestAsset>,
+    scene_id: SceneId,
+    manifest: Handle<SceneManifestAsset>,
     terrain: TerrainId,
     root: Entity,
 }
 fn fixture() -> Fixture {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
-        .init_resource::<Assets<MapManifestAsset>>()
-        .init_resource::<MapInstanceAuthorPreview>()
+        .init_resource::<Assets<SceneManifestAsset>>()
+        .init_resource::<SceneInstanceAuthorPreview>()
         .init_resource::<TerrainObjectTransformPreview>();
-    let map = MapId::parse("MAP-object-pose").unwrap();
+    let map = SceneId::parse("MAP-object-pose").unwrap();
     let terrain = TerrainId::parse("ground").unwrap();
-    let object = MapTerrainObject {
+    let object = SceneTerrainObject {
         id: terrain.clone(),
         display_name: "真实地形根".into(),
         enabled: true,
         transform: TerrainObjectTransform::default(),
         world_min: [-4.; 2],
         world_max: [4.; 2],
-        terrain: MapTerrainDescriptor::empty(),
+        terrain: SceneTerrainDescriptor::empty(),
         voxel: None,
         surface_path: None,
         vegetation_path: None,
@@ -45,9 +45,9 @@ fn fixture() -> Fixture {
     let root = install_active_terrain_instances(app.world_mut(), &map, &[object.clone()])[0];
     let manifest = app
         .world_mut()
-        .resource_mut::<Assets<MapManifestAsset>>()
-        .add(MapManifestAsset {
-            schema_version: MAP_SCHEMA_VERSION,
+        .resource_mut::<Assets<SceneManifestAsset>>()
+        .add(SceneManifestAsset {
+            schema_version: SCENE_SCHEMA_VERSION,
             id: map.clone(),
             display_name: "自有整体姿态回归".into(),
             notes: String::new(),
@@ -56,11 +56,11 @@ fn fixture() -> Fixture {
             world_max: [8.; 2],
             default_spawn: [0.; 3],
             environment: default(),
-            terrain: MapTerrainDescriptor::empty(),
+            terrain: SceneTerrainDescriptor::empty(),
             terrains: Some(Arc::from([object])),
-            sub_maps: Arc::from([MapInstancePlacement {
-                id: MapInstanceId::parse("child").unwrap(),
-                source_map_id: MapId::parse("MAP-child").unwrap(),
+            subscenes: Arc::from([SceneInstancePlacement {
+                id: SceneInstanceId::parse("child").unwrap(),
+                source_scene_id: SceneId::parse("MAP-child").unwrap(),
                 label: "原子图".into(),
                 transform: default(),
             }]),
@@ -68,18 +68,18 @@ fn fixture() -> Fixture {
             asset_roots: Vec::new(),
             vegetation_paint_groups: default(),
         });
-    let child = app.world().resource::<Assets<MapManifestAsset>>().get(&manifest).unwrap().sub_maps[0].clone();
-    install_active_sub_map_instance(app.world_mut(), &map, &child);
-    app.insert_resource(ActiveDynamicMap {
-        map_id: Some(map.clone()),
+    let child = app.world().resource::<Assets<SceneManifestAsset>>().get(&manifest).unwrap().subscenes[0].clone();
+    install_active_subscene_instance(app.world_mut(), &map, &child);
+    app.insert_resource(ActiveDynamicScene {
+        scene_id: Some(map.clone()),
     })
-    .insert_resource(MapContentRegistry {
+    .insert_resource(SceneContentRegistry {
         catalog: default(),
         revision: 1,
         last_error: None,
-        maps: BTreeMap::from([(
+        scenes: BTreeMap::from([(
             map.clone(),
-            MapContentHandles {
+            SceneContentHandles {
                 manifest: manifest.clone(),
                 portals: default(),
                 placements: default(),
@@ -93,7 +93,7 @@ fn fixture() -> Fixture {
     });
     Fixture {
         app,
-        map,
+        scene_id: map,
         manifest,
         terrain,
         root,
@@ -110,7 +110,7 @@ fn send(
         .start(
             f.app.world(),
             Prepared {
-                map: f.map.clone(),
+                scene_id: f.scene_id.clone(),
                 revision,
                 active,
                 target: Target::Terrain {
@@ -159,8 +159,8 @@ fn object_pose_real_terrain_consumer_moves_rotates_scales_and_cancel_restores_sa
     assert!(
         f.app
             .world()
-            .resource::<MapInstanceAuthorPreview>()
-            .map_id
+            .resource::<SceneInstanceAuthorPreview>()
+            .scene_id
             .is_none(),
         "按住不重发整份地形定义"
     );
@@ -184,7 +184,7 @@ fn object_pose_real_terrain_consumer_moves_rotates_scales_and_cancel_restores_sa
     assert!(
         f.app
             .world()
-            .resource::<Assets<MapManifestAsset>>()
+            .resource::<Assets<SceneManifestAsset>>()
             .get(&f.manifest)
             .unwrap()
             .terrains
@@ -227,7 +227,7 @@ fn object_pose_end_keeps_real_pose_until_formal_definition_adopts_without_old_po
     next.transform = pose;
     f.app
         .world_mut()
-        .resource_mut::<Assets<MapManifestAsset>>()
+        .resource_mut::<Assets<SceneManifestAsset>>()
         .get_mut(&f.manifest)
         .unwrap()
         .terrains = Some(Arc::from([next.clone()]));
@@ -272,18 +272,18 @@ fn object_pose_end_keeps_real_pose_until_formal_definition_adopts_without_old_po
 fn object_pose_submap_updates_only_stable_reference_and_cancel_keeps_original_source() {
     let mut f = fixture();
     let mut state = State::default();
-    let id = MapInstanceId::parse("child").unwrap();
+    let id = SceneInstanceId::parse("child").unwrap();
     for (revision, x, active) in [(1, 8., true), (2, 9., true), (3, 0., false)] {
         state
             .start(
                 f.app.world(),
                 Prepared {
-                    map: f.map.clone(),
+                    scene_id: f.scene_id.clone(),
                     revision,
                     active,
-                    target: Target::SubMap {
+                    target: Target::Subscene {
                         id: id.clone(),
-                        pose: Some(MapInstanceTransform {
+                        pose: Some(SceneInstanceTransform {
                             translation: [x, 0., 0.],
                             yaw_degrees: 30.,
                             ..default()
@@ -293,20 +293,20 @@ fn object_pose_submap_updates_only_stable_reference_and_cancel_keeps_original_so
             )
             .unwrap();
         settle(&mut f, &mut state);
-        let preview = f.app.world().resource::<MapInstanceAuthorPreview>();
+        let preview = f.app.world().resource::<SceneInstanceAuthorPreview>();
         assert_eq!(preview.instances[0].transform.translation[0], x);
         assert_eq!(preview.instances[0].id, id);
         assert_eq!(
-            preview.instances[0].source_map_id,
-            MapId::parse("MAP-child").unwrap()
+            preview.instances[0].source_scene_id,
+            SceneId::parse("MAP-child").unwrap()
         );
         assert_eq!(
             f.app
                 .world()
-                .resource::<Assets<MapManifestAsset>>()
+                .resource::<Assets<SceneManifestAsset>>()
                 .get(&f.manifest)
                 .unwrap()
-                .sub_maps[0]
+                .subscenes[0]
                 .transform
                 .translation[0],
             0.
@@ -322,12 +322,12 @@ fn object_pose_rejects_late_source_and_does_not_clear_another_publisher() {
         .start(
             f.app.world(),
             Prepared {
-                map: f.map.clone(),
+                scene_id: f.scene_id.clone(),
                 revision: 1,
                 active: true,
-                target: Target::SubMap {
-                    id: MapInstanceId::parse("child").unwrap(),
-                    pose: Some(MapInstanceTransform {
+                target: Target::Subscene {
+                    id: SceneInstanceId::parse("child").unwrap(),
+                    pose: Some(SceneInstanceTransform {
                         translation: [8., 0., 0.],
                         ..default()
                     }),
@@ -337,10 +337,10 @@ fn object_pose_rejects_late_source_and_does_not_clear_another_publisher() {
         .unwrap();
     f.app
         .world_mut()
-        .resource_mut::<Assets<MapManifestAsset>>()
+        .resource_mut::<Assets<SceneManifestAsset>>()
         .get_mut(&f.manifest)
         .unwrap()
-        .sub_maps = Arc::from([]);
+        .subscenes = Arc::from([]);
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         if state.advance(f.app.world_mut()).is_err() {
@@ -352,8 +352,8 @@ fn object_pose_rejects_late_source_and_does_not_clear_another_publisher() {
     assert!(
         f.app
             .world()
-            .resource::<MapInstanceAuthorPreview>()
-            .map_id
+            .resource::<SceneInstanceAuthorPreview>()
+            .scene_id
             .is_none()
     );
     let mut f = fixture();
@@ -370,21 +370,21 @@ fn object_pose_rejects_late_source_and_does_not_clear_another_publisher() {
     );
     f.app
         .world_mut()
-        .resource_mut::<MapInstanceAuthorPreview>()
+        .resource_mut::<SceneInstanceAuthorPreview>()
         .revision += 1; // 另一写者取得新信用。
     let adopted = f
         .app
         .world()
-        .resource::<MapInstanceAuthorPreview>()
+        .resource::<SceneInstanceAuthorPreview>()
         .instances
         .clone();
-    f.app.world_mut().resource_mut::<ActiveDynamicMap>().map_id = None;
+    f.app.world_mut().resource_mut::<ActiveDynamicScene>().scene_id = None;
     settle(&mut f, &mut state);
     assert!(Arc::ptr_eq(
         &adopted,
         &f.app
             .world()
-            .resource::<MapInstanceAuthorPreview>()
+            .resource::<SceneInstanceAuthorPreview>()
             .instances
     ));
     assert!(

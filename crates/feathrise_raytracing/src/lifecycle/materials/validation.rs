@@ -85,7 +85,7 @@ pub(super) fn prepared_sources_still_match(
         })
 }
 
-/// 当前地图目标事务两侧都完整时才允许使用逐项`zip`校验。
+/// 当前场景目标事务两侧都完整时才允许使用逐项`zip`校验。
 pub(super) fn prepared_transaction_has_expected_count(
     candidate_count: usize,
     prepared_count: usize,

@@ -1,7 +1,7 @@
 # 通用种植核心：层分布、空间竞争、边界净空与可插拔实现后端。
 [package]
 name = "feathrise_vegetation"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97.1"
 publish = ["crates-io"]
@@ -41,7 +41,7 @@ diagnostics = ["blade"]
 full = ["blade", "mesh", "diagnostics"]
 
 [dependencies]
-# 宿主可保留地图布局和后端会话，不引入RPG状态依赖。
+# 宿主可保留场景布局和后端会话，不引入RPG状态依赖。
 feathrise_scene_core = { workspace = true }
 bevy = { version = "=0.20.1", default-features = false, features = ["std"] }
 bytemuck.workspace = true

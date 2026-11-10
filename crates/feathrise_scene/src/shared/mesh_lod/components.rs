@@ -7,7 +7,7 @@ pub struct StaticMeshLodOriginal {
     pub mesh: Handle<Mesh>,
 }
 
-/// F12作者模式临时要求原始显示；不修改全局质量偏好或地图LOD策略。
+/// F12作者模式临时要求原始显示；不修改全局质量偏好或场景LOD策略。
 #[derive(Resource, Default)]
 pub struct MeshLodAuthoringState {
     pub active: bool,

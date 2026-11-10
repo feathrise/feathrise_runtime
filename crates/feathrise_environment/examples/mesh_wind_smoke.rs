@@ -271,7 +271,7 @@ fn setup_wind_specimens(
     real_tree: Option<Res<RealTreeSmoke>>, // GLB夹具模式由相邻系统创建真实高档部件。
 ) {
     if ready.is_some() || real_tree.is_some() {
-        return; // 地图式一次性门确保Update不会重复分配程序资产。
+        return; // 场景式一次性门确保Update不会重复分配程序资产。
     } // 完成重复创建防护。
     let Some(noise) = noise else {
         return; // 仅非阻塞等待Startup原子发布完整噪声句柄。

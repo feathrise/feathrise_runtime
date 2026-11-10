@@ -56,7 +56,7 @@ pub(crate) fn maintain_dlss_ray_reconstruction(
         .map(|snapshot| snapshot.ray_reconstruction)
         .unwrap_or_default(); // SDK 首次创建前不猜测能力或内部尺寸。
     let supported = support.is_some(); // 不猜适配器名称，官方支持资源是唯一能力事实。
-    runtime.dlss_rr_supported = supported; // F1在未进入玩法地图前也能显示真实设备能力。
+    runtime.dlss_rr_supported = supported; // F1在未进入玩法场景前也能显示真实设备能力。
     if request.dlss_rr_mode == DlssRayReconstructionMode::Off {
         if runtime.dlss_rr_active
             && let Some(camera) = runtime.camera
@@ -98,7 +98,7 @@ pub(crate) fn maintain_dlss_ray_reconstruction(
         runtime.dlss_rr_cpu_ms = None; // 等待阶段不能沿用旧视图的NGX同步调用时间。
         runtime.dlss_rr_gpu_ms = None; // 等待阶段不能沿用旧视图时间。
         runtime.dlss_rr_unavailable_reason =
-            Some(DlssRayReconstructionUnavailableReason::WaitingForSolariCamera); // F1区分设备支持与当前地图尚未激活。
+            Some(DlssRayReconstructionUnavailableReason::WaitingForSolariCamera); // F1区分设备支持与当前场景尚未激活。
         return;
     }
 
@@ -342,7 +342,7 @@ pub(crate) fn restore_dlss_ray_reconstruction_on_rollback(
     });
 }
 
-/// Solari因切镜、换图、尺寸或光照突变请求屏幕历史失效时，同帧重置RR避免错代重建。
+/// Solari因切镜、切换场景、尺寸或光照突变请求屏幕历史失效时，同帧重置RR避免错代重建。
 #[cfg(feature = "dlss_rr")] // 只有真实DLSS相机组件存在时注册同步逻辑。
 pub(crate) fn sync_dlss_ray_reconstruction_reset(
     runtime: Res<RaytracingRuntime>, // 只访问当前会话锁定的唯一相机和活动位。

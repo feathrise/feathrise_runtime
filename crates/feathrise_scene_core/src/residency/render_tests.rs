@@ -25,7 +25,7 @@ fn resident(app: &mut App, disabled: bool) -> Entity {
     let entity = app
         .world_mut()
         .spawn((
-            ResidentMapEntity(crate::residency::ResidentMapToken(1)),
+            ResidentSceneEntity(crate::residency::ResidentSceneToken(1)),
             SyncToRenderWorld::default(),
         ))
         .id();
@@ -81,7 +81,7 @@ fn parked_view_resumes_with_original_render_identity_and_data() {
 }
 
 #[test]
-fn closing_parked_map_retires_render_peer_in_same_extraction() {
+fn closing_parked_scene_retires_render_peer_in_same_extraction() {
     let mut app = fixture();
     let source = resident(&mut app, false);
     app.update();

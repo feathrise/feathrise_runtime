@@ -24,7 +24,7 @@ pub struct GroundSnap {
     pending: bool,          // true 表示系统需要在当前 X/Z 上方执行向下射线。
     snapped_y: Option<f32>, // 保存最后成功解算的根节点 Y，供掉落物悬浮等后续视觉系统复用。
     miss_reported: bool,    // 防止射线暂时未命中时每帧重复输出警告。
-    preserve_surface_layer: bool, // 正式地图角色热重载时保留当前楼层，旧角色继续沿用高空吸附。
+    preserve_surface_layer: bool, // 正式场景角色热重载时保留当前楼层，旧角色继续沿用高空吸附。
 } // 结束地面吸附组件定义。
 
 impl GroundSnap {
@@ -75,7 +75,7 @@ impl GroundSnap {
         if offset.is_finite()&&offset>0.0 {self.ground_offset=offset;}
     }
 
-    /// 正式地图角色已选择明确承托面，后续请求只在当前脚底附近找同一楼层。
+    /// 正式场景角色已选择明确承托面，后续请求只在当前脚底附近找同一楼层。
     pub fn preserve_surface_layer(&mut self) {
         self.preserve_surface_layer = true;
     }
@@ -138,7 +138,7 @@ mod tests {
     } // 结束重新请求状态测试。
 
     #[test]
-    fn map_character_recheck_keeps_current_surface_layer() {
+    fn scene_character_recheck_keeps_current_surface_layer() {
         let mut snap = GroundSnap::new(1.0);
         snap.preserve_surface_layer();
         snap.resolve(4.0);

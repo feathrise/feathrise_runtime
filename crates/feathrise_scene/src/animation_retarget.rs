@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn external_idle_maps_armature_and_ignores_scene_wrapper() {
+    fn external_idle_scenes_armature_and_ignores_scene_wrapper() {
         let paths = vec![vec![
             "Player".into(),
             "Armature".into(),

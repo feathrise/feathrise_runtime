@@ -2,14 +2,14 @@
 
 use bevy::prelude::*; // exclusive系统逐个静默、断开父子关系并销毁叶实体。
 
-use super::super::super::resources::MapPlacementRuntimeState; // 唯一运行时状态持有退役树队列。
+use super::super::super::resources::ScenePlacementRuntimeState; // 唯一运行时状态持有退役树队列。
 use super::PLACEMENT_TREE_CLEANUP_BUDGET_PER_FRAME; // 每帧树操作硬预算由退役功能域统一声明。
-use super::super::super::components::{MapPlacementInstance, PlacementPendingInstance, PlacementPendingRevision};
+use super::super::super::components::{ScenePlacementInstance, PlacementPendingInstance, PlacementPendingRevision};
 
 /// 每帧以固定操作数静默并回收退役树，绝不对仍有Children的实体调用linked-spawn递归despawn。
 pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
     let mut retired = {
-        let mut state = feathrise_scene_core::residency::instance_resource_mut::<MapPlacementRuntimeState>(world);
+        let mut state = feathrise_scene_core::residency::instance_resource_mut::<ScenePlacementRuntimeState>(world);
         std::mem::take(&mut state.retired_trees) // 暂时移出队列，避免exclusive World访问与资源借用重叠。
     };
     let mut budget = PLACEMENT_TREE_CLEANUP_BUDGET_PER_FRAME;
@@ -21,7 +21,7 @@ pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
             let root = cleanup.roots[cleanup.quiesce_cursor];
             cleanup.quiesce_cursor += 1;
             budget -= 1; // 每个直接placement根的静默化计为一个固定预算操作。
-            if world.get::<MapPlacementInstance>(root).is_some_and(MapPlacementInstance::is_active) {
+            if world.get::<ScenePlacementInstance>(root).is_some_and(ScenePlacementInstance::is_active) {
                 // 已由新批次接管或失败后仍属于旧活动批次的根，不注销WorldAssetRoot和玩法状态。
                 if let Some((carry, parent)) = cleanup.restore_carry
                     && world.get::<ChildOf>(root).map(ChildOf::parent) == Some(carry)
@@ -88,6 +88,6 @@ pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
         }
     }
     world
-        .resource_mut::<MapPlacementRuntimeState>()
+        .resource_mut::<ScenePlacementRuntimeState>()
         .retired_trees = retired; // exclusive处理完成后一次归还剩余所有权。
 }

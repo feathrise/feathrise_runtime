@@ -3,7 +3,7 @@ use bevy::{
     prelude::*,
     render::{Extract, camera::TemporalJitter},
 }; // 从本帧最终主世界相机状态提取。
-use feathrise_scene_core::view::PrimarySceneView; // 不选择烘焙、地图等辅助相机。
+use feathrise_scene_core::view::PrimarySceneView; // 不选择烘焙、场景等辅助相机。
 
 #[derive(Resource, Default)] // RenderWorld独立请求不授权SDK，也不触发屏幕UI捕获。
 pub(super) struct WorldUiRequest {
@@ -27,5 +27,5 @@ pub(super) fn extract(
             Some(entity)
         } // DLSS/DLAA等时间重建独立于FG；无时间重建时保留原FG能力。
         _ => None, // 无相机、相机歧义或两种需求都关闭时不分配独立纹理。
-    }; // 每帧覆盖身份，防止地图切换后复用旧相机。
+    }; // 每帧覆盖身份，防止场景切换后复用旧相机。
 } // 非阻塞资格提取结束。

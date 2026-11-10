@@ -105,7 +105,7 @@ fn sun_rim_follows_final_daylight_and_never_uses_moonlight() {
     let rainy = CloudSunLight::from_final_light(&authored, &light, &low_sun, true).unwrap(); // 只变化最终照度。
     assert!(rainy.rim < rim.rim); // 不使用未受天气影响的作者日光基准直接发光。
     assert!(CloudSunLight::from_final_light(&authored, &light, &low_sun, false).is_none()); // 夜间复用为月光的固定灯不得产生暖边。
-    authored.kind = WorldCelestialLightKind::Moon; // 动态地图月亮灯也必须排除。
+    authored.kind = WorldCelestialLightKind::Moon; // 动态场景月亮灯也必须排除。
     assert!(CloudSunLight::from_final_light(&authored, &light, &low_sun, true).is_none()); // 即使照度大也不把月亮当太阳。
     authored.kind = WorldCelestialLightKind::Sun; // 恢复日间太阳身份用于正午测试。
     assert!(
@@ -147,7 +147,7 @@ fn cloud_material_uses_current_sun_and_clears_rim_at_night() {
     let sun = app
         .world_mut()
         .spawn((
-            WorldCelestialLight::new(10_000.0, Color::WHITE, Color::WHITE), // 固定地图兼容太阳灯。
+            WorldCelestialLight::new(10_000.0, Color::WHITE, Color::WHITE), // 固定场景兼容太阳灯。
             DirectionalLight {
                 illuminance: 2_000.0,               // 模拟经过天气修正的最终照度。
                 color: Color::srgb(1.0, 0.55, 0.3), // 模拟最终晨光的暖色。
@@ -233,7 +233,7 @@ fn cloud_system_is_safe_without_render_assets() {
         ..default()       // 其余天气通道保持晴天默认值。
     }; // 从晴天输出构造厚云样本。
     app.insert_resource(output); // 提供云幕同步系统必需的连续天气输出。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许F1强制视觉天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许F1强制视觉天气。
     app.add_systems(Update, sync_weather_cloud_curtain); // 只注册被测云幕系统。
     app.world_mut().spawn((PrimarySceneView, Transform::default())); // 提供可定位玩法主相机但不提供Camera渲染组件。
     app.update(); // 缺少Image、Mesh和Material容器时应安全返回。
@@ -257,7 +257,7 @@ fn cloud_curtain_is_single_layered_hidden_when_clear_and_removed_in_menu() {
         ..default()       // 其余天气通道保持晴天默认值。
     }; // 从有效晴天输出构造阴雨云量。
     app.insert_resource(output); // 提供被测云幕系统的连续输入。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许F1天气表现。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许F1天气表现。
     app.add_systems(Update, sync_weather_cloud_curtain); // 注册唯一云幕同步系统。
     let gameplay_camera = app
         .world_mut()
@@ -290,11 +290,11 @@ fn cloud_curtain_is_single_layered_hidden_when_clear_and_removed_in_menu() {
     assert_eq!(entities, 1); // 连续同步必须只保留一个云幕实体。
     assert_eq!(translation, Vec3::new(4.0, 6.0, 8.0)); // 云穹中心与主相机完全重合，低仰角不会露出边缘。
     assert!(layers.intersects(&RenderLayers::layer(WEATHER_EFFECT_LAYER))); // 云幕必须进入天气专属层。
-    assert!(!layers.intersects(&RenderLayers::layer(0))); // 云幕不得泄漏到默认小地图或辅助相机层。
+    assert!(!layers.intersects(&RenderLayers::layer(0))); // 云幕不得泄漏到默认小场景或辅助相机层。
     assert_eq!(visibility, Visibility::Visible); // 阴雨高云量必须显示云幕。
     app.world_mut().entity_mut(gameplay_camera).insert((
         AuthoredSkyboxRequest::new_with_mode(
-            AuthoredSkyMode::Skybox,     // 地图明确选择离线可见背景。
+            AuthoredSkyMode::Skybox,     // 场景明确选择离线可见背景。
             Some("sky.ktx2".to_owned()), // 模拟已经完整采用的主 Cube 身份。
             1_000.0,                     // 天空盒日间亮度。
             300.0,                       // IBL 漫反射强度。
@@ -340,7 +340,7 @@ fn cloud_curtain_is_single_layered_hidden_when_clear_and_removed_in_menu() {
     }; // 完成晴天隐藏状态读取。
     assert_eq!(hidden, Visibility::Hidden); // 晴天不得显示程序云幕。
     app.world_mut()
-        .insert_resource(State::new(ScenePhase::Idle)); // 模拟从玩法地图返回主菜单。
+        .insert_resource(State::new(ScenePhase::Idle)); // 模拟从玩法场景返回主菜单。
     app.update(); // 菜单阶段必须销毁可能残留的隐藏云幕实体。
     let remaining = {
         let world = app.world_mut(); // 创建最终查询确认菜单隔离。
@@ -350,11 +350,11 @@ fn cloud_curtain_is_single_layered_hidden_when_clear_and_removed_in_menu() {
     assert_eq!(remaining, 0); // 主菜单不得保留或渲染玩法天气云幕。
     app.world_mut().resource_mut::<WeatherOutput>().cloud_cover = 0.6; // 返回玩法前切换到与离场缓存不同的可见云量。
     app.world_mut()
-        .insert_resource(State::new(ScenePhase::Active)); // 模拟重新进入动态地图玩法场景。
+        .insert_resource(State::new(ScenePhase::Active)); // 模拟重新进入动态场景玩法场景。
     let expected_opacity = cloud_curtain_profile(
         app.world().resource::<WeatherOutput>(), // 使用重新进入时的最新连续天气输出。
         None,                                    // 最小测试没有ClearColor资源。
-        true,                                    // 动态地图属于允许天气表现的玩法场景。
+        true,                                    // 动态场景属于允许天气表现的玩法场景。
         None,                                    // 最小ECS测试没有天体方向光。
     )
     .opacity; // 记录新实体首帧应写入的材质透明度。
@@ -388,7 +388,7 @@ fn authoring_orthographic_view_removes_cloud_curtain_and_perspective_restores_it
         cloud_cover: 0.9, // 使用明显厚云确保透视阶段确实生成可见云幕。
         ..default()
     });
-    app.insert_resource(State::new(ScenePhase::Active)); // 使用动态地图验证作者视图与玩法天气切换。
+    app.insert_resource(State::new(ScenePhase::Active)); // 使用动态场景验证作者视图与玩法天气切换。
     app.insert_resource(WeatherAuthoringPreview::new(true));
     app.add_systems(Update, sync_weather_cloud_curtain);
     let preview_camera = app

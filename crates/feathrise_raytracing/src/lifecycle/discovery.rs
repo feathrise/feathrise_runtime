@@ -7,7 +7,7 @@ use bevy::{
 };
 use feathrise_environment::terrain_surface::TerrainSurfaceCarrier; // 通过显式地表承接标记选择扩展材质路径。
 use feathrise_scene::{
-    DYNAMIC_TERRAIN_MESH_NAME, DYNAMIC_TERRAIN_WHITE_MATERIAL_NAME, DynamicMapTerrainPrimitive,
+    DYNAMIC_TERRAIN_MESH_NAME, DYNAMIC_TERRAIN_WHITE_MATERIAL_NAME, DynamicSceneTerrainPrimitive,
 }; // 复用场景crate的动态地形身份与完整就绪证据，禁止在光追crate复制字符串或加载状态机。
 mod static_terrain;
 
@@ -28,14 +28,14 @@ use crate::{
     },
 };
 
-/// 按当前地图目标在明确层级内一次发现完整候选集合，并在任何不一致时整体失败。
+/// 按当前场景目标在明确层级内一次发现完整候选集合，并在任何不一致时整体失败。
 pub(crate) fn discover_candidates(
     sources: Query<(
         &GltfMeshName,
         &GltfMaterialName,
         &Mesh3d,
         Has<TerrainSurfaceCarrier>,
-        Has<DynamicMapTerrainPrimitive>,
+        Has<DynamicSceneTerrainPrimitive>,
         Has<feathrise_scene::ClipmapRaytracingAnchor>,
     )>, // 候选必须同时具备双身份、可见源Mesh和明确内容角色。
     meshes: Res<Assets<Mesh>>,  // 冻结当前已加载源统计与格式。
@@ -47,17 +47,17 @@ pub(crate) fn discover_candidates(
     if runtime.stage != RaytracingPrototypeStage::DiscoveringCandidates
         || runtime.pending_rollback.is_some()
     {
-        return; // 事件与协调系统只让每个地图代次进入一次发现。
+        return; // 事件与协调系统只让每个场景代次进入一次发现。
     }
     let Some(root) = runtime.root else {
         runtime.request_rollback(
-            Some(RaytracingPrototypeBlocker::WaitingForSupportedMap),
+            Some(RaytracingPrototypeBlocker::WaitingForSupportedScene),
             RollbackDisposition::RasterReady,
         );
         return;
     };
 
-    if runtime.target == RaytracingPrototypeTarget::DynamicMapTerrain {
+    if runtime.target == RaytracingPrototypeTarget::DynamicSceneTerrain {
         discover_dynamic_terrain(
             root,
             &sources,
@@ -70,12 +70,12 @@ pub(crate) fn discover_candidates(
         return;
     }
     runtime.request_rollback(
-        Some(RaytracingPrototypeBlocker::WaitingForSupportedMap),
+        Some(RaytracingPrototypeBlocker::WaitingForSupportedScene),
         RollbackDisposition::RasterReady,
     );
 }
 
-/// 动态地图先确认唯一高度源，再添加已联合采用的有限三维地形集合。
+/// 动态场景先确认唯一高度源，再添加已联合采用的有限三维地形集合。
 /// 普通摆放、水和植被不参与本次发现，也不重新遍历它们的层级。
 fn discover_dynamic_terrain(
     root: Entity,
@@ -84,7 +84,7 @@ fn discover_dynamic_terrain(
         &GltfMaterialName,
         &Mesh3d,
         Has<TerrainSurfaceCarrier>,
-        Has<DynamicMapTerrainPrimitive>,
+        Has<DynamicSceneTerrainPrimitive>,
         Has<feathrise_scene::ClipmapRaytracingAnchor>,
     )>,
     meshes: &Assets<Mesh>,
@@ -104,7 +104,7 @@ fn discover_dynamic_terrain(
     else {
         fail_contract(
             runtime,
-            "动态地图正式地形实体缺少GLTF双身份或Mesh3d".to_owned(),
+            "动态场景正式地形实体缺少GLTF双身份或Mesh3d".to_owned(),
         );
         return;
     };
@@ -269,7 +269,7 @@ fn validate_source_mesh(mesh: &Mesh, requires_source_uv: bool) -> Result<(u64, u
     Ok((positions.len() as u64, (indices.len() / 3) as u64))
 }
 
-/// 动态地图允许小测试图低于正式513²地形，但绝不允许越过正式单地形或全局硬预算。
+/// 动态场景允许小测试图低于正式513²地形，但绝不允许越过正式单地形或全局硬预算。
 fn validate_dynamic_budget(budget: RaytracingBudgetSnapshot) -> Result<(), String> {
     if budget.instances != DYNAMIC_EXPECTED_INSTANCE_COUNT
         || budget.unique_materials != DYNAMIC_EXPECTED_UNIQUE_MATERIAL_COUNT

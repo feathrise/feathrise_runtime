@@ -6,17 +6,17 @@ use std::sync::Arc; // 完整建筑净空数组在候选、活动资源和植被
 use bevy::asset::AssetId; // 规划身份冻结清单、摆放JSON与去重Scene资产ID。
 use bevy::prelude::*; // Entity、Transform、Rect与Resource。
 use bevy::world_serialization::{InstanceId, WorldAsset}; // 候选场景强句柄与换代阻断票据都只保存轻量身份。
-use feathrise_map_content::{
-    BuildingWorldQuad, MapId, MapManifestAsset, MapPlacementRecord, MapPlacementWaterSurface,
-    MapPlacementsAsset,
+use feathrise_scene_content::{
+    BuildingWorldQuad, SceneId, SceneManifestAsset, ScenePlacementRecord, ScenePlacementWaterSurface,
+    ScenePlacementsAsset,
 }; // 增量规划冻结输入资产身份、单记录快照及其水体退役游标。
-use feathrise_scene_core::state::ScenePhase; // 识别切图并清理旧实例。
+use feathrise_scene_core::state::ScenePhase; // 识别切换场景并清理旧实例。
 
 use super::components::PlacementInstanceGate; // 同批placement共享O(1)作者活动门。
 
-/// 当前地图显式实例数据阶段。
+/// 当前场景显式实例数据阶段。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum MapPlacementRuntimePhase {
+pub enum ScenePlacementRuntimePhase {
     /// 目录、清单或摆放文件仍在加载。
     #[default]
     Waiting,
@@ -30,9 +30,9 @@ pub enum MapPlacementRuntimePhase {
 
 /// F3和F12可读取的显式实例热更新证据。
 #[derive(Resource, Clone, Debug, Default)]
-pub struct MapPlacementRuntimeStatus {
-    pub phase: MapPlacementRuntimePhase,
-    pub map_id: Option<MapId>,
+pub struct ScenePlacementRuntimeStatus {
+    pub phase: ScenePlacementRuntimePhase,
+    pub scene_id: Option<SceneId>,
     /// 最近一次已经完整原子采用的公开修订；失败尝试不会推进它。
     pub revision: u64,
     /// 每次正式摆放候选开始构建或确定失败时推进，用于区分保存发布后的新失败和旧失败。
@@ -46,14 +46,14 @@ pub struct MapPlacementRuntimeStatus {
     pub detail: String,
 }
 
-impl MapPlacementRuntimeStatus {
+impl ScenePlacementRuntimeStatus {
     /// 发布一次真实运行时推进；饱和后保持单调而不回绕成旧证据。
     pub(crate) fn advance_progress(&mut self) {
         self.progress_revision = self.progress_revision.saturating_add(1);
     }
 }
 
-/// World/整网格水联合门最多缓存的去重候选根数；覆盖一张合法地图8192项placement上限。
+/// World/整网格水联合门最多缓存的去重候选根数；覆盖一张合法场景8192项placement上限。
 pub(super) const MAX_PLACEMENT_SETTLEMENT_ROOTS: usize = 8_192;
 
 /// 生命周期observer提交一个定向候选根时的确定结果。
@@ -176,13 +176,13 @@ impl PlacementWorldAssetInvalidations {
     }
 }
 
-/// 请求当前地图用现有正式`MapPlacementsAsset`重新建立一次隐藏候选。
+/// 请求当前场景用现有正式`ScenePlacementsAsset`重新建立一次隐藏候选。
 ///
 /// 【功能设计】保存交接失败后的原样重试不能为了制造`Modified`而重写未变化资产；
 /// 编辑器改为发送本消息，运行时仍走同一完整校验、隐藏候选和原子替换链路。
 #[derive(Message, Clone, Debug)]
-pub struct MapPlacementRebuildRequest {
-    pub map_id: MapId,
+pub struct ScenePlacementRebuildRequest {
+    pub scene_id: SceneId,
 }
 
 /// 完整校验后持有的一项场景实例计划。
@@ -195,7 +195,7 @@ pub(crate) struct PendingPlacementPrimitive {
 /// 完整校验后持有的一项场景或单primitive实例计划。
 #[derive(Debug)]
 pub(crate) struct PendingPlacementPlan {
-    pub(crate) record: MapPlacementRecord, // 强句柄等待期保留文件内目标、原始变换与赋水数组的同一完整JSON快照。
+    pub(crate) record: ScenePlacementRecord, // 强句柄等待期保留文件内目标、原始变换与赋水数组的同一完整JSON快照。
     pub(crate) scene: Handle<WorldAsset>,  // Scene0继续作为同源GLTF解析与完整场景依赖的强句柄。
     pub(crate) primitive: Option<PendingPlacementPrimitive>, // Some时候选直接生成唯一网格而不实例化整棵Scene0。
     pub(crate) transform: Transform, // 已校验记录一次转换为Bevy运行时变换，不在生成帧重复计算。
@@ -205,10 +205,10 @@ pub(crate) struct PendingPlacementPlan {
 #[derive(Debug)]
 pub(crate) struct PendingPlacementRevision {
     pub(crate) terrain_patch_count: usize,
-    pub(crate) terrain_holes: Arc<[feathrise_map_content::MapTerrainCutout]>, // 至多32个完整世界洞口，只在全记录通过后发布。
+    pub(crate) terrain_holes: Arc<[feathrise_scene_content::SceneTerrainCutout]>, // 至多32个完整世界洞口，只在全记录通过后发布。
     pub(crate) generation: u32,
     pub(crate) revision: u32,
-    pub(crate) map_id: MapId,
+    pub(crate) scene_id: SceneId,
     pub(crate) building_preset_revision: u64, // 净空四边形必须与同一建筑目录快照绑定。
     pub(crate) building_clearances: Arc<[BuildingWorldQuad]>, // 全部记录完成后一次冻结，不暴露规划前缀。
     pub(crate) building_clearance_floor_heights: Arc<[f32]>, // 与净空同序的地基层，洞内外共享XZ时仍可区分。
@@ -221,8 +221,8 @@ pub(crate) struct PendingPlacementRevision {
 /// 并用水体游标在最多六十四项的独立帧预算下完成稳定身份校验。
 #[derive(Debug)]
 pub(crate) struct PlacementRecordPlanning {
-    pub(crate) source_pose: feathrise_map_content::TerrainObjectTransform,
-    pub(crate) record: MapPlacementRecord, // 基础字段已冻结，水体Vec只追加已通过当帧预算校验的前缀。
+    pub(crate) source_pose: feathrise_scene_content::TerrainObjectTransform,
+    pub(crate) record: ScenePlacementRecord, // 基础字段已冻结，水体Vec只追加已通过当帧预算校验的前缀。
     pub(crate) transform: Transform,       // 基础字段校验后只转换一次运行时变换。
     pub(crate) total_water_surfaces: usize, // 启动记录时冻结的源绑定数，跨帧变化立即失败。
     pub(crate) next_water_surface: usize,  // 下一个待校验水体绑定索引。
@@ -232,17 +232,17 @@ pub(crate) struct PlacementRecordPlanning {
 /// 一次正式摆放文件的有界增量规划事务。
 #[derive(Debug)]
 pub(crate) struct PlacementPlanning {
-    /// 地形域只接管旧图的三维地形记录，地图容器只处理普通实例，防止迁移后重复生成。
+    /// 地形域只接管旧图的三维地形记录，场景容器只处理普通实例，防止迁移后重复生成。
     pub(crate) terrain_filter: TerrainPlacementFilter,
     pub(crate) terrain_patch_count: usize,
-    pub(crate) terrain_holes: Vec<feathrise_map_content::MapTerrainCutout>,
-    pub(crate) generation: u32,       // 换图代次与后续候选根严格对齐。
+    pub(crate) terrain_holes: Vec<feathrise_scene_content::SceneTerrainCutout>,
+    pub(crate) generation: u32,       // 切换场景代次与后续候选根严格对齐。
     pub(crate) revision: u32,         // 文件尝试修订防止迟到规划被采用。
-    pub(crate) map_id: MapId,         // 同一DynamicMapScene内换MapId也会取消本事务。
+    pub(crate) scene_id: SceneId,         // 同一DynamicSceneRoot内换SceneId也会取消本事务。
     pub(crate) catalog_revision: u64, // 目录句柄表换代后不再继续读取旧输入。
     pub(crate) building_preset_revision: u64, // 建筑净空参数换代后整份规划必须重启。
-    pub(crate) manifest_id: AssetId<MapManifestAsset>, // 冻结世界范围的清单资产身份。
-    pub(crate) document_id: AssetId<MapPlacementsAsset>, // 跨帧继续读取的摆放JSON资产身份。
+    pub(crate) manifest_id: AssetId<SceneManifestAsset>, // 冻结世界范围的清单资产身份。
+    pub(crate) document_id: AssetId<ScenePlacementsAsset>, // 跨帧继续读取的摆放JSON资产身份。
     pub(crate) world_bounds: Rect,    // 轻量范围在开始时完整校验并冻结。
     pub(crate) total_records: usize,  // 与启动时文档长度一致，变化时失败关闭。
     pub(crate) next_record: usize,    // 下一条未启动校验的记录游标。
@@ -262,16 +262,16 @@ pub(crate) enum TerrainPlacementFilter {
     #[default]
     All,
     Container,
-    Terrain(feathrise_map_content::TerrainId),
+    Terrain(feathrise_scene_content::TerrainId),
 }
 
 impl TerrainPlacementFilter {
-    pub(crate) fn accepts(&self, record: &feathrise_map_content::MapPlacementRecord) -> bool {
+    pub(crate) fn accepts(&self, record: &feathrise_scene_content::ScenePlacementRecord) -> bool {
         match self {
             Self::All => true,
             Self::Container => record.terrain_patch.is_none(),
             Self::Terrain(id) => record.terrain_patch.as_ref().is_some_and(|patch| patch.terrain_id.as_ref()
-                .map_or(*id == feathrise_map_content::TerrainId::legacy(), |owner| owner == id)),
+                .map_or(*id == feathrise_scene_content::TerrainId::legacy(), |owner| owner == id)),
         }
     }
 }
@@ -322,7 +322,7 @@ pub(crate) struct PlacementPlanRetirementCursor {
     pub(crate) id: Option<String>, // placement稳定ID按字符串字节预算释放。
     pub(crate) asset_path: Option<String>, // GLB路径按字符串字节预算释放。
     pub(crate) scene: Option<Handle<WorldAsset>>, // 强句柄只在全部嵌套水绑定释放后作为顶层计划项释放。
-    pub(crate) water_surfaces: std::vec::IntoIter<MapPlacementWaterSurface>, // 每项继续拆成路径段游标。
+    pub(crate) water_surfaces: std::vec::IntoIter<ScenePlacementWaterSurface>, // 每项继续拆成路径段游标。
     pub(crate) current_water_surface: Option<PlacementWaterIdentityRetirement>, // 当前水绑定不允许一次析构完整节点路径。
 }
 
@@ -416,15 +416,15 @@ impl PlacementTreeCleanup {
 
 /// 唯一写侧保存的有限事务状态。
 #[derive(Resource, Debug)]
-pub(crate) struct MapPlacementRuntimeState {
-    pub(crate) observed_document: Option<AssetId<MapPlacementsAsset>>, // 暂停恢复不把相同预览句柄误当成新内容。
+pub(crate) struct ScenePlacementRuntimeState {
+    pub(crate) observed_document: Option<AssetId<ScenePlacementsAsset>>, // 暂停恢复不把相同预览句柄误当成新内容。
     pub(crate) terrain_mesh_generation: Option<[u32; 2]>,
     pub(crate) terrain_patch_active: bool,
-    pub(crate) terrain_holes_applied: Arc<[feathrise_map_content::MapTerrainCutout]>, // 地形物理发布后才放行同一摆放候选。
+    pub(crate) terrain_holes_applied: Arc<[feathrise_scene_content::SceneTerrainCutout]>, // 地形物理发布后才放行同一摆放候选。
     pub(crate) dirty: bool,
     pub(crate) active_scene: Option<ScenePhase>,
-    /// `DynamicMapScene`不换State也能切换MapId，必须作为候选身份的一部分观察。
-    pub(crate) active_map_id: Option<MapId>,
+    /// `DynamicSceneRoot`不换State也能切换SceneId，必须作为候选身份的一部分观察。
+    pub(crate) active_scene_id: Option<SceneId>,
     pub(crate) catalog_revision: u64,
     pub(crate) building_preset_revision: u64, // 建筑目录成功换代会触发同一有界 placement 重建链。
     pub(crate) generation: u32,
@@ -447,7 +447,7 @@ pub(crate) struct MapPlacementRuntimeState {
     pub(crate) world_asset_events_caught_up: bool,
 }
 
-impl Default for MapPlacementRuntimeState {
+impl Default for ScenePlacementRuntimeState {
     fn default() -> Self {
         Self {
             observed_document: None,
@@ -456,7 +456,7 @@ impl Default for MapPlacementRuntimeState {
             terrain_holes_applied: Arc::default(),
             dirty: true,
             active_scene: None,
-            active_map_id: None,
+            active_scene_id: None,
             catalog_revision: 0,
             building_preset_revision: 0,
             generation: 0,

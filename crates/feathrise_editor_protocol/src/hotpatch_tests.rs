@@ -9,7 +9,7 @@ fn request(artifact: &str) -> Envelope {
 
 #[test]
 fn optional_patch_request_roundtrips_without_new_mandatory_capabilities() {
-    assert_eq!(PROTOCOL_VERSION, 1);
+    assert_eq!(PROTOCOL_VERSION, 2);
     let request = request("patches/9/package.json");
     request.validate(&Limits::default()).unwrap();
     let mut encoded = Vec::new(); write_frame(&mut encoded, &request, &Limits::default()).unwrap();

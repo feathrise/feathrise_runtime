@@ -65,7 +65,7 @@ impl Default for RenderSettings {
 #[derive(Resource, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SceneDisplaySettings {
-    pub show_map_planning: bool,
+    pub show_scene_planning: bool,
     pub air_wall_display_mode: crate::AirWallDisplayMode,
     pub show_physics_debug: bool,
     pub terrain_backfaces: bool,
@@ -73,7 +73,7 @@ pub struct SceneDisplaySettings {
 impl Default for SceneDisplaySettings {
     fn default() -> Self {
         Self {
-            show_map_planning: false,
+            show_scene_planning: false,
             air_wall_display_mode: Default::default(),
             show_physics_debug: false,
             terrain_backfaces: true,
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn shared_inputs_start_from_authored_baseline() {
         assert_eq!(RenderSettings::default().exposure_compensation, 0.0);
-        assert!(!SceneDisplaySettings::default().show_map_planning);
+        assert!(!SceneDisplaySettings::default().show_scene_planning);
         assert_eq!(
             EnvironmentPreviewSettings::default().directional_light_brightness_multiplier,
             1.0

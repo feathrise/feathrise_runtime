@@ -171,7 +171,7 @@ fn capture_and_prepare(
     let (target, extracted_view, prepass, jitter, resolution_override, world_ui) =
         view.into_inner(); // 所有输入包含当前世界UI层的失败身份。
     if request.camera != Some(extracted_view.retained_view_entity.main_entity.id()) {
-        return; // 小地图、角色预览和场景切换残留视图不得覆盖主相机反馈。
+        return; // 小场景、角色预览和场景切换残留视图不得覆盖主相机反馈。
     }
     if world_ui.is_some_and(|layer| {
         layer.frame == frame.0
@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn motion_vector_usage_maps_to_sampling_and_color_attachment() {
+    fn motion_vector_usage_scenes_to_sampling_and_color_attachment() {
         let mapped = map_image_usage(
             TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
             vk::ImageAspectFlags::COLOR,

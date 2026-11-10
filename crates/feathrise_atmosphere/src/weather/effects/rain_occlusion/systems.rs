@@ -1,4 +1,4 @@
-//! 唯一雨向相机生命周期：固定局部窗口、变化刷新、地图身份隔离及低频缓存重试。
+//! 唯一雨向相机生命周期：固定局部窗口、变化刷新、场景身份隔离及低频缓存重试。
 use super::{
     components::RainOcclusionCamera,
     constants::RESOLUTION,
@@ -14,7 +14,7 @@ use bevy::prelude::*; // ECS、相机与资产。
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages}; // 固定GPU目标。
 use feathrise_scene_core::view::PrimarySceneView; // 玩法天气锚点。
 use feathrise_scene_core::constants::render_layers::RAIN_OCCLUSION_LAYER; // 标准世界模型专用层。
-use feathrise_map_content::ActiveDynamicMap; // 同枚举切图的真实身份。
+use feathrise_scene_content::ActiveDynamicScene; // 同枚举切换场景的真实身份。
 use feathrise_scene_core::state::ScenePhase; // 非玩法禁止旧图继续作用。 // 捕获需求与固定数学。
 
 pub(super) fn initialize(mut commands: Commands) {
@@ -47,7 +47,7 @@ pub(super) fn initialize(mut commands: Commands) {
 } // 初始化结束。
 
 fn new_target(images: &mut Assets<Image>) -> Handle<Image> {
-    // 每个地图/降雨会话只分配一次固定图片。
+    // 每个场景/降雨会话只分配一次固定图片。
     let mut image = Image::new_uninit(
         // wgpu保证首次读取未写像素为零，A=0表示无效。
         Extent3d {
@@ -62,7 +62,7 @@ fn new_target(images: &mut Assets<Image>) -> Handle<Image> {
     image.texture_descriptor.usage =
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST; // 转换写入、雨丝读取。
     image.sampler = ImageSampler::nearest(); // 禁止对编码位做线性过滤。
-    images.add(image) // 新身份杜绝跨地图使用旧像素。
+    images.add(image) // 新身份杜绝跨场景使用旧像素。
 } // 目标分配结束。
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)] // 天气、资产变化和相机所有权分别建模。
@@ -70,7 +70,7 @@ pub(super) fn update(
     // 变换传播后读取源，同帧手动写独立相机世界变换。
     output: Res<WeatherOutput>,                    // 与雨滴同源风速。
     scene: Option<Res<State<ScenePhase>>>,          // 无场景的独立测试可运行。
-    dynamic: Option<Res<ActiveDynamicMap>>,        // 真实动态地图身份。
+    dynamic: Option<Res<ActiveDynamicScene>>,        // 真实动态场景身份。
     preview: Option<Res<WeatherAuthoringPreview>>, // F12选择与雨丝一致。
     time: Option<Res<Time<Real>>>,                 // 暂停时仍允许缓存重试。
     anchors: Query<
@@ -110,7 +110,7 @@ pub(super) fn update(
     mut material_events: MessageReader<AssetEvent<StandardMaterial>>, // 同一材质透明度变化立即刷新。
     mut images: ResMut<Assets<Image>>,                                // 只在目标身份改变时分配。
     mut map: ResMut<RainOcclusionMap>, // 同帧发布捕获矩阵和图像身份。
-    mut state: ResMut<CaptureState>,   // 缓存不随地图实体数量增长。
+    mut state: ResMut<CaptureState>,   // 缓存不随场景实体数量增长。
 ) {
     // 捕获同步开始。
     let removed_source = removed.read().next().is_some()
@@ -124,15 +124,15 @@ pub(super) fn update(
     mesh_events.clear(); // 本帧变化合并为一次重画。
     material_events.clear(); // 材质热更新同样合并。
     let context = match scene.as_deref().map(State::get) {
-        // 读取最新正式地图身份。
+        // 读取最新正式场景身份。
         Some(ScenePhase::Active) => dynamic
             .as_ref()
-            .and_then(|map| map.map_id.clone())
+            .and_then(|map| map.scene_id.clone())
             .map(|id| (ScenePhase::Active, Some(id))), // 清单未采用不捕获。
         None => Some((ScenePhase::Active, None)), // 最小无状态测试沿用玩法资格。
         _ => None, // 菜单和加载撤销旧图。
     }; // 场景判定结束。
-    let context_changed = state.context != context; // 同场景枚举换地图也失效。
+    let context_changed = state.context != context; // 同场景枚举换场景也失效。
     if context_changed {
         state.context = context.clone();
         state.target = None;

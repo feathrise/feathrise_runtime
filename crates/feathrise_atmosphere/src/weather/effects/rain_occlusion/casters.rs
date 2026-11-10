@@ -1,4 +1,4 @@
-// 自动把世界标准材质网格登记到雨向深度层；生命周期事件只访问当前实体，不扫描地图。
+// 自动把世界标准材质网格登记到雨向深度层；生命周期事件只访问当前实体，不扫描场景。
 // 源层与名称需通过 insert/remove 发布变更；目前项目的原地 RenderLayers 修改仅用于相机和灯光。
 use bevy::camera::visibility::RenderLayers; // 与原世界层共存，不改变资产预览的可见性隔离。
 use bevy::prelude::*; // 复用标准材质、ECS 生命周期及命令队列。
@@ -35,7 +35,7 @@ fn material_removed(event: On<Remove<MeshMaterial3d<StandardMaterial>>>, mut com
 fn layers_inserted(event: On<Insert<RenderLayers>>, mut commands: Commands) {
     // 同时接收外部层调整和本模块自己的插入。
     enqueue(event.entity, &mut commands); // reconcile 对相同层无写入，因此不会产生无限递归。
-} // 单实体排队成本不随地图规模增加。
+} // 单实体排队成本不随场景规模增加。
 
 fn layers_removed(event: On<Remove<RenderLayers>>, mut commands: Commands) {
     // 恢复隐式世界层也需要更新资格。

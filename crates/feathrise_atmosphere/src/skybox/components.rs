@@ -5,17 +5,17 @@ use bevy::prelude::*; // Component、Handle、Image与Quat。
 
 use crate::{WorldSkyProfile, time::WorldEnvironmentMapProfile}; // 保存可见天空与环境补光/反射各自的日间基准。
 
-/// 运行时可见天空的互斥来源；场景层显式把地图数据枚举转换到此领域类型。
+/// 运行时可见天空的互斥来源；场景层显式把场景数据枚举转换到此领域类型。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AuthoredSkyMode {
     /// Bevy 原生大气与独立动态云生成背景，离线资源只提供 IBL。
     #[default]
-    Dynamic, // 保持旧构造器及旧地图的兼容默认。
+    Dynamic, // 保持旧构造器及旧场景的兼容默认。
     /// 主 Cube 生成可见背景并关闭动态大气与云，但继续显示世界时间模拟的天体圆盘。
     Skybox, // 三张 Cube 必须完整就绪后才原子采用。
 }
 
-/// 一台相机当前请求的地图天空资源；相同组件同时服务玩法窗口和F12离屏视口。
+/// 一台相机当前请求的场景天空资源；相同组件同时服务玩法窗口和F12离屏视口。
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct AuthoredSkyboxRequest {
     /// 本请求选择的互斥可见天空来源。
@@ -30,19 +30,19 @@ pub struct AuthoredSkyboxRequest {
     pub base_environment_specular_intensity: f32,
     /// IBL 绕世界Y轴旋转角，允许负角并在构造四元数前归一化。
     pub yaw_degrees: f32,
-    /// 地图环境作者修订；迟到资产事件只能作用于仍匹配的请求。
+    /// 场景环境作者修订；迟到资产事件只能作用于仍匹配的请求。
     pub revision: u64,
 }
 
 impl AuthoredSkyboxRequest {
     /// 构造兼容旧调用方的动态天空请求；主路径只加载 IBL 两件套。
     pub fn new(
-        asset_path: Option<String>, // 调用方直接传地图清单字段，不在此访问文件系统。
+        asset_path: Option<String>, // 调用方直接传场景清单字段，不在此访问文件系统。
         base_brightness: f32,       // 动态模式仅保留并验证天空盒切换基准。
         base_environment_diffuse_intensity: f32, // 人物与地形天空补光拥有独立作者基准。
         base_environment_specular_intensity: f32, // 水面与光滑材质天空反射拥有独立作者基准。
         yaw_degrees: f32,           // 编辑器与玩法使用完全相同的方向。
-        revision: u64,              // 每次环境作者变化或地图换代递增。
+        revision: u64,              // 每次环境作者变化或场景换代递增。
     ) -> Self {
         Self::new_with_mode(
             AuthoredSkyMode::Dynamic, // 缺省入口保持动态天空，不让旧调用方突然显示烘焙背景。
@@ -56,9 +56,9 @@ impl AuthoredSkyboxRequest {
     }
 
     /// 构造带显式可见天空模式的统一异步请求。
-    #[allow(clippy::too_many_arguments)] // 六个作者字段与一个模式共同构成不可拆分的地图环境快照。
+    #[allow(clippy::too_many_arguments)] // 六个作者字段与一个模式共同构成不可拆分的场景环境快照。
     pub fn new_with_mode(
-        mode: AuthoredSkyMode,      // 场景或 F12 已从地图持久枚举完成显式转换。
+        mode: AuthoredSkyMode,      // 场景或 F12 已从场景持久枚举完成显式转换。
         asset_path: Option<String>, // 主 Cube 与两张 IBL 共用稳定路径前缀。
         base_brightness: f32,       // 仅天空盒模式写入可见背景。
         base_environment_diffuse_intensity: f32, // 两种模式都使用的漫反射基准。
@@ -142,7 +142,7 @@ pub(crate) struct AuthoredSkyboxAssetPaths {
 /// 一台相机的作者天空资源加载阶段。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AuthoredSkyboxPhase {
-    /// 地图未指定环境 IBL，相机保持原环境贴图；动态天空仍可独立显示。
+    /// 场景未指定环境 IBL，相机保持原环境贴图；动态天空仍可独立显示。
     #[default]
     Disabled,
     /// 路径已受检，正在等待Image解码或热更新重新就绪。

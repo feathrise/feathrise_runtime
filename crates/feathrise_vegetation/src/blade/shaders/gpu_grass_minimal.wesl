@@ -288,7 +288,7 @@ fn interaction_tip_offset( // 只在固定足迹包围圆内计算最多八个�
         INTERACTION_SOURCE_CAPACITY,
     ); // 完成固定数组安全上限保护。
     if (active_count == 0u || interaction.interaction_bounds.z <= 0.0) {
-        return vec2<f32>(0.0); // 非草地图或玩家尚未生成时不进入任何足迹距离循环。
+        return vec2<f32>(0.0); // 非草场景或玩家尚未生成时不进入任何足迹距离循环。
     }
     let bounds_delta = root_world_xz - interaction.interaction_bounds.xy; // 先计算当前草根到该帧全部足迹包围圆中心的距离。
     if (dot(bounds_delta, bounds_delta) > interaction.interaction_bounds.z * interaction.interaction_bounds.z) {

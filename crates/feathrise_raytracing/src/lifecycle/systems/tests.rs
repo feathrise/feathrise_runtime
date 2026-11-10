@@ -225,7 +225,7 @@ fn rollback_restores_material_handles_and_releases_all_owned_assets_and_lease() 
 
     {
         let mut runtime = app.world_mut().resource_mut::<RaytracingRuntime>(); // 一次构造完整会话所有权。
-        runtime.generation = 9; // 固定当前地图代次。
+        runtime.generation = 9; // 固定当前场景代次。
         runtime.camera = Some(camera); // 保存租约目标相机。
         runtime.candidates.push(SourceCandidate {
             contract_index: 0,                        // 使用首个固定契约槽。

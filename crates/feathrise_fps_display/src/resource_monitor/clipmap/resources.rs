@@ -1,7 +1,7 @@
-//! Clipmap诊断只保存计数与六个短标签；一次快照的内存不随地图网格数量增长。
+//! Clipmap诊断只保存计数与六个短标签；一次快照的内存不随场景网格数量增长。
 
 use bevy::prelude::*;
-use feathrise_map_content::{MapId, MapTerrainDisplayLodStatus, MapTerrainDisplayLodWork};
+use feathrise_scene_content::{SceneId, SceneTerrainDisplayLodStatus, SceneTerrainDisplayLodWork};
 
 pub(super) const ROW_LIMIT: usize = 6;
 
@@ -12,13 +12,13 @@ pub(super) struct Snapshot {
     pub triangles: u64,
     pub mesh_bytes: u64,
     pub pages: u64,
-    pub work: MapTerrainDisplayLodWork,
+    pub work: SceneTerrainDisplayLodWork,
     pub rows: Vec<String>,
 }
 
 impl Snapshot {
-    pub fn observe(&mut self, label: &str, status: &MapTerrainDisplayLodStatus) {
-        if status.map_id.is_none() { return; }
+    pub fn observe(&mut self, label: &str, status: &SceneTerrainDisplayLodStatus) {
+        if status.scene_id.is_none() { return; }
         self.count += 1;
         self.vertices = self.vertices.saturating_add(status.vertex_count as u64);
         self.triangles = self.triangles.saturating_add(status.triangle_count as u64);
@@ -55,7 +55,7 @@ impl Snapshot {
 
 #[derive(Resource, Default)]
 pub(in crate::resource_monitor) struct ClipmapMonitorState {
-    pub(super) identity: Option<(MapId, Option<Entity>)>,
+    pub(super) identity: Option<(SceneId, Option<Entity>)>,
     pub(super) cursor: Option<Entity>,
     pub(super) sampling: bool,
     pub(super) building: Snapshot,

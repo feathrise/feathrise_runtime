@@ -24,7 +24,7 @@ impl GpuBladeInteractionSource {
     pub fn new(position_xz: Vec2, radius: f32, strength: f32) -> Self {
         Self {
             position_xz, // 保留调用方提供的世界X/Z位置，单根草根在GPU逐一计算距离。
-            radius,      // 半径稍后统一钳制，便于地图层使用自然米制参数。
+            radius,      // 半径稍后统一钳制，便于场景层使用自然米制参数。
             strength,    // 强度稍后统一钳制，防止异常玩法值放大草叶位移。
         } // 完成轻量CPU交互源构造。
     }
@@ -48,9 +48,9 @@ impl Default for GpuBladeInteraction {
         Self {
             wind: Vec4::new(0.80, 0.60, GPU_GRASS_DEFAULT_WIND_TIP_STRENGTH, 1.10), // 默认风提高到十六厘米草尖摆幅，方向固定但波形由世界坐标变化。
             wind_phase: Vec4::ZERO, // 独立Blade示例继续使用Bevy原始时间，不受天气桥影响。
-            interaction_bounds: Vec4::ZERO, // 没有玩家或不在草地图时让所有草株一次包围圆判断后快速跳过。
+            interaction_bounds: Vec4::ZERO, // 没有玩家或不在草场景时让所有草株一次包围圆判断后快速跳过。
             sources: [Vec4::ZERO; GPU_GRASS_INTERACTION_SOURCE_CAPACITY], // 固定槽零初始化表示没有局部踩踏源。
-        } // 完成无需地图配置即可工作的低成本默认风场。
+        } // 完成无需场景配置即可工作的低成本默认风场。
     }
 }
 
@@ -103,7 +103,7 @@ impl GpuBladeInteraction {
     /// 清除全部局部踩踏源，但保留持续运行的世界风场。
     pub fn clear_sources(&mut self) {
         self.interaction_bounds = Vec4::ZERO; // 零包围半径让绝大多数顶点在进入固定数组循环前返回。
-        self.sources.fill(Vec4::ZERO); // 清除旧地图或旧玩家留下的足迹槽，避免重进场景后错误压草。
+        self.sources.fill(Vec4::ZERO); // 清除旧场景或旧玩家留下的足迹槽，避免重进场景后错误压草。
     }
 
     /// 用固定容量源替换本帧局部交互，超出八项的低优先级尾部源直接忽略。
@@ -157,7 +157,7 @@ impl GpuBladeInteraction {
         self.interaction_bounds.w.round() as usize // 数量由CPU以精确小整数写入f32，可无损还原零至八。
     }
 
-    /// 返回默认或地图配置后的草尖最大风摆米数供F3显示。
+    /// 返回默认或场景配置后的草尖最大风摆米数供F3显示。
     pub fn wind_tip_strength(&self) -> f32 {
         self.wind.z // 不暴露内部Vec4写权限，诊断只读取当前值。
     }

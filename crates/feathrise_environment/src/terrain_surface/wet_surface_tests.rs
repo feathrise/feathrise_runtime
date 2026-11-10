@@ -71,13 +71,13 @@ fn passthrough_skips_author_layers_before_shared_weather() {
         .expect("必须保留原材质直通门"); // w=2不进入作者层替换。
     let indexed = TERRAIN
         .find("let indexed = blend_indexed_surface")
-        .expect("索引地表保留原路径"); // 动态地图仍经过原混合。
+        .expect("索引地表保留原路径"); // 动态场景仍经过原混合。
     let fixed = TERRAIN
         .find("let blended = blend_surface")
         .expect("固定地表保留原路径"); // HN01仍经过原混合。
     let join = TERRAIN
         .find("固定层、索引层和原材质直通在此汇合")
-        .expect("三种模式必须在天气前汇合"); // 不把雨湿嵌入某一种地图模式。
+        .expect("三种模式必须在天气前汇合"); // 不把雨湿嵌入某一种场景模式。
     let weather = TERRAIN
         .find("if surface_weather.weather.x > 0.0001")
         .expect("必须保留共用天气门"); // 直通也能随天气变湿。

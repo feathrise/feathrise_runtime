@@ -129,7 +129,7 @@ fn gameplay_window_camera_isolated_from_menu_and_texture_cameras() {
     let mut app = test_app(); // 使用正式 PrimarySceneView 与窗口目标双重过滤。
     let gameplay_camera = spawn_gameplay_camera(&mut app); // 唯一合法玩法窗口相机。
     let texture_author = VolumetricFog {
-        step_count: 7, // 模拟小地图或角色预览的专用极低预算。
+        step_count: 7, // 模拟小场景或角色预览的专用极低预算。
         ..default()
     }; // 完成纹理相机作者配置。
     let texture_camera = app
@@ -203,14 +203,14 @@ fn gameplay_window_camera_isolated_from_menu_and_texture_cameras() {
 
 #[test]
 fn new_gameplay_camera_and_celestial_light_inherit_current_quality() {
-    let mut app = test_app(); // 验证切图后新实体无需额外初始化钩子。
+    let mut app = test_app(); // 验证切换场景后新实体无需额外初始化钩子。
     app.world_mut()
         .resource_mut::<RenderSettings>()
         .graphics
         .volumetric_fog_quality = VolumetricFogQuality::High; // 在场景生成前先选择高档。
     app.update(); // 没有相机或灯光时系统必须安全跳过。
-    let camera = spawn_gameplay_camera(&mut app); // 模拟切图后新生成玩法主相机。
-    let light = spawn_celestial_light(&mut app, false); // 模拟切图后新生成天体方向光。
+    let camera = spawn_gameplay_camera(&mut app); // 模拟切换场景后新生成玩法主相机。
+    let light = spawn_celestial_light(&mut app, false); // 模拟切换场景后新生成天体方向光。
     app.update(); // 下一帧自动接管新实体并创建唯一雾体积。
     assert_eq!(
         app.world().get::<VolumetricFog>(camera).unwrap().step_count,
@@ -357,7 +357,7 @@ fn authoring_orthographic_view_releases_volumetric_fog_and_perspective_restores_
             .iter(app.world())
             .count(),
         0
-    ); // 正交视图不得残留有限雾体积遮住大地图。
+    ); // 正交视图不得残留有限雾体积遮住大场景。
 
     app.world_mut()
         .entity_mut(preview_camera)

@@ -1,4 +1,4 @@
-//! 根和子关系增量登记；按固定实体预算暂停/恢复，不在切图帧递归扫描整张地图。
+//! 根和子关系增量登记；按固定实体预算暂停/恢复，不在切换场景帧递归扫描整个场景。
 
 use super::{
     components::{ParkedSceneEntity, ResumeResidentAudio},
@@ -10,15 +10,15 @@ use bevy::{
     ecs::{entity_disabling::Disabled, query::Allow},
     prelude::*,
 };
-use feathrise_map_content::{ActiveDynamicMap, MapId};
-use feathrise_scene_core::residency::{ResidentMapEntity, SceneResidencyActivity};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId};
+use feathrise_scene_core::residency::{ResidentSceneEntity, SceneResidencyActivity};
 use feathrise_scene_core::state::ScenePhase;
 
 pub(super) const ENTITY_BUDGET: usize = 256;
 
-pub(super) fn map_for_scene(scene: ScenePhase, active: Option<&ActiveDynamicMap>) -> Option<MapId> {
+pub(super) fn scene_for_scene(scene: ScenePhase, active: Option<&ActiveDynamicScene>) -> Option<SceneId> {
     match scene {
-        ScenePhase::Active => active.and_then(|active| active.map_id.clone()),
+        ScenePhase::Active => active.and_then(|active| active.scene_id.clone()),
         _ => None,
     }
 }
@@ -27,8 +27,8 @@ pub(super) fn register_scene_scoped_root(
     insert: On<Insert<DespawnOnExit<ScenePhase>>>,
     scoped: Query<&DespawnOnExit<ScenePhase>, Allow<Disabled>>,
     children: Query<&ChildOf, Allow<Disabled>>,
-    owners: Query<&ResidentMapEntity, Allow<Disabled>>,
-    active_dynamic: Option<Res<ActiveDynamicMap>>,
+    owners: Query<&ResidentSceneEntity, Allow<Disabled>>,
+    active_dynamic: Option<Res<ActiveDynamicScene>>,
     current: Option<Res<State<ScenePhase>>>,
     mut scenes: ResMut<ResidentScenes>,
     mut activity: ResMut<SceneResidencyActivity>,
@@ -41,12 +41,12 @@ pub(super) fn register_scene_scoped_root(
         && let Ok(owner) = owners.get(parent.parent())
     {
         commands.entity(insert.entity).insert(*owner);
-        return; // 后台Scene异步补出的节点必须继承父地图，不能被当前DynamicMap身份重新认领。
+        return; // 后台Scene异步补出的节点必须继承父场景，不能被当前DynamicScene身份重新认领。
     }
     let Ok(scope) = scoped.get(insert.entity) else {
         return;
     };
-    let Some(map) = map_for_scene(scope.0, active_dynamic.as_deref()) else {
+    let Some(map) = scene_for_scene(scope.0, active_dynamic.as_deref()) else {
         return;
     };
     let token = scenes.ensure(map.clone(), scope.0);
@@ -60,15 +60,15 @@ pub(super) fn register_scene_scoped_root(
     }
     commands
         .entity(insert.entity)
-        .insert(ResidentMapEntity(token));
+        .insert(ResidentSceneEntity(token));
 }
 
 pub(super) fn register_additional_root<T: Component>(
     insert: On<Insert<T>>,
     children: Query<&ChildOf, Allow<Disabled>>,
-    owners: Query<&ResidentMapEntity, Allow<Disabled>>,
+    owners: Query<&ResidentSceneEntity, Allow<Disabled>>,
     current: Option<Res<State<ScenePhase>>>,
-    active_dynamic: Option<Res<ActiveDynamicMap>>,
+    active_dynamic: Option<Res<ActiveDynamicScene>>,
     scenes: Option<ResMut<ResidentScenes>>,
     activity: Option<ResMut<SceneResidencyActivity>>,
     mut commands: Commands,
@@ -85,7 +85,7 @@ pub(super) fn register_additional_root<T: Component>(
     let Some(scene) = current.as_ref().map(|state| *state.get()) else {
         return;
     };
-    let Some(map) = map_for_scene(scene, active_dynamic.as_deref()) else {
+    let Some(map) = scene_for_scene(scene, active_dynamic.as_deref()) else {
         return;
     };
     let token = scenes.ensure(map.clone(), scene);
@@ -95,12 +95,12 @@ pub(super) fn register_additional_root<T: Component>(
     }
     commands
         .entity(insert.entity)
-        .insert(ResidentMapEntity(token));
+        .insert(ResidentSceneEntity(token));
 }
 
 pub(super) fn register_owner(
-    insert: On<Insert<ResidentMapEntity>>,
-    owners: Query<&ResidentMapEntity, Allow<Disabled>>,
+    insert: On<Insert<ResidentSceneEntity>>,
+    owners: Query<&ResidentSceneEntity, Allow<Disabled>>,
     mut index: ResMut<ResidentEntityIndex>,
     activity: Option<Res<SceneResidencyActivity>>,
     mut commands: Commands,
@@ -121,7 +121,7 @@ pub(super) fn register_owner(
 }
 
 pub(super) fn unregister_owner(
-    remove: On<Remove<ResidentMapEntity>>,
+    remove: On<Remove<ResidentSceneEntity>>,
     mut index: ResMut<ResidentEntityIndex>,
     mut assets: ResMut<super::assets::AssetOwners>,
 ) {
@@ -132,7 +132,7 @@ pub(super) fn unregister_owner(
 pub(super) fn inherit_parent_owner(
     insert: On<Insert<ChildOf>>,
     children: Query<&ChildOf, Allow<Disabled>>,
-    owners: Query<&ResidentMapEntity, Allow<Disabled>>,
+    owners: Query<&ResidentSceneEntity, Allow<Disabled>>,
     mut commands: Commands,
 ) {
     let Ok(parent) = children.get(insert.entity) else {
@@ -153,7 +153,7 @@ pub(super) fn enroll_existing_descendants(world: &mut World) {
         else {
             break;
         };
-        let owner = world.get::<ResidentMapEntity>(cursor.parent).copied();
+        let owner = world.get::<ResidentSceneEntity>(cursor.parent).copied();
         let child = world
             .get::<Children>(cursor.parent)
             .and_then(|children| children.get(cursor.next))
@@ -164,7 +164,7 @@ pub(super) fn enroll_existing_descendants(world: &mut World) {
                 .resource_mut::<ResidentEntityIndex>()
                 .descendants
                 .push_front(cursor);
-            if world.get::<ResidentMapEntity>(child) != Some(&owner) {
+            if world.get::<ResidentSceneEntity>(child) != Some(&owner) {
                 if let Ok(mut entity) = world.get_entity_mut(child) {
                     entity.insert(owner);
                 }
@@ -197,7 +197,7 @@ pub(super) fn park_entity(world: &mut World, entity: Entity) {
     };
     let entity_ref = world.entity_mut(entity);
     if let Some(active) = parked.camera_active {
-        if let Some(owner) = entity_ref.get::<ResidentMapEntity>().copied() {
+        if let Some(owner) = entity_ref.get::<ResidentSceneEntity>().copied() {
             world
                 .resource_mut::<ResidentEntityIndex>()
                 .cameras
@@ -225,7 +225,7 @@ pub(super) fn park_entity(world: &mut World, entity: Entity) {
     if let Some(mut camera) = entity_ref.get_mut::<Camera>() {
         camera.is_active = false;
     }
-    // DespawnOnExit显式允许Disabled对象；回收责任转交驻留索引，不能因同枚举切图误删。
+    // DespawnOnExit显式允许Disabled对象；回收责任转交驻留索引，不能因同枚举切换场景误删。
     entity_ref.remove::<DespawnOnExit<ScenePhase>>();
     entity_ref.insert((Disabled, parked));
     world
@@ -259,7 +259,7 @@ pub(super) fn restore_entity(world: &mut World, entity: Entity) {
         entity_ref.insert(visibility);
     }
     // 相机保持关闭，直到整图恢复完成；避免分帧期间渲染半份场景。
-    // 恢复后的实体由驻留所有权回收，不再重新加入同枚举的DespawnOnExit，防止另一动态地图离开时误删。
+    // 恢复后的实体由驻留所有权回收，不再重新加入同枚举的DespawnOnExit，防止另一动态场景离开时误删。
     world
         .resource_mut::<ResidentEntityIndex>()
         .mark_parked(entity, false);
@@ -269,7 +269,7 @@ pub(super) fn resume_adopted_audio(
     activity: Res<SceneResidencyActivity>,
     pending: Query<(
         Entity,
-        &ResidentMapEntity,
+        &ResidentSceneEntity,
         &ResumeResidentAudio,
         Option<&AudioSink>,
         Option<&SpatialAudioSink>,

@@ -1,7 +1,7 @@
 //! 真实正式Cuboid网格顶面边的取证；最多读取128个根、64个子节点和64个顶点，像素工作只在后台做。
 use bevy::{mesh::VertexAttributeValues, prelude::*};
-use feathrise_map_content::MapPlacementAssetTarget;
-use feathrise_scene::{MapPlacementInstance, MapPlacementPrimitiveVisual, author_view::ShadingView};
+use feathrise_scene_content::ScenePlacementAssetTarget;
+use feathrise_scene::{ScenePlacementInstance, ScenePlacementPrimitiveVisual, author_view::ShadingView};
 use serde_json::{Value, json};
 
 pub(in crate::project::embedded) fn project(world: &mut World) -> Option<Value> {
@@ -13,11 +13,11 @@ pub(in crate::project::embedded) fn project(world: &mut World) -> Option<Value> 
 }
 
 fn project_cube(world: &mut World, camera_entity: Entity) -> Result<Value,String> {
-    let mut query = world.query::<(Entity,&MapPlacementInstance)>();
+    let mut query = world.query::<(Entity,&ScenePlacementInstance)>();
     let mut roots = Vec::new();
     for (index,(entity,instance)) in query.iter(world).enumerate().take(129) {
         if index == 128 { return Err("线框取证超过128个正式根预算".into()); }
-        if instance.is_active() && matches!(instance.asset_target(),MapPlacementAssetTarget::Cuboid {..}) {
+        if instance.is_active() && matches!(instance.asset_target(),ScenePlacementAssetTarget::Cuboid {..}) {
             roots.push((entity,instance.id().to_owned()));
             if roots.len() > 1 { return Err("线框夹具需要唯一活动正式Cuboid".into()); }
         }
@@ -25,7 +25,7 @@ fn project_cube(world: &mut World, camera_entity: Entity) -> Result<Value,String
     let (root,object_id) = roots.pop().ok_or("线框夹具没有活动正式Cuboid")?;
     let children = world.get::<Children>(root).ok_or("正式Cuboid尚无可视子节点")?;
     if children.len() > 64 { return Err("正式Cuboid子节点超过取证预算".into()); }
-    let mut visuals = children.iter().filter(|child| world.get::<MapPlacementPrimitiveVisual>(*child).is_some());
+    let mut visuals = children.iter().filter(|child| world.get::<ScenePlacementPrimitiveVisual>(*child).is_some());
     let entity = visuals.next().ok_or("正式Cuboid可视网格尚未建立")?;
     if visuals.next().is_some() { return Err("正式Cuboid存在多个可视网格".into()); }
     if !world.get::<InheritedVisibility>(entity).is_some_and(|visibility| visibility.get()) {

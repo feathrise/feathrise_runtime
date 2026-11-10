@@ -3,27 +3,27 @@
 use bevy::color::LinearRgba; // 连续天气色调使用线性颜色，便于无跳变插值。
 use bevy::prelude::*; // Resource 派生让全局天气状态可以由ECS系统共享。
 
-use crate::weather::climate::WeatherClimateProfile; // 动态地图只发布已登记静态气候值，不复制状态机。
+use crate::weather::climate::WeatherClimateProfile; // 动态场景只发布已登记静态气候值，不复制状态机。
 use crate::weather::types::{WeatherGameplayModifiers, WeatherKind, WeatherRegion}; // 资源字段复用公开普通天气类型。
 
-/// 当前动态地图从清单解析出的正式天气气候。
+/// 当前动态场景从清单解析出的正式天气气候。
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
-pub struct DynamicMapWeatherClimate {
-    profile: Option<WeatherClimateProfile>, // None表示清单尚未就绪，天气模拟暂不推进动态地图。
+pub struct DynamicSceneWeatherClimate {
+    profile: Option<WeatherClimateProfile>, // None表示清单尚未就绪，天气模拟暂不推进动态场景。
 }
 
-impl DynamicMapWeatherClimate {
-    /// 原子采用当前动态地图完整气候配置。
+impl DynamicSceneWeatherClimate {
+    /// 原子采用当前动态场景完整气候配置。
     pub fn set(&mut self, profile: WeatherClimateProfile) {
         self.profile = Some(profile); // 小型Copy配置同帧生效，不创建后台或逐帧分配。
     }
 
-    /// 离开或切换动态地图时撤销旧清单所有权。
+    /// 离开或切换动态场景时撤销旧清单所有权。
     pub fn clear(&mut self) {
-        self.profile = None; // 下一张图清单完成校验前不沿用旧地图局部权重。
+        self.profile = None; // 下一张图清单完成校验前不沿用旧场景局部权重。
     }
 
-    /// 返回当前已经完整采用的动态地图气候。
+    /// 返回当前已经完整采用的动态场景气候。
     pub const fn profile(&self) -> Option<WeatherClimateProfile> {
         self.profile // 天气推进系统只读该轻量快照。
     }
@@ -44,13 +44,13 @@ pub struct WeatherState {
     pub(crate) transition_progress: f32,               // 零至一的过渡进度。
     pub(crate) transition_duration_game_seconds: f32,  // 当前过渡总游戏秒数。
     pub(crate) stable_remaining_game_seconds: f32,     // 稳定期剩余游戏秒数。
-    pub(crate) region: WeatherRegion,                  // 所有地图使用中性全局连续性。
+    pub(crate) region: WeatherRegion,                  // 所有场景使用中性全局连续性。
     pub(crate) seed: u64,                              // 确定性随机基础种子。
     pub(crate) sequence: u64,                          // 已消费随机值的稳定序号。
 } // 结束全局天气状态声明。
 
 /// 运行时天气强制模式与过渡预览比例。
-#[derive(Resource, Clone, Copy, Debug, PartialEq)] // F12 调试控件每帧读写轻量值，不进入地图或正式设置文件。
+#[derive(Resource, Clone, Copy, Debug, PartialEq)] // F12 调试控件每帧读写轻量值，不进入场景或正式设置文件。
 pub struct WeatherDebugOverride {
     pub(crate) forced: Option<WeatherKind>, // None表示自动天气，一至五模式对应固定天气。
     pub(crate) preview: f32,                // 零显示自动输出，一显示完整强制天气效果。

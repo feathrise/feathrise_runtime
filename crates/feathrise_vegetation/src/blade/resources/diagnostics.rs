@@ -17,7 +17,7 @@ use crate::types::{GPU_GRASS_LOD_CAPACITY, GPU_GRASS_PROFILE_CAPACITY};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GpuBladeStreamingPhase {
     #[default]
-    Inactive, // 当前地图没有启用GPU草地，所有阶段5指标应为零。
+    Inactive, // 当前场景没有启用GPU草地，所有阶段5指标应为零。
     Waiting,  // 地表或GPU管线尚未产生首份可安全绘制的驻留输出。
     FadingIn, // 首份驻留输出已经就绪，草地正通过稳定抖动覆盖率渐入。
     Resident, // 预测窗口、数值输入和GPU输出均处于稳定可复用状态。
@@ -29,16 +29,16 @@ pub enum GpuBladeStreamingPhase {
 /// 【功能设计】该资源只存在于主世界，不提取到RenderApp；渲染统计继续走独立帧快照，避免预测状态参与GPU同步。
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub struct GpuBladeStreamingStats {
-    pub generation: u32, // 每次进入草地图或重建整组驻留资源时递增的生命周期代次。
+    pub generation: u32, // 每次进入草场景或重建整组驻留资源时递增的生命周期代次。
     pub phase: GpuBladeStreamingPhase, // 当前首载、淡入、驻留或覆盖冻结等待阶段。
-    pub map_code: &'static str, // 消费地图可写入稳定编号，空字符串表示当前没有正式内容接入。
+    pub scene_code: &'static str, // 消费场景可写入稳定编号，空字符串表示当前没有正式内容接入。
     pub content_label: &'static str, // 区分普通草、作物或其他未来植被内容，避免验收口径混淆。
-    pub expected_windows: u32, // 当前地图规格要求的完整草窗数量，用于F3显示实际/应有。
-    pub resident_assets: u32, // 当前地图生命周期显式持有的高度、密度、网格与材质资产数量。
-    pub expected_resident_assets: u32, // 当前地图稳定输出时应真实可达的完整资产数量。
-    pub resident_input_bytes: u64, // 地图层能够精确证明的专用GPU数值纹理驻留字节。
+    pub expected_windows: u32, // 当前场景规格要求的完整草窗数量，用于F3显示实际/应有。
+    pub resident_assets: u32, // 当前场景生命周期显式持有的高度、密度、网格与材质资产数量。
+    pub expected_resident_assets: u32, // 当前场景稳定输出时应真实可达的完整资产数量。
+    pub resident_input_bytes: u64, // 场景层能够精确证明的专用GPU数值纹理驻留字节。
     pub smoothed_speed: f32, // 场景预测器使用的米每秒平滑玩家速度。
-    pub peak_speed: f32, // 本地图会话排除传送后观察到的最大真实水平速度。
+    pub peak_speed: f32, // 本场景会话排除传送后观察到的最大真实水平速度。
     pub prediction_offset: Vec2, // 预测锚点相对真实玩家位置的世界X/Z偏移米数。
     pub anchor_updates: u64, // 本生命周期内草窗驻留锚点跨吸附单元更新的累计次数。
     pub activation: f32, // 首份有效GPU输出从零到一渐入时使用的全局稳定遮罩覆盖率。
@@ -106,7 +106,7 @@ pub struct GpuBladeGpuReadbackStats {
     pub by_profile: [GpuBladeVegetationReadbackStats; GPU_GRASS_PROFILE_CAPACITY], // 普通草、麦田、芦苇和保留内容按稳定profile分别统计。
     pub overflow_instances: u64, // 最终存活数超出紧凑输出容量的总数，正常必须为零。
     pub dropped_samples: u64,    // 三个回读槽都被GPU占用时主动丢弃的诊断样本数。
-    pub map_errors: u64,         // 异步映射失败的累计次数，用于区分统计通道与草地管线故障。
+    pub scene_errors: u64,         // 异步映射失败的累计次数，用于区分统计通道与草地管线故障。
 }
 
 #[cfg(feature = "diagnostics")]
@@ -164,7 +164,7 @@ pub struct GpuBladeGpuTimingStats {
     pub fragment_shader_invocations_by_lod: [u64; GPU_GRASS_LOD_CAPACITY], // GPU实际执行的四档片元着色器调用量，用于识别像素过绘瓶颈。
     pub by_profile: [GpuBladeVegetationTimingStats; GPU_GRASS_PROFILE_CAPACITY], // 四类内容独立计时，旧聚合字段继续保存分项之和。
     pub dropped_samples: u64, // 三个回读槽全忙时主动丢弃的诊断样本数。
-    pub map_errors: u64,      // 异步映射失败累计数，只影响F3诊断而不影响草地绘制。
+    pub scene_errors: u64,      // 异步映射失败累计数，只影响F3诊断而不影响草地绘制。
 }
 
 /// RenderApp 内用于协调 GPU 草地查询与 Bevy 全局渲染诊断的兼容开关。

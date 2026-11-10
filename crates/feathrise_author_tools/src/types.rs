@@ -34,7 +34,7 @@ pub enum BrushShape {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClipmapBrushSurface {
-    pub map_id: String,
+    pub scene_id: String,
     pub terrain_id: Option<String>,
     /// 稳定作者来源共同组成匹配门，禁止将旧落点绑定到新草稿或其他地形。
     pub height_path: String,

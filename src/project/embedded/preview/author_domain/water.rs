@@ -6,7 +6,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use feathrise_map_content::{MapId, MapWaterAsset, TerrainId};
+use feathrise_scene_content::{SceneId, SceneWaterAsset, TerrainId};
 use feathrise_scene::{
     DynamicClipmapWaterDraft, DynamicClipmapWaterDraftSnapshot, TerrainWaterDrafts,
 };
@@ -15,11 +15,11 @@ use std::{
     sync::Arc,
 };
 pub(super) struct Prepared {
-    map: MapId,
+    scene_id: SceneId,
     terrain: Option<TerrainId>,
     root: bool,
     revision: u64,
-    definition: Option<MapWaterAsset>,
+    definition: Option<SceneWaterAsset>,
     sources: BTreeMap<String, Arc<[u8]>>,
     images: VecDeque<(String, Image)>,
     handles: BTreeMap<String, Handle<Image>>,
@@ -27,11 +27,11 @@ pub(super) struct Prepared {
     previous_credit: Option<Arc<DynamicClipmapWaterDraftSnapshot>>,
 }
 pub(super) fn prepare(
-    map: MapId,
+    scene_id: SceneId,
     terrain: Option<TerrainId>,
     root: bool,
     revision: u64,
-    definition: Option<MapWaterAsset>,
+    definition: Option<SceneWaterAsset>,
     sources: BTreeMap<String, Arc<[u8]>>,
 ) -> Result<Prepared, String> {
     if root && terrain.is_some() {
@@ -39,7 +39,7 @@ pub(super) fn prepare(
     }
     let mut images = VecDeque::new();
     if let Some(definition) = &definition {
-        definition.validate(&map)?;
+        definition.validate(&scene_id)?;
         if sources.len() != definition.layers.len() {
             return Err("水预览遮罩与水层数量不一致".into());
         }
@@ -69,7 +69,7 @@ pub(super) fn prepare(
         return Err("撤回水预览不能携带游离遮罩".into());
     }
     Ok(Prepared {
-        map,
+        scene_id,
         terrain,
         root,
         revision,
@@ -84,10 +84,10 @@ pub(super) fn prepare(
 #[derive(Default)]
 pub(super) struct State {
     publisher: Option<SystemState<TerrainWaterDrafts<'static>>>,
-    published: BTreeMap<(MapId, Option<TerrainId>, bool), Arc<DynamicClipmapWaterDraftSnapshot>>,
+    published: BTreeMap<(SceneId, Option<TerrainId>, bool), Arc<DynamicClipmapWaterDraftSnapshot>>,
     retired: Option<Task<()>>,
     #[cfg(feature = "validation")]
-    last: Option<(MapId, Option<TerrainId>, bool, u64)>,
+    last: Option<(SceneId, Option<TerrainId>, bool, u64)>,
 }
 impl State {
     pub(super) fn advance(
@@ -108,23 +108,23 @@ impl State {
             if !publisher
                 .get_mut(world)
                 .map_err(|error| error.to_string())?
-                .ready(&value.map, id)
+                .ready(&value.scene_id, id)
             {
                 return Ok(false);
             }
             value.previous = publisher
                 .get_mut(world)
                 .map_err(|error| error.to_string())?
-                .shared(&value.map, id);
+                .shared(&value.scene_id, id);
         }
         if value.terrain.is_none() {
             value.previous = world
                 .get_resource::<DynamicClipmapWaterDraft>()
                 .and_then(|draft| {
                     if value.root {
-                        draft.shared_root_for_map(&value.map)
+                        draft.shared_root_for_scene(&value.scene_id)
                     } else {
-                        draft.shared_for_map(&value.map)
+                        draft.shared_for_scene(&value.scene_id)
                     }
                 });
         }
@@ -140,7 +140,7 @@ impl State {
                 publisher
                     .get_mut(world)
                     .map_err(|error| error.to_string())?
-                    .publish(&value.map, id, snapshot)
+                    .publish(&value.scene_id, id, snapshot)
                     .map_err(|_| "水预览目标身份变化")?;
             } else {
                 let mut output = world.resource_mut::<DynamicClipmapWaterDraft>();
@@ -151,11 +151,11 @@ impl State {
                 }
             }
         } else if let Some(id) = &value.terrain {
-            if let Some(owned) = self.published.get(&(value.map.clone(), value.terrain.clone(), value.root)) {
-                publisher.get_mut(world).map_err(|error| error.to_string())?.clear_owned(&value.map, id, owned);
+            if let Some(owned) = self.published.get(&(value.scene_id.clone(), value.terrain.clone(), value.root)) {
+                publisher.get_mut(world).map_err(|error| error.to_string())?.clear_owned(&value.scene_id, id, owned);
             }
         } else {
-            let owned = self.published.get(&(value.map.clone(), None, value.root));
+            let owned = self.published.get(&(value.scene_id.clone(), None, value.root));
             if value.previous.as_ref().zip(owned).is_some_and(|(current, owned)| Arc::ptr_eq(current, owned)) {
                 let mut output = world.resource_mut::<DynamicClipmapWaterDraft>();
                 if value.root { output.clear_root(); } else { output.clear(); }
@@ -166,19 +166,19 @@ impl State {
             publisher
                 .get_mut(world)
                 .map_err(|error| error.to_string())?
-                .shared(&value.map, id)
+                .shared(&value.scene_id, id)
         } else {
             world
                 .get_resource::<DynamicClipmapWaterDraft>()
                 .and_then(|draft| {
                     if value.root {
-                        draft.shared_root_for_map(&value.map)
+                        draft.shared_root_for_scene(&value.scene_id)
                     } else {
-                        draft.shared_for_map(&value.map)
+                        draft.shared_for_scene(&value.scene_id)
                     }
                 })
         };
-        let key = (value.map.clone(), value.terrain.clone(), value.root);
+        let key = (value.scene_id.clone(), value.terrain.clone(), value.root);
         value.previous_credit = if let Some(published) = published {
             self.published.insert(key, published)
         } else {
@@ -187,7 +187,7 @@ impl State {
         #[cfg(feature = "validation")]
         {
             self.last = Some((
-                value.map.clone(),
+                value.scene_id.clone(),
                 value.terrain.clone(),
                 value.root,
                 value.revision,
@@ -223,9 +223,9 @@ impl State {
                     .get_resource::<DynamicClipmapWaterDraft>()
                     .and_then(|draft| {
                         if root {
-                            draft.shared_root_for_map(&map)
+                            draft.shared_root_for_scene(&map)
                         } else {
-                            draft.shared_for_map(&map)
+                            draft.shared_for_scene(&map)
                         }
                     })
             };
@@ -256,8 +256,8 @@ impl State {
     pub(super) fn evidence(&self, world: &World) -> serde_json::Value {
         self.last.as_ref().map_or(serde_json::Value::Null,|(map,terrain,root,revision)|{
             let draft=world.get_resource::<DynamicClipmapWaterDraft>();
-            let published=draft.and_then(|draft|if *root{draft.root_for_map(map)}else{draft.for_map(map)});
-            serde_json::json!({"map":map,"terrain":terrain,"root":root,"source_revision":revision,
+            let published=draft.and_then(|draft|if *root{draft.root_for_scene(map)}else{draft.for_scene(map)});
+            serde_json::json!({"scene_id":map,"terrain":terrain,"root":root,"source_revision":revision,
                 "root_resource_source_revision":published.map(|snapshot|snapshot.source_revision)})
         })
     }

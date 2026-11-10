@@ -22,7 +22,7 @@ pub enum LoadingStage {
     Failed,
 }
 
-/// 每次加载进度的唯一身份；相同地图与相同驻留token再次进入时也不能复用旧完成回执。
+/// 每次加载进度的唯一身份；相同场景与相同驻留token再次进入时也不能复用旧完成回执。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoadingTransactionId(u64);
 
@@ -33,7 +33,7 @@ impl LoadingTransactionId {
     }
 }
 
-/// 唯一运行状态机；具体地图身份仍由地图注册表与驻留token持有。
+/// 唯一运行状态机；具体场景身份仍由场景注册表与驻留token持有。
 /// Idle并不表示游戏菜单，独立编辑器开始页和没有打开场景的工程也使用它。
 #[derive(bevy::prelude::States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ScenePhase {

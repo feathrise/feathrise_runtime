@@ -3,7 +3,7 @@
 mod components; // 区分extras派生盒和玩法直接插入的盒。
 mod helpers; // 有界JSON作者参数解析。
 mod ownership; // placement采用门和场景根解析。
-mod resources; // 作者实体记录和地图身份。
+mod resources; // 作者实体记录和场景身份。
 mod systems; // 变更、删除及整批发布。
 #[cfg(test)] // 直接运行正式ECS桥验证生命周期。
 mod tests;

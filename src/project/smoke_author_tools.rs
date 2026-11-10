@@ -5,7 +5,7 @@ mod render_counts;
 
 use bevy::{ecs::system::SystemState, mesh::VertexAttributeValues, prelude::*};
 use feathrise_scene::{
-    DynamicWaterStatus, MapPlacementInstance, TerrainObjectQueries, TerrainObjectResource,
+    DynamicWaterStatus, ScenePlacementInstance, TerrainObjectQueries, TerrainObjectResource,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -20,12 +20,12 @@ pub(super) fn install(app: &mut App) -> Result<(), String> {
 
 /// 水网格允许上传后释放CPU属性；先等待真实RenderMesh的有界元数据回执。
 pub(super) fn render_ready(world: &mut World) -> bool {
-    let map = world.resource::<super::SavedGameStartup>().map_id.clone();
+    let map = world.resource::<super::SavedGameStartup>().scene_id.clone();
     let meshes = world
         .query::<(&feathrise_scene::PaintedWaterSurface, &Mesh3d)>()
         .iter(world)
         .filter(|(surface, _)| {
-            surface.map_id == map
+            surface.scene_id == map
                 && surface.purpose == feathrise_scene::PaintedWaterPurpose::Runtime
                 && surface.kind == feathrise_scene::WaterSurfaceKind::River
         })
@@ -35,10 +35,10 @@ pub(super) fn render_ready(world: &mut World) -> bool {
     render_counts::ready(world, &meshes)
 }
 
-/// 专用模板只有1089地形顶点及少量三角模型；超过上限明确拒绝，不在玩法帧做全地图摘要。
+/// 专用模板只有1089地形顶点及少量三角模型；超过上限明确拒绝，不在玩法帧做全场景摘要。
 pub(super) fn snapshot(world: &mut World) -> Result<Value, String> {
-    let map = world.resource::<super::SavedGameStartup>().map_id.clone();
-    let terrain = feathrise_map_content::TerrainId::parse("starter-ground")?;
+    let map = world.resource::<super::SavedGameStartup>().scene_id.clone();
+    let terrain = feathrise_scene_content::TerrainId::parse("starter-ground")?;
     let mut queries = SystemState::<TerrainObjectQueries>::new(world);
     let query = queries.get(world).map_err(|error| error.to_string())?;
     let entity = query
@@ -112,10 +112,10 @@ pub(super) fn snapshot(world: &mut World) -> Result<Value, String> {
             "applied_generation":state.applied_generation,"detail":state.detail})
         });
     let roots = world
-        .query::<(Entity, &MapPlacementInstance)>()
+        .query::<(Entity, &ScenePlacementInstance)>()
         .iter(world)
         .filter(|(_, instance)| {
-            instance.map_id() == &map
+            instance.scene_id() == &map
                 && instance.is_active()
                 && !instance.asset_target().is_builtin()
         })
@@ -123,11 +123,11 @@ pub(super) fn snapshot(world: &mut World) -> Result<Value, String> {
         .map(|(entity, instance)| (entity, instance.id().to_owned()))
         .collect::<Vec<_>>();
     let records = world
-        .get_resource::<feathrise_map_content::MapContentRegistry>()
+        .get_resource::<feathrise_scene_content::SceneContentRegistry>()
         .and_then(|registry| registry.handles(&map))
         .and_then(|handles| {
             world
-                .resource::<Assets<feathrise_map_content::MapPlacementsAsset>>()
+                .resource::<Assets<feathrise_scene_content::ScenePlacementsAsset>>()
                 .get(&handles.placements)
         })
         .map(|asset| {
@@ -144,13 +144,13 @@ pub(super) fn snapshot(world: &mut World) -> Result<Value, String> {
     for (entity, id) in roots {
         let building = records.iter().find(|record| record.id == id).map(|record| json!({
             "record":record,
-            "matches_saved_record":world.get::<MapPlacementInstance>(entity).is_some_and(|instance| instance.matches_record(&map, record, &[])),
+            "matches_saved_record":world.get::<ScenePlacementInstance>(entity).is_some_and(|instance| instance.matches_record(&map, record, &[])),
             "position":world.get::<GlobalTransform>(entity).map(|transform| transform.translation().to_array()),
         }));
         rendered.push(json!({"id":id,"building":building,"meshes":object_meshes(world, entity)?}));
     }
     let rivers = world.query::<(Entity, &feathrise_scene::PaintedWaterSurface, &Mesh3d)>().iter(world)
-        .filter(|(_, surface, _)| surface.map_id == map && surface.purpose == feathrise_scene::PaintedWaterPurpose::Runtime
+        .filter(|(_, surface, _)| surface.scene_id == map && surface.purpose == feathrise_scene::PaintedWaterPurpose::Runtime
             && surface.kind == feathrise_scene::WaterSurfaceKind::River)
         .filter(|(surface_entity, _, _)| belongs_to(world, *surface_entity, entity))
         .take(32)

@@ -36,7 +36,7 @@ pub struct RaytracingRuntimeStatus {
     requested: bool,                                             // 当前F1请求值。
     effective: bool,                                             // 只有完整全部候选激活时为true。
     stage: RaytracingPrototypeStage,                             // 当前固定状态机阶段。
-    target: RaytracingPrototypeTarget, // 当前完整事务真正允许进入TLAS的地图内容边界。
+    target: RaytracingPrototypeTarget, // 当前完整事务真正允许进入TLAS的场景内容边界。
     blocker: Option<RaytracingPrototypeBlocker>, // 当前等待或硬失败原因。
     adapter_name: String,              // Bevy实际选择的适配器名。
     backend: String,                   // Bevy实际选择的wgpu后端。
@@ -121,7 +121,7 @@ impl RaytracingRuntimeStatus {
     pub fn stage(&self) -> RaytracingPrototypeStage {
         self.stage
     }
-    /// 返回当前锁定的地图级光追目标；None表示只保持光栅并等待受支持地图。
+    /// 返回当前锁定的场景级光追目标；None表示只保持光栅并等待受支持场景。
     pub fn target(&self) -> RaytracingPrototypeTarget {
         self.target
     }
@@ -140,7 +140,7 @@ impl RaytracingRuntimeStatus {
     pub fn instance_count(&self) -> u32 {
         self.budget.instances
     }
-    /// 返回当前地图目标完整光追契约实例数，避免F1复制目标分支常量。
+    /// 返回当前场景目标完整光追契约实例数，避免F1复制目标分支常量。
     pub fn expected_instance_count(&self) -> u32 {
         self.target.expected_instance_count()
     }
@@ -392,5 +392,5 @@ impl RaytracingRuntimeStatus {
 
 }
 
-mod runtime; // 地图目标、RenderApp遥测桥与可回退会话按私有运行时职责独立维护。
+mod runtime; // 场景目标、RenderApp遥测桥与可回退会话按私有运行时职责独立维护。
 pub(crate) use runtime::*; // 保持crate内部既有resources路径不变。

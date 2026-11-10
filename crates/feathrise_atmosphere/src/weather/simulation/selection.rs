@@ -1,6 +1,6 @@
 // 天气抽取纯逻辑：实现合法状态图、输入气候权重、持续时间和确定性随机值。
 
-use crate::weather::climate::WeatherClimateProfile; // 正式地图通过显式气候配置提供季节权重与局部倍率。
+use crate::weather::climate::WeatherClimateProfile; // 正式场景通过显式气候配置提供季节权重与局部倍率。
 use crate::weather::constants::{
     // 导入自动天气抽取使用的统一时长与晨雾窗口。
     GAME_SECONDS_PER_HOUR,        // 小时配置需要转换为游戏秒。
@@ -50,17 +50,17 @@ pub(crate) fn safe_next_step(from: WeatherKind, requested: WeatherKind) -> Weath
     } // 返回合法下一节点。
 } // 结束安全路径选择。
 
-/// 返回指定月份、时刻与地图偏置下的天气权重。
+/// 返回指定月份、时刻与场景偏置下的天气权重。
 pub(crate) fn weather_weight(
     kind: WeatherKind,              // 需要查询的候选天气。
     month: u8,                      // 一至十二月决定春夏秋冬基础权重。
     hour: f32,                      // 当前时刻决定薄雾能否进入候选池。
-    climate: WeatherClimateProfile, // 显式地图配置提供季节基础权重和局部倍率。
+    climate: WeatherClimateProfile, // 显式场景配置提供季节基础权重和局部倍率。
 ) -> f32 {
     if kind == WeatherKind::Mist && !mist_can_generate(hour) {
         return 0.0; // 非凌晨至早晨窗口绝不自动生成新薄雾。
     } // 结束薄雾生成窗口守卫。
-    climate.weight(kind, month) // 气候配置统一返回季节基础权重叠加地图局部倍率。
+    climate.weight(kind, month) // 气候配置统一返回季节基础权重叠加场景局部倍率。
 } // 结束天气权重计算。
 
 /// 按当前天气相邻节点与自身节点进行确定性加权抽取。
@@ -68,7 +68,7 @@ pub(crate) fn select_next_weather(
     current: WeatherKind,           // 当前节点决定允许进入的候选集合。
     month: u8,                      // 月份决定季节权重。
     hour: f32,                      // 时刻决定薄雾是否可生成。
-    climate: WeatherClimateProfile, // 当前地图显式气候配置。
+    climate: WeatherClimateProfile, // 当前场景显式气候配置。
     random_unit: f32,               // 零至一的确定性随机样本。
 ) -> WeatherKind {
     let mut total_weight = 0.0; // 先累计所有合法候选的总权重。
@@ -91,7 +91,7 @@ pub(crate) fn select_next_weather(
         if !is_same_or_adjacent(current, candidate) {
             continue; // 非相邻节点不参与抽取，保证晴天不会直接跳大雨。
         } // 结束非法候选跳过。
-        let weight = weather_weight(candidate, month, hour, climate); // 读取候选最终季节与地图权重。
+        let weight = weather_weight(candidate, month, hour, climate); // 读取候选最终季节与场景权重。
         if threshold < weight {
             return candidate; // 首个覆盖阈值的候选成为下一天气。
         } // 结束当前候选命中判断。

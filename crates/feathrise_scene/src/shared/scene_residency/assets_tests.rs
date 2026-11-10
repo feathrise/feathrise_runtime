@@ -1,4 +1,4 @@
-//! 资产通知消费确认、同帧切图恢复与已释放依赖的固定预算退役回归。
+//! 资产通知消费确认、同帧切换场景恢复与已释放依赖的固定预算退役回归。
 
 use super::*;
 use feathrise_scene_core::residency::{ResidentAssetEventReader, SceneResidencyRuntimeSet};
@@ -24,7 +24,7 @@ fn fixture() -> App {
     .init_resource::<TestRuntime>()
     .insert_resource(SceneResidencyActivity {
         enabled: true,
-        active: Some(ResidentMapToken(2)),
+        active: Some(ResidentSceneToken(2)),
         ..default()
     });
     watch::<Mesh>(&mut app);
@@ -62,7 +62,7 @@ fn settle(app: &mut App) {
     }
 }
 
-fn activate(app: &mut App, token: ResidentMapToken, handle: Option<Handle<Mesh>>, freeze: bool) {
+fn activate(app: &mut App, token: ResidentSceneToken, handle: Option<Handle<Mesh>>, freeze: bool) {
     {
         let mut activity = app.world_mut().resource_mut::<SceneResidencyActivity>();
         activity.active = Some(token);
@@ -79,14 +79,14 @@ fn activate(app: &mut App, token: ResidentMapToken, handle: Option<Handle<Mesh>>
 #[test]
 fn replay_survives_switch_starting_before_runtime_consumption() {
     let mut app = fixture();
-    let (a, b) = (ResidentMapToken(1), ResidentMapToken(2));
+    let (a, b) = (ResidentSceneToken(1), ResidentSceneToken(2));
     let mesh = app
         .world_mut()
         .resource_mut::<Assets<Mesh>>()
         .add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)));
     let entity = app
         .world_mut()
-        .spawn((ResidentMapEntity(a), Mesh3d(mesh.clone())))
+        .spawn((ResidentSceneEntity(a), Mesh3d(mesh.clone())))
         .id();
     register_owned_assets(app.world_mut(), entity);
     settle(&mut app); // 初始Added结清，仅观察后续Modified。
@@ -98,7 +98,7 @@ fn replay_survives_switch_starting_before_runtime_consumption() {
             .write(AssetEvent::Modified { id: mesh.id() });
         settle(&mut app);
         activate(&mut app, a, Some(mesh.clone()), interrupted);
-        app.update(); // PreUpdate回放，Update中的标签请求可以先于地图消费者冻结运行时。
+        app.update(); // PreUpdate回放，Update中的标签请求可以先于场景消费者冻结运行时。
         if interrupted {
             assert_eq!(app.world().resource::<TestRuntime>().received, 0);
             activate(&mut app, b, None, false);
@@ -118,14 +118,14 @@ fn replay_survives_switch_starting_before_runtime_consumption() {
 #[test]
 fn native_change_survives_switch_starting_in_the_arrival_frame() {
     let mut app = fixture();
-    let (a, b) = (ResidentMapToken(1), ResidentMapToken(2));
+    let (a, b) = (ResidentSceneToken(1), ResidentSceneToken(2));
     let mesh = app
         .world_mut()
         .resource_mut::<Assets<Mesh>>()
         .add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)));
     let entity = app
         .world_mut()
-        .spawn((ResidentMapEntity(a), Mesh3d(mesh.clone())))
+        .spawn((ResidentSceneEntity(a), Mesh3d(mesh.clone())))
         .id();
     register_owned_assets(app.world_mut(), entity);
     activate(&mut app, a, Some(mesh.clone()), false);
@@ -149,12 +149,12 @@ fn native_change_survives_switch_starting_in_the_arrival_frame() {
 #[test]
 fn shared_replay_survives_switch_without_marking_the_version_consumed() {
     let mut app = fixture();
-    let (a, b) = (ResidentMapToken(1), ResidentMapToken(2));
+    let (a, b) = (ResidentSceneToken(1), ResidentSceneToken(2));
     let mesh = app
         .world_mut()
         .resource_mut::<Assets<Mesh>>()
         .add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)));
-    settle(&mut app); // 共享资源只有强句柄，不挂在任何地图实体上。
+    settle(&mut app); // 共享资源只有强句柄，不挂在任何场景实体上。
     app.world_mut()
         .resource_mut::<Messages<AssetEvent<Mesh>>>()
         .write(AssetEvent::Modified { id: mesh.id() });
@@ -177,7 +177,7 @@ fn shared_replay_survives_switch_without_marking_the_version_consumed() {
 #[test]
 fn interrupted_replay_preserves_the_entire_batch_and_resumes_with_the_original_budget() {
     let mut app = fixture();
-    let (a, b) = (ResidentMapToken(1), ResidentMapToken(2));
+    let (a, b) = (ResidentSceneToken(1), ResidentSceneToken(2));
     let mut handles = Vec::new();
     for _ in 0..EVENT_BUDGET + 1 {
         let handle = app
@@ -186,7 +186,7 @@ fn interrupted_replay_preserves_the_entire_batch_and_resumes_with_the_original_b
             .add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)));
         let entity = app
             .world_mut()
-            .spawn((ResidentMapEntity(a), Mesh3d(handle.clone())))
+            .spawn((ResidentSceneEntity(a), Mesh3d(handle.clone())))
             .id();
         register_owned_assets(app.world_mut(), entity);
         handles.push(handle);
@@ -206,7 +206,7 @@ fn interrupted_replay_preserves_the_entire_batch_and_resumes_with_the_original_b
     app.update();
     assert_eq!(app.world().resource::<TestRuntime>().received, 0);
     assert_eq!(
-        app.world().resource::<AssetChanges<Mesh>>().maps[&a]
+        app.world().resource::<AssetChanges<Mesh>>().scenes[&a]
             .pending
             .len(),
         handles.len()
@@ -229,16 +229,16 @@ fn interrupted_replay_preserves_the_entire_batch_and_resumes_with_the_original_b
         handles.len()
     );
     assert!(
-        app.world().resource::<AssetChanges<Mesh>>().maps[&a]
+        app.world().resource::<AssetChanges<Mesh>>().scenes[&a]
             .pending
             .is_empty()
     );
 }
 
 #[test]
-fn unused_meshes_do_not_accumulate_in_map_dependency_index() {
+fn unused_meshes_do_not_accumulate_in_scene_dependency_index() {
     let mut app = fixture();
-    let token = ResidentMapToken(1);
+    let token = ResidentSceneToken(1);
     for _ in 0..16 {
         let handle = app
             .world_mut()
@@ -247,7 +247,7 @@ fn unused_meshes_do_not_accumulate_in_map_dependency_index() {
         let id = handle.id();
         let entity = app
             .world_mut()
-            .spawn((ResidentMapEntity(token), Mesh3d(handle)))
+            .spawn((ResidentSceneEntity(token), Mesh3d(handle)))
             .id();
         register_owned_assets(app.world_mut(), entity);
         app.world_mut().resource_mut::<AssetOwners>().remove(entity);
@@ -259,7 +259,7 @@ fn unused_meshes_do_not_accumulate_in_map_dependency_index() {
     }
     assert!(app.world().resource::<AssetOwners>().entities.is_empty());
     let changes = app.world().resource::<AssetChanges<Mesh>>();
-    let map = &changes.maps[&token];
+    let map = &changes.scenes[&token];
     assert!(map.known.is_empty() && map.indexed.is_empty() && map.pending.is_empty());
     assert!(changes.dependents.is_empty());
 }
@@ -277,7 +277,7 @@ fn unused_shared_dependency_retires_with_a_fixed_visit_budget() {
         let entity = app
             .world_mut()
             .spawn((
-                ResidentMapEntity(ResidentMapToken(token)),
+                ResidentSceneEntity(ResidentSceneToken(token)),
                 Mesh3d(handle.clone()),
             ))
             .id();
@@ -293,7 +293,7 @@ fn unused_shared_dependency_retires_with_a_fixed_visit_budget() {
     let remaining = app
         .world()
         .resource::<AssetChanges<Mesh>>()
-        .maps
+        .scenes
         .values()
         .filter(|map| !map.known.is_empty())
         .count();
@@ -302,7 +302,7 @@ fn unused_shared_dependency_retires_with_a_fixed_visit_budget() {
     let changes = app.world().resource::<AssetChanges<Mesh>>();
     assert!(
         changes
-            .maps
+            .scenes
             .values()
             .all(|map| map.known.is_empty() && map.pending.is_empty())
     );
@@ -310,9 +310,9 @@ fn unused_shared_dependency_retires_with_a_fixed_visit_budget() {
 }
 
 #[test]
-fn closing_map_retires_reverse_index_without_removing_live_shared_dependencies() {
+fn closing_scene_retires_reverse_index_without_removing_live_shared_dependencies() {
     let mut app = fixture();
-    let (closed, live) = (ResidentMapToken(1), ResidentMapToken(2));
+    let (closed, live) = (ResidentSceneToken(1), ResidentSceneToken(2));
     let mut handles = Vec::new();
     for _ in 0..EVENT_BUDGET * 2 + 1 {
         let handle = app
@@ -328,9 +328,9 @@ fn closing_map_retires_reverse_index_without_removing_live_shared_dependencies()
     forget_type::<Mesh>(app.world_mut(), closed, &mut scenes);
     settle(&mut app);
     let changes = app.world().resource::<AssetChanges<Mesh>>();
-    assert!(!changes.maps.contains_key(&closed));
+    assert!(!changes.scenes.contains_key(&closed));
     assert!(changes.retired.is_empty());
-    assert_eq!(changes.maps[&live].known.len(), handles.len());
+    assert_eq!(changes.scenes[&live].known.len(), handles.len());
     assert!(
         handles
             .iter()

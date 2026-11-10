@@ -279,7 +279,7 @@ pub(crate) fn capture_mesh_inputs(
             fail_mesh_adaptation(&mut runtime, "源Mesh资产尚未就绪".to_string());
             return;
         };
-        let root = runtime.root.expect("适配阶段必须已锁定受支持地图目标");
+        let root = runtime.root.expect("适配阶段必须已锁定受支持场景目标");
         let ticket = runtime.next_task_ticket();
         let identity = AdaptationIdentity {
             generation: runtime.generation,
@@ -425,7 +425,7 @@ pub(crate) fn poll_and_adopt_mesh_results(
     };
     if !adaptation_identity_matches(&runtime, output.identity, &revisions, &source_meshes) {
         runtime.budget.cpu_working_set_bytes = runtime.estimated_cpu_working_set();
-        return; // 地图、实体、AssetId、修订或票据任一变化都只丢弃迟到成功值。
+        return; // 场景、实体、AssetId、修订或票据任一变化都只丢弃迟到成功值。
     }
     if output.derived_bytes > MAX_UPLOAD_BYTES_PER_FRAME {
         runtime.request_rollback(
@@ -451,7 +451,7 @@ pub(crate) fn poll_and_adopt_mesh_results(
         return;
     }
     let handle = meshes.add(output.mesh); // 本帧唯一一次派生Mesh登记与后续GPU上传请求。
-    runtime.candidates[contract_index].derived_mesh = Some(handle); // 保持强句柄直到回退或切图。
+    runtime.candidates[contract_index].derived_mesh = Some(handle); // 保持强句柄直到回退或切换场景。
     runtime.candidates[contract_index].adaptation_ticket = None; // 完整采用后拒绝任何同槽重复或迟到结果。
     runtime.budget.cpu_working_set_bytes = runtime.estimated_cpu_working_set();
     maybe_finish_adaptation(&mut runtime); // 全部候选全部采用后进入GPU等待阶段。

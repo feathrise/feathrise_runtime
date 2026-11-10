@@ -8,12 +8,12 @@ use bevy::asset::AssetPlugin;
 #[derive(Component, Debug, PartialEq)]
 struct GameplayMemory(u64);
 
-fn record(id: &str) -> feathrise_map_content::MapPlacementRecord {
-    let mut value: feathrise_map_content::MapPlacementRecord = serde_json::from_str(&format!(
+fn record(id: &str) -> feathrise_scene_content::ScenePlacementRecord {
+    let mut value: feathrise_scene_content::ScenePlacementRecord = serde_json::from_str(&format!(
         r#"{{"id":"{id}","asset_path":"","translation":[0,1,0],"yaw_degrees":0,"scale":[1,1,1]}}"#
     ))
     .unwrap();
-    value.asset_target = feathrise_map_content::MapPlacementAssetTarget::DEFAULT_CUBOID;
+    value.asset_target = feathrise_scene_content::ScenePlacementAssetTarget::DEFAULT_CUBOID;
     value
 }
 
@@ -23,9 +23,9 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
         .init_resource::<Assets<Mesh>>()
         .init_resource::<Assets<StandardMaterial>>()
         .init_resource::<WorldAssetLifecycleIndex>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<BuildingVegetationClearanceState>();
-    let map = MapId("MAP-reuse".into());
+    let map = SceneId("MAP-reuse".into());
     let container = app
         .world_mut()
         .spawn((
@@ -40,7 +40,7 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
         let root = app
             .world_mut()
             .spawn((
-                MapPlacementInstance::new_pending(
+                ScenePlacementInstance::new_pending(
                     &map,
                     &record(&format!("kept-{index}")),
                     gate.clone(),
@@ -54,8 +54,8 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
         app.world_mut().spawn((GameplayMemory(99), ChildOf(root)));
         roots.push(root);
     }
-    let state = MapPlacementRuntimeState {
-        active_map_id: Some(map),
+    let state = ScenePlacementRuntimeState {
+        active_scene_id: Some(map),
         generation: 1,
         revision: 2,
         active: Some(PlacementActiveBatch {
@@ -72,15 +72,15 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
     (app, roots, container)
 }
 
-fn begin(app: &mut App, records: Vec<feathrise_map_content::MapPlacementRecord>) {
+fn begin(app: &mut App, records: Vec<feathrise_scene_content::ScenePlacementRecord>) {
     app.world_mut()
-        .resource_mut::<MapPlacementRuntimeState>()
+        .resource_mut::<ScenePlacementRuntimeState>()
         .pending = Some(super::super::super::resources::PendingPlacementRevision {
         terrain_patch_count: 0,
         terrain_holes: Default::default(),
         generation: 1,
         revision: 2,
-        map_id: MapId("MAP-reuse".into()),
+        scene_id: SceneId("MAP-reuse".into()),
         building_preset_revision: 0,
         building_clearances: Default::default(),
         building_clearance_floor_heights: Default::default(),
@@ -101,8 +101,8 @@ fn tick(
     mut commands: Commands,
     server: Res<AssetServer>,
     meshes: Res<Assets<Mesh>>,
-    mut state: ResMut<MapPlacementRuntimeState>,
-    mut status: ResMut<MapPlacementRuntimeStatus>,
+    mut state: ResMut<ScenePlacementRuntimeState>,
+    mut status: ResMut<ScenePlacementRuntimeStatus>,
     mut clearances: ResMut<BuildingVegetationClearanceState>,
     mut visibility: InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
     inputs: PlacementReuseInputs,
@@ -114,7 +114,7 @@ fn tick(
         &mut commands,
         &server,
         &meshes,
-        &MapId("MAP-reuse".into()),
+        &SceneId("MAP-reuse".into()),
         &mut state,
         &mut status,
         &mut clearances,
@@ -130,19 +130,19 @@ fn placement_reuse_create_delete_preserves_unmodified_gameplay_entity_and_childr
     begin(&mut app, vec![record("kept-0"), record("new")]);
     for _ in 0..8 {
         app.update();
-        if app.world().resource::<MapPlacementRuntimeStatus>().phase
-            == MapPlacementRuntimePhase::Ready
+        if app.world().resource::<ScenePlacementRuntimeStatus>().phase
+            == ScenePlacementRuntimePhase::Ready
         {
             break;
         }
     }
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().phase,
-        MapPlacementRuntimePhase::Ready
+        app.world().resource::<ScenePlacementRuntimeStatus>().phase,
+        ScenePlacementRuntimePhase::Ready
     );
     let active = app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .active
         .as_ref()
         .unwrap();
@@ -167,7 +167,7 @@ fn placement_reuse_create_delete_preserves_unmodified_gameplay_entity_and_childr
     );
     assert!(
         app.world()
-            .get::<MapPlacementInstance>(old[0])
+            .get::<ScenePlacementInstance>(old[0])
             .unwrap()
             .is_active()
     );
@@ -181,7 +181,7 @@ fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state()
     app.update(); // 首帧只预留容器，不可能提前采用。
     let carry = app
         .world()
-        .resource::<MapPlacementRuntimeState>()
+        .resource::<ScenePlacementRuntimeState>()
         .staging
         .as_ref()
         .unwrap()
@@ -195,7 +195,7 @@ fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state()
     );
     app.world_mut()
         .run_system_once(
-            |mut commands: Commands, mut state: ResMut<MapPlacementRuntimeState>| {
+            |mut commands: Commands, mut state: ResMut<ScenePlacementRuntimeState>| {
                 retire_candidate(&mut commands, &mut state);
             },
         )
@@ -214,7 +214,7 @@ fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state()
     );
     assert!(
         app.world()
-            .get::<MapPlacementInstance>(roots[0])
+            .get::<ScenePlacementInstance>(roots[0])
             .unwrap()
             .is_active()
     );
@@ -235,13 +235,13 @@ fn placement_reuse_large_index_is_bounded_and_does_not_publish_partial_batch() {
             .collect(),
     );
     app.update();
-    let state = app.world().resource::<MapPlacementRuntimeState>();
+    let state = app.world().resource::<ScenePlacementRuntimeState>();
     let staging = state.staging.as_ref().unwrap();
     assert_eq!(staging.reuse.cursor, 128);
     assert_eq!(staging.next_plan, 0);
     assert_eq!(state.active.as_ref().unwrap().roots, roots);
     assert_eq!(
-        app.world().resource::<MapPlacementRuntimeStatus>().revision,
+        app.world().resource::<ScenePlacementRuntimeStatus>().revision,
         0
     );
 }

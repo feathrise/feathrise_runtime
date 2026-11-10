@@ -1,4 +1,4 @@
-//! 后台地图的资产通知保留到恢复；只处理变化和固定预算，不逐帧扫描完整地图。
+//! 后台场景的资产通知保留到恢复；只处理变化和固定预算，不逐帧扫描完整场景。
 
 use super::resources::ResidentScenes;
 use bevy::{
@@ -6,9 +6,9 @@ use bevy::{
     ecs::message::MessageCursor,
     prelude::*,
 };
-use feathrise_map_content::*;
+use feathrise_scene_content::*;
 use feathrise_scene_core::residency::{
-    ResidentAssetEvent, ResidentMapEntity, ResidentMapToken, ResidentSceneActivated,
+    ResidentAssetEvent, ResidentSceneEntity, ResidentSceneToken, ResidentSceneActivated,
     SceneResidencyActivity,
 };
 use std::collections::{HashMap, HashSet, VecDeque, hash_set};
@@ -21,8 +21,8 @@ mod tests;
 
 #[derive(Resource, Default)]
 pub(super) struct AssetOwners {
-    assets: HashMap<UntypedAssetId, HashMap<ResidentMapToken, usize>>,
-    entities: HashMap<Entity, (ResidentMapToken, Vec<UntypedAssetId>)>,
+    assets: HashMap<UntypedAssetId, HashMap<ResidentSceneToken, usize>>,
+    entities: HashMap<Entity, (ResidentSceneToken, Vec<UntypedAssetId>)>,
 }
 impl AssetOwners {
     pub fn remove(&mut self, entity: Entity) {
@@ -43,14 +43,14 @@ impl AssetOwners {
     }
 }
 
-struct MapChanges<A: Asset> {
+struct SceneChanges<A: Asset> {
     known: Vec<AssetId<A>>,
-    indexed: HashMap<AssetId<A>, usize>, // swap_remove同步更新位置，释放资产不扫描整张地图。
+    indexed: HashMap<AssetId<A>, usize>, // swap_remove同步更新位置，释放资产不扫描整个场景。
     pending: HashMap<AssetId<A>, AssetEvent<A>>,
     overrun: u64,
-    shared_seen: u64, // 原运行时已消费到的共享资产版本；不由切图输入帧提前推进。
+    shared_seen: u64, // 原运行时已消费到的共享资产版本；不由切换场景输入帧提前推进。
 }
-impl<A: Asset> Default for MapChanges<A> {
+impl<A: Asset> Default for SceneChanges<A> {
     fn default() -> Self {
         Self {
             known: Vec::new(),
@@ -70,17 +70,17 @@ struct SharedAssetChange<A: Asset> {
 #[derive(Clone, Copy)]
 struct Replay {
     ticket: u64,
-    token: ResidentMapToken,
+    token: ResidentSceneToken,
     local_cursor: usize,
     local_done: bool,
     shared_cursor: usize,
-    shared_end: usize, // 采用时冻结登记范围，当前地图新生成的资产不能让回放永远追不上。
+    shared_end: usize, // 采用时冻结登记范围，当前场景新生成的资产不能让回放永远追不上。
     all: bool,
 }
 
 /// 通知发布不是消费完成；最多保留一帧的固定预算批次，到Last再确认游标和局部通知。
 struct AssetDelivery<A: Asset> {
-    token: ResidentMapToken,
+    token: ResidentSceneToken,
     native: Vec<AssetEvent<A>>,
     pending_ids: Vec<AssetId<A>>,
     replay_ticket: Option<u64>,
@@ -88,7 +88,7 @@ struct AssetDelivery<A: Asset> {
     completed_overrun: Option<u64>,
 }
 impl<A: Asset> AssetDelivery<A> {
-    fn new(token: ResidentMapToken) -> Self {
+    fn new(token: ResidentSceneToken) -> Self {
         Self {
             token,
             native: Vec::new(),
@@ -101,22 +101,22 @@ impl<A: Asset> AssetDelivery<A> {
 }
 #[derive(Resource)]
 struct AssetChanges<A: Asset> {
-    maps: HashMap<ResidentMapToken, MapChanges<A>>,
+    scenes: HashMap<ResidentSceneToken, SceneChanges<A>>,
     replay: Option<Replay>,
     replay_ticket: u64,
     delivery: Option<AssetDelivery<A>>,
-    dependents: HashMap<AssetId<A>, HashSet<ResidentMapToken>>,
-    unused: VecDeque<(AssetId<A>, hash_set::IntoIter<ResidentMapToken>)>,
-    retired: VecDeque<(ResidentMapToken, Vec<AssetId<A>>)>,
+    dependents: HashMap<AssetId<A>, HashSet<ResidentSceneToken>>,
+    unused: VecDeque<(AssetId<A>, hash_set::IntoIter<ResidentSceneToken>)>,
+    retired: VecDeque<(ResidentSceneToken, Vec<AssetId<A>>)>,
     overrun: u64,
     shared: Vec<SharedAssetChange<A>>,
     shared_index: HashMap<AssetId<A>, usize>,
-    shared_serial: u64, // 非maps目录下的高度/密度/材质源也必须保留真实变更，而非只识别场景根。
+    shared_serial: u64, // 非scenes目录下的高度/密度/材质源也必须保留真实变更，而非只识别场景根。
 }
 impl<A: Asset> Default for AssetChanges<A> {
     fn default() -> Self {
         Self {
-            maps: HashMap::new(),
+            scenes: HashMap::new(),
             replay: None,
             replay_ticket: 0,
             delivery: None,
@@ -135,15 +135,15 @@ pub(super) fn install(app: &mut App) {
     app.init_resource::<AssetOwners>()
         .add_observer(register_root_asset)
         .add_observer(register_mesh_asset);
-    watch::<MapManifestAsset>(app);
-    watch::<MapPlacementsAsset>(app);
-    watch::<MapPortalsAsset>(app);
-    watch::<MapBoundariesAsset>(app);
-    watch::<MapSurfaceAsset>(app);
-    watch::<MapVegetationAsset>(app);
-    watch::<MapWaterAsset>(app);
-    watch::<MapWaterMaskAsset>(app);
-    watch::<MapSurfaceSourceAsset>(app);
+    watch::<SceneManifestAsset>(app);
+    watch::<ScenePlacementsAsset>(app);
+    watch::<ScenePortalsAsset>(app);
+    watch::<SceneBoundariesAsset>(app);
+    watch::<SceneSurfaceAsset>(app);
+    watch::<SceneVegetationAsset>(app);
+    watch::<SceneWaterAsset>(app);
+    watch::<SceneWaterMaskAsset>(app);
+    watch::<SceneSurfaceSourceAsset>(app);
     watch::<SparseHeightManifestAsset>(app);
     watch::<Image>(app);
     watch::<Mesh>(app);
@@ -151,7 +151,7 @@ pub(super) fn install(app: &mut App) {
     watch::<StandardMaterial>(app);
     watch::<feathrise_environment::terrain_surface::TerrainSurfaceMaterial>(app);
     watch::<crate::DynamicWaterMaterial>(app);
-    watch::<crate::maps::ClipmapWaterMaterial>(app);
+    watch::<crate::scenes::ClipmapWaterMaterial>(app);
     watch::<Gltf>(app);
     watch::<AnimationClip>(app);
 }
@@ -169,7 +169,7 @@ fn watch<A: Asset>(app: &mut App) {
 
 /// 应用声明自身资产需要同一驻留热更回放与关闭回收，公共场景不枚举领域 DTO。
 #[derive(Resource, Default)]
-struct ApplicationAssetCleanup(Vec<fn(&mut World, ResidentMapToken, &mut ResidentScenes)>);
+struct ApplicationAssetCleanup(Vec<fn(&mut World, ResidentSceneToken, &mut ResidentScenes)>);
 
 pub fn watch_scene_application_asset<A: Asset>(app: &mut App) {
     if app.world().contains_resource::<AssetChanges<A>>() { return; }
@@ -188,8 +188,8 @@ fn event_id<A: Asset>(event: &AssetEvent<A>) -> AssetId<A> {
     }
 }
 
-fn remember<A: Asset>(changes: &mut AssetChanges<A>, token: ResidentMapToken, id: AssetId<A>) {
-    let map = changes.maps.entry(token).or_default();
+fn remember<A: Asset>(changes: &mut AssetChanges<A>, token: ResidentSceneToken, id: AssetId<A>) {
+    let map = changes.scenes.entry(token).or_default();
     if !map.indexed.contains_key(&id) {
         map.indexed.insert(id, map.known.len());
         map.known.push(id);
@@ -197,7 +197,7 @@ fn remember<A: Asset>(changes: &mut AssetChanges<A>, token: ResidentMapToken, id
     changes.dependents.entry(id).or_default().insert(token);
 }
 
-fn retain_pending<A: Asset>(map: &mut MapChanges<A>, event: AssetEvent<A>) {
+fn retain_pending<A: Asset>(map: &mut SceneChanges<A>, event: AssetEvent<A>) {
     let id = event_id(&event);
     // Loaded不能覆盖尚未消费的Modified；同一资产只保留最新的有效通知。
     if !matches!(event, AssetEvent::LoadedWithDependencies { .. })
@@ -209,7 +209,7 @@ fn retain_pending<A: Asset>(map: &mut MapChanges<A>, event: AssetEvent<A>) {
     }
 }
 
-/// 反向索引只访问真正依赖该资产的地图；Unused及关闭地图的清理共享每类128次访问预算。
+/// 反向索引只访问真正依赖该资产的场景；Unused及关闭场景的清理共享每类128次访问预算。
 fn retire_dependencies<A: Asset>(changes: &mut AssetChanges<A>) {
     for _ in 0..EVENT_BUDGET {
         if let Some((id, tokens)) = changes.unused.front_mut() {
@@ -225,7 +225,7 @@ fn retire_dependencies<A: Asset>(changes: &mut AssetChanges<A>) {
             {
                 continue; // 同一ID在Unused之后被重新登记，旧释放通知不得删除新的有效依赖。
             }
-            if let Some(map) = changes.maps.get_mut(&token) {
+            if let Some(map) = changes.scenes.get_mut(&token) {
                 map.pending.remove(&id);
                 if let Some(index) = map.indexed.remove(&id) {
                     map.known.swap_remove(index);
@@ -259,7 +259,7 @@ fn retire_dependencies<A: Asset>(changes: &mut AssetChanges<A>) {
 
 /// 归属登记与资产根登记可能先后到达，两条观察器都补登记相同的O(1)依赖。
 pub(super) fn register_owned_assets(world: &mut World, entity: Entity) {
-    let Some(owner) = world.get::<ResidentMapEntity>(entity).copied() else {
+    let Some(owner) = world.get::<ResidentSceneEntity>(entity).copied() else {
         return;
     };
     let mut ids = Vec::new(); // 大部分归属节点没有独立资产；不为每个空节点分配堆内存。
@@ -363,9 +363,9 @@ fn collect<A: Asset>(
         }
         let path_token = source_path.and_then(|path| {
             let path = path.path().to_string_lossy().replace('\\', "/");
-            let folder = path.strip_prefix("maps/")?.split('/').next()?;
-            let map = MapId::parse(folder).ok()?;
-            scenes.maps.get(&map).map(|entry| entry.token)
+            let folder = path.strip_prefix("scenes/")?.split('/').next()?;
+            let map = SceneId::parse(folder).ok()?;
+            scenes.scenes.get(&map).map(|entry| entry.token)
         });
         let explicit = owners.assets.get(&id.untyped());
         let path_token =
@@ -377,10 +377,10 @@ fn collect<A: Asset>(
         for token in explicit.chain(path_token) {
             remember(&mut changes, token, id);
             if activity.switching || activity.active != Some(token) {
-                let map = changes.maps.get_mut(&token).unwrap();
+                let map = changes.scenes.get_mut(&token).unwrap();
                 retain_pending(map, *event);
             } else {
-                // PreUpdate尚不能证明本帧能消费：Update中的标签请求可能先冻结所有地图系统。
+                // PreUpdate尚不能证明本帧能消费：Update中的标签请求可能先冻结所有场景系统。
                 changes
                     .delivery
                     .get_or_insert_with(|| AssetDelivery::new(token))
@@ -394,10 +394,10 @@ fn collect<A: Asset>(
 
 fn begin_replay<A: Asset>(event: On<ResidentSceneActivated>, mut changes: ResMut<AssetChanges<A>>) {
     let all = changes
-        .maps
+        .scenes
         .get(&event.0)
         .is_some_and(|map| map.overrun != changes.overrun);
-    changes.maps.entry(event.0).or_default();
+    changes.scenes.entry(event.0).or_default();
     changes.replay_ticket = changes.replay_ticket.wrapping_add(1);
     changes.replay = Some(Replay {
         ticket: changes.replay_ticket,
@@ -410,14 +410,14 @@ fn begin_replay<A: Asset>(event: On<ResidentSceneActivated>, mut changes: ResMut
     });
 }
 
-/// 只在原运行时确实有资格消费通知的帧末记录版本；输入帧先开启切图锁时不能丢掉本帧更新。
+/// 只在原运行时确实有资格消费通知的帧末记录版本；输入帧先开启切换场景锁时不能丢掉本帧更新。
 fn acknowledge_active<A: Asset>(
     activity: Res<SceneResidencyActivity>,
     mut changes: ResMut<AssetChanges<A>>,
 ) {
     if let Some(delivery) = changes.delivery.take() {
         if !activity.enabled || activity.switching || activity.active != Some(delivery.token) {
-            if let Some(map) = changes.maps.get_mut(&delivery.token) {
+            if let Some(map) = changes.scenes.get_mut(&delivery.token) {
                 for event in delivery.native {
                     if map.indexed.contains_key(&event_id(&event)) {
                         retain_pending(map, event);
@@ -432,7 +432,7 @@ fn acknowledge_active<A: Asset>(
                 .as_ref()
                 .is_some_and(|replay| replay.ticket == ticket)
         {
-            let map = changes.maps.get_mut(&delivery.token).unwrap();
+            let map = changes.scenes.get_mut(&delivery.token).unwrap();
             for id in delivery.pending_ids {
                 map.pending.remove(&id);
             }
@@ -448,9 +448,9 @@ fn acknowledge_active<A: Asset>(
     if let Some(token) = activity.active {
         let serial = changes.shared_serial;
         let overrun = changes.overrun;
-        let map = changes.maps.entry(token).or_default();
+        let map = changes.scenes.entry(token).or_default();
         map.shared_seen = serial;
-        map.overrun = overrun; // 活动地图原读者已消费本帧资产，不把其正常冷载突发误判为后台丢通知。
+        map.overrun = overrun; // 活动场景原读者已消费本帧资产，不把其正常冷载突发误判为后台丢通知。
     }
 }
 
@@ -472,9 +472,9 @@ fn replay<A: Asset>(
         return;
     };
     let AssetChanges {
-        maps, shared, delivery, ..
+        scenes, shared, delivery, ..
     } = &mut *changes;
-    let map = maps.get_mut(&token).unwrap();
+    let map = scenes.get_mut(&token).unwrap();
     let delivery = delivery.get_or_insert_with(|| AssetDelivery::new(token));
     delivery.replay_ticket = Some(replay.ticket);
     let mut remaining = EVENT_BUDGET;
@@ -500,7 +500,7 @@ fn replay<A: Asset>(
         }
         replay.local_done = delivery.pending_ids.len() == map.pending.len();
     }
-    // 按原AssetId回放共享源；原消费者仍做完整句柄过滤。已属本地图的通知不重复发布。
+    // 按原AssetId回放共享源；原消费者仍做完整句柄过滤。已属本场景的通知不重复发布。
     if replay.local_done {
         for change in shared[..replay.shared_end]
             .iter()
@@ -529,12 +529,12 @@ fn replay<A: Asset>(
     } else {
         delivery.completed_overrun = Some(overrun);
     }
-    // 游标、pending和丢消息复核版本只在本帧所有地图系统仍有资格运行时一起提交。
+    // 游标、pending和丢消息复核版本只在本帧所有场景系统仍有资格运行时一起提交。
 }
 
-fn forget_type<A: Asset>(world: &mut World, token: ResidentMapToken, scenes: &mut ResidentScenes) {
+fn forget_type<A: Asset>(world: &mut World, token: ResidentSceneToken, scenes: &mut ResidentScenes) {
     let mut changes = world.resource_mut::<AssetChanges<A>>();
-    if let Some(mut map) = changes.maps.remove(&token) {
+    if let Some(mut map) = changes.scenes.remove(&token) {
         if !map.known.is_empty() {
             changes
                 .retired
@@ -558,19 +558,19 @@ fn forget_type<A: Asset>(world: &mut World, token: ResidentMapToken, scenes: &mu
     }
 }
 
-/// 固定类型数的回收，不留下关闭地图的通知和依赖表。
-pub(super) fn forget(world: &mut World, token: ResidentMapToken, scenes: &mut ResidentScenes) {
+/// 固定类型数的回收，不留下关闭场景的通知和依赖表。
+pub(super) fn forget(world: &mut World, token: ResidentSceneToken, scenes: &mut ResidentScenes) {
     macro_rules! forget { ($($ty:ty),*) => { $(forget_type::<$ty>(world, token, scenes);)* }; }
     forget!(
-        MapManifestAsset,
-        MapPlacementsAsset,
-        MapPortalsAsset,
-        MapBoundariesAsset,
-        MapSurfaceAsset,
-        MapVegetationAsset,
-        MapWaterAsset,
-        MapWaterMaskAsset,
-        MapSurfaceSourceAsset,
+        SceneManifestAsset,
+        ScenePlacementsAsset,
+        ScenePortalsAsset,
+        SceneBoundariesAsset,
+        SceneSurfaceAsset,
+        SceneVegetationAsset,
+        SceneWaterAsset,
+        SceneWaterMaskAsset,
+        SceneSurfaceSourceAsset,
         SparseHeightManifestAsset,
         Image,
         Mesh,
@@ -578,7 +578,7 @@ pub(super) fn forget(world: &mut World, token: ResidentMapToken, scenes: &mut Re
         StandardMaterial,
         feathrise_environment::terrain_surface::TerrainSurfaceMaterial,
         crate::DynamicWaterMaterial,
-        crate::maps::ClipmapWaterMaterial,
+        crate::scenes::ClipmapWaterMaterial,
         Gltf,
         AnimationClip
     );

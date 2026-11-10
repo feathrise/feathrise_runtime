@@ -39,7 +39,7 @@ use super::types::{TreeWindMaterialKey, TreeWindUniform}; // 固定GPU ABI与仅
 use super::{MeshWindLodLevel, MeshWindPart}; // 内容域只传入共享质量档与部件语义。
 
 /// 项目自有树木风材质扩展。
-/// 该类型公开仅因为它构成公开 `TreeWindMaterial` 的资产身份，地图层无需直接操作其字段。
+/// 该类型公开仅因为它构成公开 `TreeWindMaterial` 的资产身份，场景层无需直接操作其字段。
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone, Default)] // 非bindless派生路径适合正式场景十份共享材质。
 #[bind_group_data(TreeWindMaterialKey)] // 只把详细叶簇布尔值带入管线缓存键，不上传额外Uniform。
 pub struct TreeWindExtension {
@@ -52,7 +52,7 @@ pub struct TreeWindExtension {
 } // 完成自有材质扩展定义。
 
 /// 树木与灌木主世界共用的具体 GPU 风材质。
-pub type TreeWindMaterial = ExtendedMaterial<StandardMaterial, TreeWindExtension>; // 保留原公共名称和地图层签名。
+pub type TreeWindMaterial = ExtendedMaterial<StandardMaterial, TreeWindExtension>; // 保留原公共名称和场景层签名。
 
 impl From<&TreeWindExtension> for TreeWindMaterialKey {
     // AsBindGroup在材质准备时提取稳定且廉价的管线缓存键。

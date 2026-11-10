@@ -108,7 +108,7 @@ fn initialize_pipeline(
 
 fn prepare_capture(
     // 提取后的最新矩阵仅固定大小上传。
-    map: Option<Res<RainOcclusionMap>>, // 纯 ECS 或停用流程可以没有地图。
+    map: Option<Res<RainOcclusionMap>>, // 纯 ECS 或停用流程可以没有场景。
     pipeline: Option<ResMut<CapturePipeline>>, // RenderStartup 完成前无需操作。
     device: Res<RenderDevice>,          // 固定 uniform 写入接口。
     queue: Res<RenderQueue>,            // 只编码上传，不等待 GPU。
@@ -148,7 +148,7 @@ fn publish_depth(
     }; // 管线未就绪时保留旧完整图。
     let Some(target) = images.get(map.image.id()) else {
         return;
-    }; // 新地图图片未就绪时不复用旧目标。
+    }; // 新场景图片未就绪时不复用旧目标。
     let Some(uniform) = pipeline.uniform.binding() else {
         return;
     }; // 固定缓冲初始化前安全退出。

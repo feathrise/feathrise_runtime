@@ -51,7 +51,7 @@ pub struct VegetationMeshLodNode {
 #[derive(Clone, Copy, Debug, Component, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VegetationMeshRenderIdentity {
     pub layer: VegetationLayerId, // 分箱归属必须先匹配无限布局层，禁止只按共享Mesh句柄猜测内容。
-    pub prototype: VegetationPrototypeId, // 同层原型热替换或跨地图复用Mesh时继续保持独立身份。
+    pub prototype: VegetationPrototypeId, // 同层原型热替换或跨场景复用Mesh时继续保持独立身份。
     pub level: VegetationMeshLodLevel, // 高、中、低和公告板由消费项目解释具体数值。
     pub part_id: u32,             // 树干、树冠或任意多部件使用原型声明的稳定编号。
     pub billboard: bool,          // F3可独立核对最远公告板而不解析节点名称或材质类型。

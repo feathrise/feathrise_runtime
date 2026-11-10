@@ -11,8 +11,8 @@ pub use app::default_font::{DefaultFontPlugin, DEFAULT_FONT_BYTES, DEFAULT_FONT_
 
 pub use app::{game_plugins, install_vulkan_surface_guard, prepare_vulkan_environment};
 pub use project::{
-    GameView, ProjectContext, run, validate_saved_map,
-    validate_saved_map_with_check,
+    GameView, ProjectContext, run, validate_saved_scene,
+    validate_saved_scene_with_check, validate_saved_startup_with_check,
     AuthorRuntimePreview, AuthorRuntimePreviewScene, AuthorRuntimePreviewStatus, AuthorRuntimePreviewEvidence,
     AUTHOR_RUNTIME_PREVIEW_LAYER,
 };

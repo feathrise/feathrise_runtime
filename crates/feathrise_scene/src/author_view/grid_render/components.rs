@@ -1,4 +1,4 @@
-//! 作者视图的无限网格GPU绑定；只挂在已有渲染相机，不新增地图或网格实体。
+//! 作者视图的无限网格GPU绑定；只挂在已有渲染相机，不新增场景或网格实体。
 use bevy::{prelude::*, render::render_resource::{BindGroup, BufferId}};
 
 #[derive(Component)]

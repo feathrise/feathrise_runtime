@@ -4,20 +4,20 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
-use feathrise_map_content::{
-    MapId, SparseHeightLiveOverride, SparseHeightTile, TerrainId,
+use feathrise_scene_content::{
+    SceneId, SparseHeightLiveOverride, SparseHeightTile, TerrainId,
     embedded_snapshot::SparseHeightSnapshotTile,
 };
 use std::{collections::BTreeSet, sync::Arc};
 pub(super) struct Prepared {
-    map: MapId,
+    scene_id: SceneId,
     terrain: Option<TerrainId>,
     revision: u64,
     reset: bool,
     tiles: Vec<Arc<SparseHeightTile>>,
 }
 pub(super) fn prepare(
-    map: MapId,
+    scene_id: SceneId,
     terrain: Option<TerrainId>,
     revision: u64,
     reset: bool,
@@ -36,7 +36,7 @@ pub(super) fn prepare(
         tiles.push(Arc::new(tile));
     }
     Ok(Prepared {
-        map,
+        scene_id,
         terrain,
         revision,
         reset,
@@ -44,7 +44,7 @@ pub(super) fn prepare(
     })
 }
 struct Pending {
-    map: MapId,
+    scene_id: SceneId,
     terrain: Option<TerrainId>,
     revision: u64,
     snapshot_revision: Option<u64>,
@@ -54,19 +54,19 @@ struct Pending {
 pub(super) struct State {
     pending: Option<Pending>,
     #[cfg(feature = "validation")]
-    last: Option<(MapId, Option<TerrainId>, u64, u64)>,
+    last: Option<(SceneId, Option<TerrainId>, u64, u64)>,
 }
 impl State {
     pub(super) fn busy(&self) -> bool {
         self.pending.is_some()
     }
     pub(super) fn start(&mut self, world: &World, value: Prepared) -> Result<(), String> {
-        let mut base = systems::height_preview_source(world, &value.map, value.terrain.as_ref())
+        let mut base = systems::height_preview_source(world, &value.scene_id, value.terrain.as_ref())
             .unwrap_or_default();
         let ticket = systems::next_height_source_revision()?;
-        let map = value.map.clone();
+        let map = value.scene_id.clone();
         self.pending = Some(Pending {
-            map: value.map,
+            scene_id: value.scene_id,
             terrain: value.terrain,
             revision: value.revision,
             snapshot_revision: world.get_resource::<EmbeddedProjectState>().map(|state| state.revision),
@@ -102,23 +102,23 @@ impl State {
         let ticket = source.revision();
         let old = systems::publish_height_preview(
             world,
-            &pending.map,
+            &pending.scene_id,
             pending.terrain.clone(),
             source,
         )?;
         if let Some(snapshot_revision) = pending.snapshot_revision
             && let Some(mut bindings) = world.get_resource_mut::<HeightSourceBindings>() {
-            bindings.published_preview(&pending.map, pending.terrain.as_ref(), snapshot_revision, pending.revision, ticket);
+            bindings.published_preview(&pending.scene_id, pending.terrain.as_ref(), snapshot_revision, pending.revision, ticket);
         } // 映射推进不能早于真实来源发布，失败不得给刷圈授予尚未采用的高度信用。
         #[cfg(feature = "validation")]
-        { self.last = Some((pending.map.clone(), pending.terrain.clone(), pending.revision, ticket)); }
+        { self.last = Some((pending.scene_id.clone(), pending.terrain.clone(), pending.revision, ticket)); }
         Ok(Some(old))
     }
     #[cfg(feature = "validation")]
     pub(super) fn evidence(&self, world: &World) -> serde_json::Value {
         self.last.as_ref().map_or(serde_json::Value::Null,|(map,terrain,revision,ticket)| {
             let source=systems::height_preview_source(world,map,terrain.as_ref());
-            serde_json::json!({"map":map,"terrain":terrain,"author_revision":revision,"ticket":ticket,
+            serde_json::json!({"scene_id":map,"terrain":terrain,"author_revision":revision,"ticket":ticket,
                 "adopted_ticket":source.as_ref().map(SparseHeightLiveOverride::revision),"tiles":source.as_ref().map(SparseHeightLiveOverride::tile_count)})
         })
     }

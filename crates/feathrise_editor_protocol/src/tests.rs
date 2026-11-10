@@ -48,8 +48,8 @@ fn snapshot() -> Envelope {
         Message::Snapshot {
             transaction: 4,
             revision: 7,
-            map_id: "map-a".into(),
-            format: "scene-v1".into(),
+            scene_id: "SCENE-a".into(),
+            format: "feathrise-scene-v2".into(),
         },
     )
     .with_payload(Arc::new((0..131_071).map(|index| index as u8).collect()))
@@ -62,10 +62,27 @@ fn encoded(message: &Envelope) -> Vec<u8> {
 }
 
 #[test]
+fn previous_frame_version_and_map_identity_are_rejected() {
+    let snapshot = snapshot();
+    let mut encoded = encoded(&snapshot);
+    encoded[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    let mut input = Cursor::new(encoded);
+    let error = read_frame(&mut input, &Limits::default()).unwrap_err();
+    assert!(matches!(error, ProtocolError::Invalid(ref reason) if reason.contains("协议版本")));
+    assert_eq!(input.position(), 56); // 固定帧头失败时未分配或读取旧快照正文。
+
+    let mut metadata = serde_json::to_value(snapshot).unwrap();
+    let message = metadata["message"].as_object_mut().unwrap();
+    let id = message.remove("scene_id").expect("场景身份必须以 scene_id 编码");
+    message.insert("map_id".into(), id);
+    assert!(serde_json::from_value::<Envelope>(metadata).is_err());
+}
+
+#[test]
 fn author_previews_keep_binary_payload_and_enforce_kind_budget_before_reading_it() {
     for kind in [PreviewKind::Placement, PreviewKind::Vegetation, PreviewKind::AuthorDomain, PreviewKind::SurfaceTrail] {
         let mut message = Envelope::new(identity(), 3, Message::Preview {
-            kind, sequence: 8, map_id: "map-a".into(), format: "author-preview-v1".into(),
+            kind, sequence: 8, scene_id: "map-a".into(), format: "author-preview-v1".into(),
         });
         assert!(message.validate(&Limits::default()).is_err());
         message.payload = Some(Arc::new(vec![0, 255, 17, 3]));

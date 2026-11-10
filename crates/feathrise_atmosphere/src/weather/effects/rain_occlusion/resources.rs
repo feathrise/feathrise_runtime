@@ -1,7 +1,7 @@
 //! 自动遮雨完整捕获需求与主世界缓存；纹理内部携带实际完成矩阵。
 use bevy::prelude::*; // 图片身份、矩阵和资源。
 use bevy::render::extract_resource::ExtractResource; // 固定快照提取，无几何副本。
-use feathrise_map_content::MapId; // 同场景枚举中的不同地图必须分开。
+use feathrise_scene_content::SceneId; // 同场景枚举中的不同场景必须分开。
 use feathrise_scene_core::state::ScenePhase; // 菜单和加载阶段撤销旧图。
 #[derive(Resource, Clone, ExtractResource)] // 主世界需求和GPU输出通过唯一句柄对应。
 #[extract_app(bevy::render::RenderApp)]
@@ -26,7 +26,7 @@ impl Default for RainOcclusionMap {
 pub(super) struct CaptureState {
     // 每次只持有一张固定大小图和少量身份。
     pub casters_pending: bool, // 大父根重挂/改名未完成时不发布部分几何深度。
-    pub context: Option<(ScenePhase, Option<MapId>)>, // 地图切换废弃旧目标。
+    pub context: Option<(ScenePhase, Option<SceneId>)>, // 场景切换废弃旧目标。
     pub target: Option<Handle<Image>>, // 保持当前GPU目标存活。
     pub warm_frames: u8,       // 新资产异步管线启动阶段连续重画。
     pub last_capture: f64,     // 有界低频刷新兜底未发出实体事件的纹理变化。

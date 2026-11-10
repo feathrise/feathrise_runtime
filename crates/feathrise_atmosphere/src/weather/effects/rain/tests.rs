@@ -59,7 +59,7 @@ fn effects_quality_scales_rain_emission_and_stable_frames_do_not_rewrite_spawner
         ..default()         // 其余天气输出保持安全默认值。
     }); // 完成大雨输出资源。
     app.insert_resource(RenderSettings::default()); // 默认高档必须保持现有雨量基线。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许视觉天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许视觉天气。
     app.add_systems(Update, sync_weather_rain); // 只运行主世界降雨同步，不安装Hanabi渲染插件。
     app.world_mut().spawn((PrimarySceneView, Transform::default())); // 提供玩法主相机定位。
     app.update(); // 首帧创建使用高档数量的发射体。
@@ -139,7 +139,7 @@ fn paused_virtual_time_keeps_rain_spawner_inactive() {
         ..default()         // 其余天气通道保持晴天默认值。
     }; // 从晴天输出构造大雨预览。
     app.insert_resource(output); // 插入连续天气输出。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许F1视觉天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许F1视觉天气。
     let mut virtual_time = Time::<Virtual>::default(); // 构造暂停感知虚拟时钟。
     virtual_time.pause(); // 模拟F12编辑器打开后的统一暂停。
     app.insert_resource(virtual_time); // 雨系统据此关闭自动burst。
@@ -171,7 +171,7 @@ fn entering_pause_keeps_running_rain_emitter_after_natural_intensity_change() {
         ..default()         // 其余天气通道保持晴天默认值。
     }; // 从晴天输出构造逐渐增强的自然降雨。
     app.insert_resource(output); // 插入连续天气输出供同步系统读取。
-    app.insert_resource(State::new(ScenePhase::Active)); // 正式玩法地图允许自然降雨。
+    app.insert_resource(State::new(ScenePhase::Active)); // 正式玩法场景允许自然降雨。
     app.insert_resource(Time::<Virtual>::default()); // 初始虚拟时间正常运行。
     app.add_systems(Update, sync_weather_rain); // 注册正式降雨同步系统。
     app.world_mut().spawn((PrimarySceneView, Transform::default())); // 提供玩法主相机定位。
@@ -206,7 +206,7 @@ fn paused_effects_quality_change_rebuilds_the_single_rain_emitter() {
         ..default()         // 其余天气输出保持安全默认值。
     }); // 完成大雨天气输出资源。
     app.insert_resource(RenderSettings::default()); // 首帧使用高档雨效基线。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许F1视觉天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许F1视觉天气。
     let mut virtual_time = Time::<Virtual>::default(); // 构造与F1相同的暂停感知时钟。
     virtual_time.pause(); // 暂停期间只能等待一次有限静态预热。
     app.insert_resource(virtual_time); // 降雨系统据此关闭循环发射。
@@ -244,7 +244,7 @@ fn rain_system_is_safe_without_hanabi_plugin() {
         ..default()         // 其余天气通道保持晴天默认值。
     }; // 从有效晴天输出构造强制大雨样本。
     app.insert_resource(output); // 提供降雨系统必需的天气输出。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许运行时调试天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许运行时调试天气。
     app.add_systems(Update, sync_weather_rain); // 只注册被测降雨系统。
     app.world_mut().spawn((PrimarySceneView, Transform::default())); // 生成可定位的玩法主相机。
     app.update(); // 缺少Hanabi资产容器时应安全返回。
@@ -266,7 +266,7 @@ fn rain_emitter_is_single_and_uses_weather_render_layer() {
         ..default()         // 其余天气通道保持晴天默认值。
     }; // 从晴天结构构造小雨样本。
     app.insert_resource(output); // 提供被测连续天气输出。
-    app.insert_resource(State::new(ScenePhase::Active)); // 动态地图玩法场景允许视觉天气。
+    app.insert_resource(State::new(ScenePhase::Active)); // 动态场景玩法场景允许视觉天气。
     app.add_systems(Update, sync_weather_rain); // 注册唯一降雨同步系统。
     app.world_mut().spawn((
         PrimarySceneView,                       // 标记为玩法主相机。
@@ -292,7 +292,7 @@ fn rain_emitter_is_single_and_uses_weather_render_layer() {
             .1
             .intersects(&RenderLayers::layer(WEATHER_EFFECT_LAYER))
     ); // 发射体只需与天气层相交即可被玩法主相机绘制。
-    assert!(!emitters[0].1.intersects(&RenderLayers::layer(0))); // 雨丝不得泄漏到默认小地图或辅助相机层。
+    assert!(!emitters[0].1.intersects(&RenderLayers::layer(0))); // 雨丝不得泄漏到默认小场景或辅助相机层。
 } // 结束雨发射体单例与渲染层测试。
 
 #[test] // F12正交测绘视图不能留下只覆盖相机附近两百米的雨盘，返回透视后应自动恢复。
@@ -303,7 +303,7 @@ fn authoring_orthographic_view_removes_rain_emitter_and_perspective_restores_it(
         precipitation: 0.8, // 使用明显降雨确保透视阶段进入正式创建路径。
         ..default()
     });
-    app.insert_resource(State::new(ScenePhase::Active)); // 使用动态地图验证作者视图与玩法雨效切换。
+    app.insert_resource(State::new(ScenePhase::Active)); // 使用动态场景验证作者视图与玩法雨效切换。
     app.insert_resource(WeatherAuthoringPreview::new(true));
     app.add_systems(Update, sync_weather_rain);
     let preview_camera = app

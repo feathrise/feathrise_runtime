@@ -5,7 +5,7 @@ use bevy::asset::uuid::Uuid;
 use bevy::mesh::{PrimitiveTopology, VertexAttributeValues}; // 构造并显式编码最小静态与蒙皮顶点布局。
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
-use feathrise_map_content::{MapId, MapPlacementAssetTarget, MapPlacementHeightMode, MapPlacementRecord};
+use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget, ScenePlacementHeightMode, ScenePlacementRecord};
 
 use super::*;
 use crate::shared::placement_data::resources::{PendingPlacementPlan, PendingPlacementPrimitive};
@@ -35,18 +35,18 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
     app.add_systems(
         Update,
         move |mut commands: Commands, meshes: Res<Assets<Mesh>>| {
-            let map_id = MapId::parse("MAP-primitive-candidate").expect("测试地图ID合法");
+            let scene_id = SceneId::parse("MAP-primitive-candidate").expect("测试场景ID合法");
             let staging_root = commands
                 .spawn((PlacementStagingRoot, Visibility::Hidden))
                 .id();
-            let record = MapPlacementRecord {
+            let record = ScenePlacementRecord {
                 mesh_lod: None,
                 terrain_binding: None,
                 editor: Default::default(),
                 terrain_patch: None,
                 id: "plant-part-1".to_owned(),
                 asset_path: "gltf/plant.glb".to_owned(),
-                asset_target: MapPlacementAssetTarget::Primitive {
+                asset_target: ScenePlacementAssetTarget::Primitive {
                     mesh: 6,
                     primitive: 0,
                     material: Some(2),
@@ -54,7 +54,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
                 building_preset_id: None, // 直接 primitive 测试仍是普通资产。
                 courtyard: None,          // 独立摆放记录不属于任何院落副本。
                 translation: [3.0, 4.0, 5.0],
-                height_mode: MapPlacementHeightMode::FixedHeight,
+                height_mode: ScenePlacementHeightMode::FixedHeight,
                 terrain_offset: 0.0,
                 yaw_degrees: 20.0,
                 scale: [1.0, 2.0, 1.0],
@@ -72,7 +72,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
             let (entity, immediately_ready) = spawn_ready_placement(
                 &mut commands,
                 &meshes, // 静态Mesh通过最终蒙皮属性安全门。
-                &map_id,
+                &scene_id,
                 &plan,
                 staging_root,
                 &PlacementInstanceGate::new(false),
@@ -96,7 +96,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
     assert!(app.world().get::<DynamicWaterMeshOverrides>(root).is_none()); // 直接primitive没有Scene0层级与整网格水事务。
     assert!(
         app.world()
-            .get::<MapPlacementInstance>(root)
+            .get::<ScenePlacementInstance>(root)
             .expect("根应保留完整placement身份")
             .is_pending()
     );
@@ -108,7 +108,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
     let child = children[0];
     assert!(
         app.world()
-            .get::<MapPlacementPrimitiveVisual>(child)
+            .get::<ScenePlacementPrimitiveVisual>(child)
             .is_some()
     ); // 直接子资产必须提供窄视口命中标记，不能依赖不存在的Scene0网格名。
     assert_eq!(
@@ -129,7 +129,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
     );
 }
 
-#[test] // 蒙皮primitive必须在任何地图实体生成前失败，旧JSON也不能触发GPU校验崩溃。
+#[test] // 蒙皮primitive必须在任何场景实体生成前失败，旧JSON也不能触发GPU校验崩溃。
 fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
     // 覆盖正式运行时候选的最终安全门。
     let mut app = App::new(); // 纯ECS测试不启动窗口或渲染器。
@@ -161,11 +161,11 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
               meshes: Res<Assets<Mesh>>, // 读取当前真实蒙皮布局。
               mut rejected: ResMut<RejectedSkinnedPrimitiveError>| {
             // 发布明确错误供帧后断言。
-            let map_id = MapId::parse("MAP-skinned-primitive").expect("测试地图ID合法"); // 建立稳定地图身份。
+            let scene_id = SceneId::parse("MAP-skinned-primitive").expect("测试场景ID合法"); // 建立稳定场景身份。
             let staging_root = commands // 候选容器本身仍可安全创建。
                 .spawn((PlacementStagingRoot, Visibility::Hidden)) // 模拟正式隐藏事务根。
                 .id(); // 冻结父实体身份。
-            let record = MapPlacementRecord {
+            let record = ScenePlacementRecord {
                 mesh_lod: None,
                 terrain_binding: None,
                 editor: Default::default(),
@@ -173,7 +173,7 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
                 // 模拟旧版本可能已经保存的危险记录。
                 id: "skinned-body-1".to_owned(), // 错误必须回显此作者身份。
                 asset_path: "gltf/character.glb".to_owned(), // 角色GLB源路径。
-                asset_target: MapPlacementAssetTarget::Primitive {
+                asset_target: ScenePlacementAssetTarget::Primitive {
                     // 旧JSON直接指向蒙皮身体。
                     mesh: 0,           // 身体Mesh0。
                     primitive: 0,      // 身体Primitive0。
@@ -182,7 +182,7 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
                 building_preset_id: None,        // 危险旧记录不伪造建筑目录身份。
                 courtyard: None,                 // 独立摆放记录不属于任何院落副本。
                 translation: [0.0, 0.0, 0.0],    // 变换与拒绝无关。
-                height_mode: MapPlacementHeightMode::FixedHeight, // 不读取地形高度。
+                height_mode: ScenePlacementHeightMode::FixedHeight, // 不读取地形高度。
                 terrain_offset: 0.0,             // 没有额外贴地偏移。
                 yaw_degrees: 0.0,                // 保持默认朝向。
                 scale: [1.0, 1.0, 1.0],          // 保持原始比例。
@@ -203,11 +203,11 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
                 // 直接调用生产最终生成边界。
                 &mut commands, // 若安全门失败，不得登记placement根命令。
                 &meshes,       // 使用当前真实Mesh属性。
-                &map_id,       // 保持完整地图身份。
+                &scene_id,       // 保持完整场景身份。
                 &plan,         // 传入蒙皮目标计划。
                 staging_root,  // 模拟正式候选父根。
                 &PlacementInstanceGate::new(false), // 候选作者门保持关闭。
-                1,             // 测试地图代次。
+                1,             // 测试场景代次。
                 1,             // 测试文档修订。
             ) // 返回值必须是明确可报告失败。
             .expect_err("蒙皮primitive不能生成直接Mesh3d"); // 若回归为成功，测试立即失败。
@@ -228,7 +228,7 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
     let placement_count = {
         // 查询任何可能被错误登记的placement根。
         let world = app.world_mut(); // QueryState创建需要主世界可变访问。
-        let mut query = world.query::<&MapPlacementInstance>(); // 只匹配正式或候选placement根。
+        let mut query = world.query::<&ScenePlacementInstance>(); // 只匹配正式或候选placement根。
         query.iter(world).count() // 安全门前不得产生任何匹配实体。
     }; // 释放查询借用。
     assert_eq!(placement_count, 0); // 关键回归：RenderApp永远看不到裸蒙皮Mesh3d。

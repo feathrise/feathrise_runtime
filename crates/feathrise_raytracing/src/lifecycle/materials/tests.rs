@@ -12,19 +12,19 @@ fn deferred_clone_changes_only_the_clone_renderer_method() {
     assert_eq!(source.opaque_render_method, OpaqueRendererMethod::Auto); // 原句柄保持作者值以便精确回退。
 }
 
-#[test] // 动态地图三角元数据不得改变非高度场材质路径。
+#[test] // 动态场景三角元数据不得改变非高度场材质路径。
 fn shadow_terminator_metadata_is_scoped_to_dynamic_terrain_target() {
     // 无目标时继续使用普通GBuffer，只有动态高度场发布三角身份。
     assert!(!dynamic_terrain_publishes_shadow_terminator_data(
         RaytracingPrototypeTarget::None,
         0,
-    )); // 未取得地图目标时不得占用自定义Deferred通道。
+    )); // 未取得场景目标时不得占用自定义Deferred通道。
     assert!(dynamic_terrain_publishes_shadow_terminator_data(
-        RaytracingPrototypeTarget::DynamicMapTerrain,
+        RaytracingPrototypeTarget::DynamicSceneTerrain,
         0,
     )); // 动态低模高度场是本轮唯一受影响目标。
     assert!(!dynamic_terrain_publishes_shadow_terminator_data(
-        RaytracingPrototypeTarget::DynamicMapTerrain,
+        RaytracingPrototypeTarget::DynamicSceneTerrain,
         1,
     )); // 有纹理体积网格也使用扩展材质，但其三角编号不属于高度代理。
 } // 完成目标范围回归测试。

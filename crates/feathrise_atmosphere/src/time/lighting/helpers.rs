@@ -22,7 +22,7 @@ use crate::time::constants::{
 };
 use crate::{
     WorldCelestialLight,              // 构造正式玩法方向光的作者基准标记。
-    WorldCelestialLightKind,          // 动态地图显式区分太阳灯与月亮灯，固定场景保留旧单灯。
+    WorldCelestialLightKind,          // 动态场景显式区分太阳灯与月亮灯，固定场景保留旧单灯。
     WorldClock,                       // 读取当前日期与时刻生成天体采样。
     WorldEnvironmentModifiers,        // 为未注册天气插件的运行环境提供中性默认修正。
     WorldSkyProfile,                  // 构造天空盒模式的可见背景亮度基准。
@@ -44,12 +44,12 @@ pub(super) const DUSK_CLEAR_COLOR: Color = Color::srgb(0.72, 0.20, 0.08); // 夕
 #[derive(Clone, Copy, Debug)] // 纯值类型便于数学测试直接断言。
 pub(super) struct LightingSample {
     pub(super) source_direction: Vec3, // 固定场景从场景中心指向当前复用太阳或月亮的单位向量。
-    pub(super) sun_source_direction: Vec3, // 动态地图太阳灯始终沿真实太阳轨迹，不再向月亮方向插值。
-    pub(super) moon_source_direction: Vec3, // 动态地图月亮灯始终沿真实月亮轨迹，不再借用隐藏代理。
+    pub(super) sun_source_direction: Vec3, // 动态场景太阳灯始终沿真实太阳轨迹，不再向月亮方向插值。
+    pub(super) moon_source_direction: Vec3, // 动态场景月亮灯始终沿真实月亮轨迹，不再借用隐藏代理。
     pub(super) direct_factor: f32,     // 固定场景白天为日照季节曲线，夜间为旧月光零至一曲线。
-    pub(super) sunlight_factor: f32,   // 动态地图太阳灯在日出日落为零、正午为一的连续时段系数。
-    pub(super) moonlight_factor: f32,  // 动态地图月亮灯在月升月落为零、午夜为一的连续时段系数。
-    pub(super) dynamic_day_night_factor: f32, // 动态地图环境光、天空、补光与反射共用的午夜零、正午一连续系数。
+    pub(super) sunlight_factor: f32,   // 动态场景太阳灯在日出日落为零、正午为一的连续时段系数。
+    pub(super) moonlight_factor: f32,  // 动态场景月亮灯在月升月落为零、午夜为一的连续时段系数。
+    pub(super) dynamic_day_night_factor: f32, // 动态场景环境光、天空、补光与反射共用的午夜零、正午一连续系数。
     pub(super) environment_day_factor: f32,   // 五至七点转亮、十七至十九点转暗的环境日景系数。
     pub(super) sky_brightness_factor: f32,    // 固定场景环境 IBL 相对日间作者基准的昼夜比例。
     pub(super) ambient_brightness: f32,       // 当前玩法相机独立环境光亮度。
@@ -69,7 +69,7 @@ impl Default for WorldEnvironmentModifiers {
             light_tint: Color::WHITE,        // 中性色目标使用白色，强度为零时不会参与混色。
             light_tint_strength: 0.0,        // 默认完全保留太阳、月光与晨昏环境色。
             sky_tint: Color::WHITE,          // 中性天空乘色使用白色，不改变任何昼夜通道。
-            sky_tint_strength: 0.0,          // 默认完全保留地图日景、朝霞、夕阳和夜色。
+            sky_tint_strength: 0.0,          // 默认完全保留场景日景、朝霞、夕阳和夜色。
         } // 返回未启用天气时保持现有画面的中性修正。
     } // 结束中性环境修正构造。
 } // 结束 WorldEnvironmentModifiers 默认实现。
@@ -88,23 +88,23 @@ impl WorldCelestialLight {
             base_color,                                    // 高角度日光恢复场景作者选择的颜色。
             night_peak_illuminance: base_illuminance.max(0.0) * MOONLIGHT_MAX_FACTOR, // 固定 HN 场景保留日间照度百分之四的旧月光。
             night_color: MOONLIGHT_COLOR, // 固定场景继续使用原有冷蓝月光颜色。
-            azimuth_offset_radians: 0.0,  // 固定场景不引入动态地图全局方位偏移。
+            azimuth_offset_radians: 0.0,  // 固定场景不引入动态场景全局方位偏移。
             angular_diameter_radians: 0.533_f32.to_radians(), // 固定场景继续使用地球太阳平均角直径。
-            day_clear_color, // 昼夜清屏过渡以当前地图日景颜色为起点。
+            day_clear_color, // 昼夜清屏过渡以当前场景日景颜色为起点。
             uses_authored_day_night_curve: false, // HN-01/HN-02 保留旧日光与午夜月光峰值算法。
         }
     }
 
-    /// 创建动态地图完整天体配置；日夜基准、方位和角直径彼此独立。
+    /// 创建动态场景完整天体配置；日夜基准、方位和角直径彼此独立。
     pub fn new_authored(
         kind: WorldCelestialLightKind, // 调用方必须明确生成太阳灯或月亮灯，禁止再次创建含糊的动态单灯。
         day_base_illuminance: f32,     // 日间太阳曲线达到一时的 lux 基准。
         day_base_color: Color,         // 高角度日光 sRGB 作者色。
-        night_peak_illuminance: f32, // 动态地图月亮在午夜达到的峰值照度；参数名继续兼容既有配置字段。
+        night_peak_illuminance: f32, // 动态场景月亮在午夜达到的峰值照度；参数名继续兼容既有配置字段。
         night_color: Color,          // 夜间月光 sRGB 作者色。
         azimuth_offset_radians: f32, // 太阳与月亮共同使用的世界 Y 轴偏移。
         angular_diameter_radians: f32, // 光栅和 Solari 共用的光源角直径。
-        day_clear_color: Color,      // 地图原有日间清屏基准保持独立。
+        day_clear_color: Color,      // 场景原有日间清屏基准保持独立。
     ) -> Self {
         Self {
             kind, // 同一份作者配置分别绑定太阳和月亮实体，由最终系统只读取与身份相符的字段。
@@ -124,8 +124,8 @@ impl WorldCelestialLight {
             } else {
                 0.533_f32.to_radians() // 损坏外部输入恢复地球太阳角直径。
             },
-            day_clear_color, // 天体配置不改变地图天空底色作者权威。
-            uses_authored_day_night_curve: true, // 动态地图太阳/月亮直射独立，环境通道继续采用全天连续曲线。
+            day_clear_color, // 天体配置不改变场景天空底色作者权威。
+            uses_authored_day_night_curve: true, // 动态场景太阳/月亮直射独立，环境通道继续采用全天连续曲线。
         }
     }
 }
@@ -174,7 +174,7 @@ pub(super) fn lighting_sample(clock: &WorldClock) -> LightingSample {
     } else {
         (hour / 24.0 * TAU).cos().max(0.0) // 午夜达到一，六点和十八点平滑归零；峰值照度由独立夜间基准决定。
     };
-    let dynamic_day_night_factor = dynamic_day_night_factor(clock); // 动态地图环境、天空、补光和反射只读取这一条明暗曲线；直射灯各走真实天体高度。
+    let dynamic_day_night_factor = dynamic_day_night_factor(clock); // 动态场景环境、天空、补光和反射只读取这一条明暗曲线；直射灯各走真实天体高度。
     let source_hour = if is_day {
         hour // 白天直接采样当前太阳轨迹。
     } else if hour < SUNRISE_HOUR {
@@ -197,8 +197,8 @@ pub(super) fn lighting_sample(clock: &WorldClock) -> LightingSample {
     let dusk_factor = twilight_peak_factor(hour, DUSK_START_HOUR, DUSK_END_HOUR); // 十八点达到夕阳峰值。
     LightingSample {
         source_direction,      // 保存固定场景兼容使用的旧天体方向。
-        sun_source_direction,  // 保存动态地图独立太阳灯的真实轨迹。
-        moon_source_direction, // 保存动态地图独立月亮灯的真实轨迹。
+        sun_source_direction,  // 保存动态场景独立太阳灯的真实轨迹。
+        moon_source_direction, // 保存动态场景独立月亮灯的真实轨迹。
         direct_factor: if is_day {
             sunlight_factor * season_light_factor(clock.day_of_year()) // 日光仍严格使用六至十八点时段和季节系数。
         } else {
@@ -206,7 +206,7 @@ pub(super) fn lighting_sample(clock: &WorldClock) -> LightingSample {
         },
         sunlight_factor,          // 动态太阳灯在最终系统中另乘季节、天气与 F1 倍率。
         moonlight_factor,         // 动态月亮灯直接乘独立夜间作者峰值、天气与 F1 倍率。
-        dynamic_day_night_factor, // 动态地图所有非直射环境通道在同一时刻采用同一昼夜进度。
+        dynamic_day_night_factor, // 动态场景所有非直射环境通道在同一时刻采用同一昼夜进度。
         environment_day_factor,   // 固定场景环境与天空继续在原晨昏两小时内完成变化。
         sky_brightness_factor: NIGHT_SKY_BRIGHTNESS_FACTOR
             + (1.0 - NIGHT_SKY_BRIGHTNESS_FACTOR) * environment_day_factor, // 五点与十九点为百分之二，七至十七点恢复作者原值。
@@ -219,7 +219,7 @@ pub(super) fn lighting_sample(clock: &WorldClock) -> LightingSample {
     }
 }
 
-/// 返回动态地图环境通道的统一昼夜亮度系数：午夜为零、日出日落为二分之一、正午为一。
+/// 返回动态场景环境通道的统一昼夜亮度系数：午夜为零、日出日落为二分之一、正午为一。
 ///
 /// 环境光、动态天空回退底色与环境 IBL 消费这个值；太阳和月亮直射分别消费各自的高度曲线。
 pub fn dynamic_day_night_factor(clock: &WorldClock) -> f32 {
@@ -463,10 +463,10 @@ mod tests {
         assert!((sample.direct_factor - 1.0).abs() < 0.000_001); // 午夜月光曲线达到独立夜间峰值的一倍。
         assert!((sample.sky_brightness_factor - NIGHT_SKY_BRIGHTNESS_FACTOR).abs() < 0.000_001); // 午夜天空盒降到百分之二。
         assert_eq!(sample.ambient_brightness, NIGHT_AMBIENT_BRIGHTNESS); // 午夜环境光固定为八。
-        assert!(sample.dynamic_day_night_factor.abs() < 0.000_001); // 动态地图把午夜作为统一环境昼夜系数的最低点。
+        assert!(sample.dynamic_day_night_factor.abs() < 0.000_001); // 动态场景把午夜作为统一环境昼夜系数的最低点。
     }
 
-    #[test] // 动态地图的非直射环境参数必须共用一条早晚对称、全天连续的昼夜曲线。
+    #[test] // 动态场景的非直射环境参数必须共用一条早晚对称、全天连续的昼夜曲线。
     fn dynamic_environment_curve_has_one_set_of_time_anchors() {
         let midnight_clock = clock_at(6, 15, 0.0); // 午夜是全部动态环境通道的共同最低点。
         let dawn_clock = clock_at(6, 15, 6.0); // 六点采用日夜区间的中间值，不引入额外分段曲线。
@@ -509,7 +509,7 @@ mod tests {
         assert!(six.direct_factor.abs() < 0.000_001); // 六点太阳照度仍严格保持原设计的零边界。
     }
 
-    #[test] // 动态地图太阳灯与月亮灯必须各守真实轨迹，晨昏只让照度归零而不跨天空转向。
+    #[test] // 动态场景太阳灯与月亮灯必须各守真实轨迹，晨昏只让照度归零而不跨天空转向。
     fn dynamic_sun_and_moon_keep_independent_directions_and_continuous_factors() {
         let day_of_year = clock_at(6, 15, 12.0).day_of_year(); // 使用六月日期覆盖太阳与月亮各自年度弧线平面的倾斜。
         let seventeen = lighting_sample(&clock_at(6, 15, 17.0)); // 日落前太阳仍在西侧天空并具有直射照度。

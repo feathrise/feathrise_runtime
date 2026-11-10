@@ -2,7 +2,7 @@
 
 use super::*;
 use avian3d::prelude::*;
-use feathrise_scene_core::residency::{InstanceResourceTable, MapInstanceOwner};
+use feathrise_scene_core::residency::{InstanceResourceTable, SceneInstanceOwner};
 
 fn physics_app() -> App {
     let mut app = App::new();
@@ -72,7 +72,7 @@ fn explicit_source_and_published_collision_revision_never_borrow_parent_support(
         Transform::from_xyz(0.0, 5.5, 0.0),
         RigidBody::Static,
         Collider::cuboid(10.0, 1.0, 10.0),
-        MapInstanceOwner(source),
+        SceneInstanceOwner(source),
     ));
     app.world_mut().spawn((
         Transform::from_xyz(0.0, -0.5, 0.0),

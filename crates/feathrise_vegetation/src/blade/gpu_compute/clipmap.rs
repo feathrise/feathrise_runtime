@@ -37,7 +37,7 @@ pub(super) fn init_clipmap_fallback(
     let mut uniform = UniformBuffer::from(ClipmapUniform::default()); // 禁用位保持零。
     uniform.write_buffer(&device, &queue); // 上传一次固定 336 字节。
     commands.insert_resource(ClipmapFallback {
-        // 所有旧地图窗口共享同一兼容资源。
+        // 所有旧场景窗口共享同一兼容资源。
         atlas: create(TextureFormat::R32Float, TextureViewDimension::D2Array), // 无需额外设备特性。
         page_table: create(TextureFormat::Rgba32Uint, TextureViewDimension::D2), // 匹配紧凑整数页表类型。
         uniform, // 兼容路径永远不读取上述纹理。
@@ -68,7 +68,7 @@ pub(super) fn encode_clipmap(height: &GpuBladeClipmapHeight) -> ClipmapUniform {
         holes: height.holes,
         hole_info: Vec4::new(height.hole_count.min(32) as f32, 0.0, 0.0, 0.0),
         // 一次性打包完整已采用快照。
-        map_bounds: Vec4::new(
+        scene_bounds: Vec4::new(
             height.world_min.x,
             height.world_min.y,
             height.world_max.x,

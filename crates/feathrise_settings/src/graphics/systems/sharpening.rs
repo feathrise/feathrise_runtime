@@ -2,7 +2,7 @@
 
 use bevy::{
     anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening, // Bevy 0.19 原生 CAS 后处理组件。
-    camera::RenderTarget, // 区分窗口输出与角色预览、小地图等纹理输出。
+    camera::RenderTarget, // 区分窗口输出与角色预览、小场景等纹理输出。
     prelude::*,           // ECS、Camera3d 与系统参数。
 };
 
@@ -263,7 +263,7 @@ mod tests {
         let texture_camera = app
             .world_mut()
             .spawn((
-                Camera3d::default(),                     // 角色预览或小地图相机。
+                Camera3d::default(),                     // 角色预览或小场景相机。
                 RenderTarget::None { size: UVec2::ONE }, // 模拟专用纹理目标。
                 ContrastAdaptiveSharpening {
                     enabled: true,            // 作者专用 CAS 保持开启。

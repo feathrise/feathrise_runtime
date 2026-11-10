@@ -3,7 +3,7 @@
 use bevy::color::Mix; // 颜色在日夜和低角度日光之间平滑插值。
 use bevy::core_pipeline::Skybox; // 天空盒模式的可见 Cube 亮度随昼夜与天气统一变化。
 use bevy::ecs::system::SystemParam; // 把同属最终光照输入的资源收拢为单一系统参数。
-use bevy::light::SunDisk; // 动态地图角直径通过方向光光盘进入光栅与 Solari。
+use bevy::light::SunDisk; // 动态场景角直径通过方向光光盘进入光栅与 Solari。
 use bevy::prelude::*; // Commands、Query、光照组件和资源等 ECS 常用类型。
 use feathrise_scene_core::view::PrimarySceneView; // 只给项目玩法主相机配置独立环境光。
 use feathrise_settings::EnvironmentPreviewSettings; // F1 方向光无限制倍率在最终照度阶段应用。
@@ -15,7 +15,7 @@ use super::helpers::{
     MOONLIGHT_COLOR,     // 环境光夜色继续使用原固定冷蓝基准。
     NIGHT_CLEAR_COLOR,   // 夜间深蓝黑清屏色。
     lighting_sample,     // 当前时刻完整光照采样。
-    season_light_factor, // 动态地图日间峰值继续接受现有季节倍率。
+    season_light_factor, // 动态场景日间峰值继续接受现有季节倍率。
 };
 use crate::{
     AuthoredSkyboxRequest,            // 相机作者请求声明动态天空或天空盒模式。
@@ -29,15 +29,15 @@ use crate::{
     WorldSkyProfile,                  // 查询天空盒模式的作者日间可见亮度。
     time::WorldEnvironmentMapProfile, // 查询相机IBL补光与镜面反射的日间强度基准。
     time::constants::{
-        DAY_AMBIENT_BRIGHTNESS,        // 动态地图完整日景的相机环境光基准。
+        DAY_AMBIENT_BRIGHTNESS,        // 动态场景完整日景的相机环境光基准。
         MOON_ANGULAR_DIAMETER_RADIANS, // 月亮方向光与可见月亮共享固定视角尺寸。
-        NIGHT_AMBIENT_BRIGHTNESS,      // 动态地图午夜最低相机环境光基准。
-        NIGHT_SKY_BRIGHTNESS_FACTOR,   // 动态地图午夜天空、补光与反射最低倍率。
+        NIGHT_AMBIENT_BRIGHTNESS,      // 动态场景午夜最低相机环境光基准。
+        NIGHT_SKY_BRIGHTNESS_FACTOR,   // 动态场景午夜天空、补光与反射最低倍率。
     },
 }; // 完成世界时间最终光照写入所需类型导入。
 
 /// 朝霞和夕阳覆盖基础昼夜清屏色的最大比例。
-const TWILIGHT_CLEAR_COLOR_MIX: f32 = 0.82; // 保留少量地图作者天空底色，同时让晨昏景观足够明显。
+const TWILIGHT_CLEAR_COLOR_MIX: f32 = 0.82; // 保留少量场景作者天空底色，同时让晨昏景观足够明显。
 /// 晨昏暖色进入玩法环境光的最大比例。
 const TWILIGHT_AMBIENT_COLOR_MIX: f32 = 0.22; // 轻微暖色塑造氛围但不显著扭曲角色和地表材质。
 /// 小于该照度的动态天体灯不执行接触阴影。
@@ -80,7 +80,7 @@ fn apply_sky_modifiers(
         celestial.green * green_multiplier.max(0.0) * brightness, // 昼夜原始绿通道亮度关系不会被绝对目标色抬高。
         celestial.blue * blue_multiplier.max(0.0) * brightness, // 午夜蓝黑仍保持蓝黑，不会混成亮灰顶棚。
         celestial.alpha,                                        // 清屏色透明度沿用世界时间结果。
-    ) // 返回同时适用于正式地图日夜和晨昏的最终清屏色。
+    ) // 返回同时适用于正式场景日夜和晨昏的最终清屏色。
 } // 结束天气天空乘色与压暗。
 
 /// 将世界时钟采样统一应用到所有显式标记的玩法渲染组件。
@@ -88,18 +88,18 @@ pub(crate) fn apply_world_lighting(
     mut commands: Commands, // 新生成的玩法主相机缺少 AmbientLight 时通过命令补齐。
     mut inputs: WorldLightingInputs, // 统一读取世界时间、天气修正和设置，并写回最终天空色。
     mut lights: Query<(
-        &WorldCelestialLight,  // 保存每张地图作者配置的日间基准。
+        &WorldCelestialLight,  // 保存每个场景作者配置的日间基准。
         &mut DirectionalLight, // 写入当前照度和颜色。
         &mut Transform,        // 写入太阳或月亮方向。
-        &mut Visibility,       // 动态地图双灯保持稳定提取，避免昼夜交界反复拆建Bevy阴影视图。
-        Option<&mut SunDisk>,  // 动态地图角直径写入光栅与Solari，并在夜间隐藏可见太阳盘。
+        &mut Visibility,       // 动态场景双灯保持稳定提取，避免昼夜交界反复拆建Bevy阴影视图。
+        Option<&mut SunDisk>,  // 动态场景角直径写入光栅与Solari，并在夜间隐藏可见太阳盘。
     )>,
     mut cameras: Query<
         (Entity, Option<&mut AmbientLight>), // 已有环境光就更新，新增相机则延迟插入。
         Or<(With<PrimarySceneView>, With<WeatherPreviewCamera>)>, // 只接管玩法主相机和明确加入天气预览的F12相机。
     >,
     skybox_modes: Query<(
-        &AuthoredSkyboxRequest,    // 地图模式声明。
+        &AuthoredSkyboxRequest,    // 场景模式声明。
         &AuthoredSkyboxStatus,     // 主 Cube 实际采用证据。
         Has<PrimarySceneView>,         // F12 关闭时选择正式玩法相机。
         Has<WeatherPreviewCamera>, // F12 打开时选择作者相机。
@@ -128,7 +128,7 @@ pub(crate) fn apply_world_lighting(
             });
     let brightness_multiplier = inputs.settings.directional_light_brightness_multiplier; // 不施加旧版四倍隐藏上限。
     let mut day_clear_color = None; // 没有玩法天体光时不覆盖场景自行设置的清屏颜色。
-    let mut uses_dynamic_day_night_factor = false; // 只要当前场景存在动态地图天体光，环境、动态天空底色和 IBL 就选择同一个昼夜系数。
+    let mut uses_dynamic_day_night_factor = false; // 只要当前场景存在动态场景天体光，环境、动态天空底色和 IBL 就选择同一个昼夜系数。
     for (profile, mut light, mut transform, mut visibility, sun_disk) in &mut lights {
         let daylight_color = LOW_SUN_COLOR.mix(&profile.base_color, sample.sun_height_factor); // 低角度太阳保持暖橙，月亮灯不复用该颜色。
         let (natural_illuminance, celestial_color, natural_source_direction) =
@@ -151,7 +151,7 @@ pub(crate) fn apply_world_lighting(
                             + (profile.base_illuminance
                                 * season_light_factor(inputs.clock.day_of_year())
                                 - profile.night_peak_illuminance)
-                                * sample.dynamic_day_night_factor, // 防御外部误构造时保留旧动态单灯亮度，不再用于正式动态地图。
+                                * sample.dynamic_day_night_factor, // 防御外部误构造时保留旧动态单灯亮度，不再用于正式动态场景。
                         profile
                             .night_color
                             .mix(&daylight_color, sample.dynamic_day_night_factor), // 兼容异常旧实体的连续色温。
@@ -178,7 +178,7 @@ pub(crate) fn apply_world_lighting(
         light.illuminance = (natural_illuminance
             * brightness_multiplier
             * inputs.environment.direct_light_factor.max(0.0))
-        .max(0.0); // 天气透光率在现有地图、时段、季节和F1倍率之后合成，负值统一归零。
+        .max(0.0); // 天气透光率在现有场景、时段、季节和F1倍率之后合成，负值统一归零。
         light.color = celestial_color.mix(
             &inputs.environment.light_tint, // 阴雨天气使用低饱和冷灰目标色。
             inputs.environment.light_tint_strength.clamp(0.0, 1.0), // 防御外部环境系统写入越界混色比例。
@@ -222,11 +222,11 @@ pub(crate) fn apply_world_lighting(
             // 否则白天首帧会把月亮记录成“作者禁用阴影”，夜间永远无法恢复玩家级联阴影，
             // 还会在时间拖动时反复移除/重建Shadow views并触发Bevy 0.19.1 GPU预处理批次数量断言。
         }
-        uses_dynamic_day_night_factor |= profile.uses_authored_day_night_curve; // 动态地图双直射灯之外的环境、动态天空底色和 IBL 必须采用同一个昼夜进度。
-        day_clear_color.get_or_insert(profile.day_clear_color); // 单地图首盏玩法天体光提供清屏日景基准。
+        uses_dynamic_day_night_factor |= profile.uses_authored_day_night_curve; // 动态场景双直射灯之外的环境、动态天空底色和 IBL 必须采用同一个昼夜进度。
+        day_clear_color.get_or_insert(profile.day_clear_color); // 单场景首盏玩法天体光提供清屏日景基准。
     }
     let environment_factor = if uses_dynamic_day_night_factor {
-        sample.dynamic_day_night_factor // 动态地图环境、动态天空底色和 IBL 只读取午夜零、正午一的统一连续系数。
+        sample.dynamic_day_night_factor // 动态场景环境、动态天空底色和 IBL 只读取午夜零、正午一的统一连续系数。
     } else {
         sample.environment_day_factor // HN-01、HN-02继续使用原五至七点和十七至十九点曲线。
     }; // 为清屏色、环境光色和所有亮度通道选择唯一场景曲线。
@@ -242,7 +242,7 @@ pub(crate) fn apply_world_lighting(
         sample.ambient_brightness // 固定场景保留迁移前的相机环境光亮度。
     }; // 完成天气修正前的场景环境光基准。
     if let Some(day_color) = day_clear_color {
-        let base_clear_color = NIGHT_CLEAR_COLOR.mix(&day_color, environment_factor); // 动态地图到午夜才完全进入夜景，固定场景继续保留旧晨昏窗口。
+        let base_clear_color = NIGHT_CLEAR_COLOR.mix(&day_color, environment_factor); // 动态场景到午夜才完全进入夜景，固定场景继续保留旧晨昏窗口。
         let dawn_clear_color = base_clear_color.mix(
             &DAWN_CLEAR_COLOR,                             // 朝霞使用较柔和的暖桃色。
             sample.dawn_factor * TWILIGHT_CLEAR_COLOR_MIX, // 六点达到朝霞最大覆盖比例。
@@ -387,7 +387,7 @@ mod tests {
         let mut app = lighting_app(12.0, 1.0); // 从正午开始验证月亮零照度但渲染与阴影身份保持稳定。
         let day_color = Color::srgb(0.8, 0.7, 0.6); // 使用可辨识日光色检查太阳灯字段选择。
         let night_color = Color::srgb(0.1, 0.2, 0.3); // 使用可辨识月光色检查月亮灯字段选择。
-        let day_clear_color = Color::srgb(0.2, 0.4, 0.8); // 两盏灯共享同一地图日景基准。
+        let day_clear_color = Color::srgb(0.2, 0.4, 0.8); // 两盏灯共享同一场景日景基准。
         let sun_entity = app
             .world_mut()
             .spawn((
@@ -406,7 +406,7 @@ mod tests {
                     night_color,                  // 夜间颜色仅为完整配置保留。
                     90.0_f32.to_radians(),        // 同时验证方位角偏移。
                     1.25_f32.to_radians(),        // 太阳作者角直径。
-                    day_clear_color,              // 地图日间清屏色。
+                    day_clear_color,              // 场景日间清屏色。
                 ),
             ))
             .id(); // 保存太阳实体供昼夜切换后读取。
@@ -428,7 +428,7 @@ mod tests {
                     night_color,                   // 独立月光作者色。
                     90.0_f32.to_radians(),         // 与太阳共享水平偏移。
                     1.25_f32.to_radians(),         // 月亮运行时应忽略太阳作者角直径。
-                    day_clear_color,               // 两盏灯共享地图日景基准。
+                    day_clear_color,               // 两盏灯共享场景日景基准。
                 ),
             ))
             .id(); // 保存月亮实体供夜间断言。
@@ -513,16 +513,16 @@ mod tests {
                 SunDisk::EARTH,       // 动态太阳盘必须在日落后隐藏。
                 WorldCelestialLight::new_authored(
                     WorldCelestialLightKind::Sun,  // 该实体只沿太阳轨迹运行。
-                    9_000.0,                       // 使用正式动态地图默认日间照度。
-                    Color::srgb(1.0, 0.93, 0.82),  // 使用正式动态地图默认日光颜色。
+                    9_000.0,                       // 使用正式动态场景默认日间照度。
+                    Color::srgb(1.0, 0.93, 0.82),  // 使用正式动态场景默认日光颜色。
                     1_000.0,                       // 月亮峰值只为完整配置保留。
-                    Color::srgb(0.42, 0.52, 0.78), // 使用正式动态地图默认夜光颜色。
+                    Color::srgb(0.42, 0.52, 0.78), // 使用正式动态场景默认夜光颜色。
                     0.0,                           // 排除方位角偏移对方向断言的干扰。
                     0.533_f32.to_radians(),        // 角直径与本测试无关但保持正式默认值。
                     Color::srgb(0.4, 0.7, 1.0),    // 提供玩法日景清屏色。
-                ), // 动态地图太阳灯不再承担月亮职责。
+                ), // 动态场景太阳灯不再承担月亮职责。
             ))
-            .id(); // 保存动态地图太阳实体供更新后读取。
+            .id(); // 保存动态场景太阳实体供更新后读取。
         let dynamic_moon_entity = app
             .world_mut()
             .spawn((
@@ -541,16 +541,16 @@ mod tests {
                     Color::srgb(0.42, 0.52, 0.78), // 月亮使用独立冷色。
                     0.0,                           // 排除方位角偏移干扰。
                     0.533_f32.to_radians(),        // 太阳角字段不覆盖固定月亮角直径。
-                    Color::srgb(0.4, 0.7, 1.0),    // 与太阳共享地图日景基准。
-                ), // 动态地图月亮灯与可见月亮保持同向。
+                    Color::srgb(0.4, 0.7, 1.0),    // 与太阳共享场景日景基准。
+                ), // 动态场景月亮灯与可见月亮保持同向。
             ))
-            .id(); // 保存动态地图月亮实体供更新后读取。
+            .id(); // 保存动态场景月亮实体供更新后读取。
         let fixed_entity = app
             .world_mut()
             .spawn((
                 DirectionalLight::default(), // 固定场景方向光仍由同一系统写入。
                 Transform::default(),        // 初始变换与动态实体一致，便于直接比较最终方向。
-                SunDisk::EARTH,              // 固定场景光盘不得被动态地图显隐规则改写。
+                SunDisk::EARTH,              // 固定场景光盘不得被动态场景显隐规则改写。
                 WorldCelestialLight::new(
                     9_000.0,                    // 固定场景保留旧日间作者照度。
                     Color::WHITE,               // 固定场景日光颜色不参与方向选择。
@@ -567,20 +567,20 @@ mod tests {
             .get::<Transform>(dynamic_sun_entity)
             .unwrap()
             .translation
-            .normalize(); // 读取动态地图太阳灯最终单位方向。
+            .normalize(); // 读取动态场景太阳灯最终单位方向。
         let dynamic_moon_direction = app
             .world()
             .get::<Transform>(dynamic_moon_entity)
             .unwrap()
             .translation
-            .normalize(); // 读取动态地图月亮灯最终单位方向。
+            .normalize(); // 读取动态场景月亮灯最终单位方向。
         let fixed_direction = app
             .world()
             .get::<Transform>(fixed_entity)
             .unwrap()
             .translation
             .normalize(); // 读取固定场景最终单位方向。
-        let dynamic_disk = app.world().get::<SunDisk>(dynamic_sun_entity).unwrap(); // 读取日落后的动态地图太阳盘。
+        let dynamic_disk = app.world().get::<SunDisk>(dynamic_sun_entity).unwrap(); // 读取日落后的动态场景太阳盘。
         let fixed_disk = app.world().get::<SunDisk>(fixed_entity).unwrap(); // 读取相同时刻的固定场景兼容光盘。
         assert!(dynamic_sun_direction.distance(sample.sun_source_direction) < 0.000_01); // 零照度太阳必须留在西侧地平线，不能飞到天顶。
         assert!(dynamic_moon_direction.distance(sample.moon_source_direction) < 0.000_01); // 活动方向光必须与东方可见月亮精确同向。
@@ -621,7 +621,7 @@ mod tests {
                 .shadow_maps_enabled
         ); // 东方月亮必须拥有实际可投射玩家影子的标准级联阴影。
         assert!(fixed_direction.distance(sample.source_direction) < 0.000_01); // 固定场景必须继续采用旧方向。
-        assert_eq!(dynamic_disk.intensity, 0.0); // 动态地图日落后不得看见太阳盘横穿天空。
+        assert_eq!(dynamic_disk.intensity, 0.0); // 动态场景日落后不得看见太阳盘横穿天空。
         assert_eq!(fixed_disk.intensity, SunDisk::EARTH.intensity); // 固定场景光盘强度保持迁移前行为。
 
         app.world_mut().resource_mut::<WorldClock>().set_hour(17.0); // 回到日落前验证太阳盘会正常恢复。
@@ -632,7 +632,7 @@ mod tests {
                 .unwrap()
                 .intensity,
             1.0
-        ); // 日落前动态地图仍显示真实太阳。
+        ); // 日落前动态场景仍显示真实太阳。
         assert_eq!(
             *app.world().get::<Visibility>(dynamic_sun_entity).unwrap(),
             Visibility::Inherited
@@ -653,10 +653,10 @@ mod tests {
                 Transform::default(),        // 动态天体方向由统一系统同步，确保场景类型被正确识别。
                 WorldCelestialLight::new_authored(
                     WorldCelestialLightKind::Moon, // 十九点只有东方月亮灯具有直射贡献。
-                    9_000.0,                       // 使用正式动态地图默认日间照度。
-                    Color::srgb(1.0, 0.93, 0.82),  // 使用正式动态地图默认日光色。
-                    1_000.0,                       // 使用正式动态地图月亮午夜峰值。
-                    Color::srgb(0.42, 0.52, 0.78), // 使用正式动态地图夜光色。
+                    9_000.0,                       // 使用正式动态场景默认日间照度。
+                    Color::srgb(1.0, 0.93, 0.82),  // 使用正式动态场景默认日光色。
+                    1_000.0,                       // 使用正式动态场景月亮午夜峰值。
+                    Color::srgb(0.42, 0.52, 0.78), // 使用正式动态场景夜光色。
                     0.0,                           // 排除方位角对亮度断言的干扰。
                     0.533_f32.to_radians(),        // 使用正式默认太阳角直径。
                     Color::srgb(0.4, 0.7, 1.0),    // 提供易于比较的日间天空色。
@@ -680,7 +680,7 @@ mod tests {
             + (DAY_AMBIENT_BRIGHTNESS - NIGHT_AMBIENT_BRIGHTNESS) * day_night_factor; // 环境光使用相同系数解析自己的日夜端点。
         let expected_evening_ibl_factor =
             NIGHT_SKY_BRIGHTNESS_FACTOR + (1.0 - NIGHT_SKY_BRIGHTNESS_FACTOR) * day_night_factor; // 动态天空回退底色与 IBL 使用相同系数解析百分之二夜间端点。
-        app.update(); // 应用十九点动态地图完整光照结果。
+        app.update(); // 应用十九点动态场景完整光照结果。
         let evening_light = app
             .world()
             .get::<DirectionalLight>(light_entity)
@@ -698,7 +698,7 @@ mod tests {
             .intensity; // 保存十九点PBR天空补光与反射强度。
 
         app.world_mut().resource_mut::<WorldClock>().set_hour(0.0); // 切到同日曲线的午夜最低点。
-        app.update(); // 应用午夜动态地图完整光照结果。
+        app.update(); // 应用午夜动态场景完整光照结果。
         let midnight_light = app
             .world()
             .get::<DirectionalLight>(light_entity)
@@ -758,7 +758,7 @@ mod tests {
             .world_mut()
             .spawn((
                 DirectionalLight::default(), // 最终照度与光色由世界时间系统唯一写入。
-                WorldCelestialLight::new(20_000.0, Color::WHITE, Color::srgb(0.4, 0.7, 1.0)), // 保存地图作者日景基准。
+                WorldCelestialLight::new(20_000.0, Color::WHITE, Color::srgb(0.4, 0.7, 1.0)), // 保存场景作者日景基准。
             ))
             .id(); // 保存方向光实体供更新后断言。
         let camera_entity = app
@@ -797,7 +797,7 @@ mod tests {
 
     #[test] // 恶劣天气不得用绝对冷灰目标色抬亮午夜天空，昼夜差异必须连续保留。
     fn weather_sky_modifiers_preserve_dark_night() {
-        let day = Color::srgb(0.45, 0.70, 1.0); // 模拟地图作者日景天空。
+        let day = Color::srgb(0.45, 0.70, 1.0); // 模拟场景作者日景天空。
         let night = NIGHT_CLEAR_COLOR; // 使用正式午夜深蓝黑基准。
         let rain_tint = Color::linear_rgb(0.48, 0.57, 0.70); // 大雨正式线性冷灰乘色。
         let day_weather = apply_sky_modifiers(day, rain_tint, 0.8, 0.25); // 大雨正午仍可辨识云层背景。

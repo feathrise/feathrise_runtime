@@ -41,7 +41,7 @@ fn loading_app() -> App {
     .init_asset::<ReadyAsset>()
     .register_asset_loader(ReadyAssetLoader);
     app.update(); // 初始首页清理已执行，后续只测试同一个明确加载事务。
-    let transition = PendingSceneTransition::named(ScenePhase::Active, "作者地图");
+    let transition = PendingSceneTransition::named(ScenePhase::Active, "作者场景");
     app.insert_resource(State::new(ScenePhase::Loading))
         .insert_resource(LoadingProgress::for_transition(&transition))
         .insert_resource(transition);
@@ -125,7 +125,7 @@ fn ready_assets_wait_for_application_retirement_receipt() {
 }
 
 #[test]
-fn empty_map_entry_requires_an_explicit_request_and_keeps_real_scene_gate_closed() {
+fn empty_scene_entry_requires_an_explicit_request_and_keeps_real_scene_gate_closed() {
     let mut app = loading_app();
     app.add_plugins(ProjectSceneAssetsPlugin);
     let transition = app.world_mut().remove_resource::<PendingSceneTransition>().unwrap();
@@ -201,7 +201,7 @@ fn completed_label_without_a_gate_is_not_a_scene_completion_receipt() {
 
 
 fn restored_loading_app() -> App {
-    use feathrise_scene_core::residency::{ResidentMapToken, SceneResidencyActivity};
+    use feathrise_scene_core::residency::{ResidentSceneToken, SceneResidencyActivity};
     let mut app = loading_app();
     app.world_mut().remove_resource::<PendingSceneTransition>();
     app.insert_resource(State::new(ScenePhase::Active))
@@ -209,12 +209,12 @@ fn restored_loading_app() -> App {
         .insert_resource(SceneResidencyActivity {
             enabled: true,
             switching: false,
-            active: Some(ResidentMapToken(7)),
-            restored: Some(ResidentMapToken(7)),
+            active: Some(ResidentSceneToken(7)),
+            restored: Some(ResidentSceneToken(7)),
         });
     let mut progress = app.world_mut().resource_mut::<LoadingProgress>();
     let transaction = progress.transaction();
-    assert!(progress.complete_resident_restore(transaction, ScenePhase::Active, ResidentMapToken(7)));
+    assert!(progress.complete_resident_restore(transaction, ScenePhase::Active, ResidentSceneToken(7)));
     app
 }
 
@@ -228,14 +228,14 @@ fn warm_restore_releases_complete_progress_without_recreating_a_startup_gate() {
 }
 
 #[test]
-fn warm_restore_receipt_rejects_another_map_token_or_incomplete_handoff() {
-    use feathrise_scene_core::residency::{ResidentMapToken, SceneResidencyActivity};
+fn warm_restore_receipt_rejects_another_scene_token_or_incomplete_handoff() {
+    use feathrise_scene_core::residency::{ResidentSceneToken, SceneResidencyActivity};
     for mismatch in 0..4 {
         let mut app = restored_loading_app();
         let mut activity = app.world_mut().resource_mut::<SceneResidencyActivity>();
         match mismatch {
-            0 => activity.active = Some(ResidentMapToken(8)),
-            1 => activity.restored = Some(ResidentMapToken(8)),
+            0 => activity.active = Some(ResidentSceneToken(8)),
+            1 => activity.restored = Some(ResidentSceneToken(8)),
             2 => activity.switching = true,
             _ => activity.enabled = false,
         }
@@ -259,14 +259,14 @@ fn warm_restore_receipt_does_not_bypass_a_pending_gate_or_wrong_state() {
 }
 
 #[test]
-fn a_late_warm_restore_cannot_complete_a_new_loading_transaction_for_the_same_map() {
-    use feathrise_scene_core::residency::ResidentMapToken;
+fn a_late_warm_restore_cannot_complete_a_new_loading_transaction_for_the_same_scene() {
+    use feathrise_scene_core::residency::ResidentSceneToken;
     let mut app = restored_loading_app();
     let stale = app.world().resource::<LoadingProgress>().transaction();
-    let next = PendingSceneTransition::named(ScenePhase::Active, "同一作者地图再次进入");
+    let next = PendingSceneTransition::named(ScenePhase::Active, "同一作者场景再次进入");
     let mut progress = LoadingProgress::for_transition(&next);
     assert_ne!(stale, progress.transaction());
-    assert!(!progress.complete_resident_restore(stale, ScenePhase::Active, ResidentMapToken(7)));
+    assert!(!progress.complete_resident_restore(stale, ScenePhase::Active, ResidentSceneToken(7)));
     progress.stage = LoadingStage::Complete; // 即使显示层误写Complete，当前事务仍没有完成证明。
     app.insert_resource(progress);
     app.update();
@@ -277,11 +277,11 @@ fn a_late_warm_restore_cannot_complete_a_new_loading_transaction_for_the_same_ma
 fn replacing_a_pending_request_requires_its_own_assets_and_application_permission() {
     let mut app = restored_loading_app();
     let stale = app.world().resource::<LoadingProgress>().transaction();
-    let previous = PendingSceneTransition::named(ScenePhase::Active, "之前地图");
+    let previous = PendingSceneTransition::named(ScenePhase::Active, "之前场景");
     let mut prerequisites = SceneLoadingPrerequisites::default();
     prerequisites.allow_transition(&previous);
     app.insert_resource(CriticalSceneAssets::for_transition(&previous, vec![]));
-    let next = PendingSceneTransition::named(ScenePhase::Active, "后来明确选择的地图");
+    let next = PendingSceneTransition::named(ScenePhase::Active, "后来明确选择的场景");
     let expected = next.transaction();
     app.insert_resource(State::new(ScenePhase::Loading))
         .insert_resource(next)
@@ -290,7 +290,7 @@ fn replacing_a_pending_request_requires_its_own_assets_and_application_permissio
     let progress = app.world().resource::<LoadingProgress>();
     assert_ne!(expected, stale);
     assert_eq!(progress.transaction(), expected);
-    assert_eq!(progress.target_display_name(ScenePhase::Active), "后来明确选择的地图");
+    assert_eq!(progress.target_display_name(ScenePhase::Active), "后来明确选择的场景");
     assert!(!progress.resident_restore_ready(ScenePhase::Active,
         app.world().resource::<feathrise_scene_core::residency::SceneResidencyActivity>()));
     assert!(app.world().contains_resource::<PendingSceneTransition>());
@@ -339,7 +339,7 @@ fn absent_or_unbound_asset_lists_never_mean_the_current_request_is_ready() {
 
 #[test]
 fn changing_a_request_target_invalidates_both_preparation_receipts() {
-    let request = PendingSceneTransition::named(ScenePhase::Active, "作者地图");
+    let request = PendingSceneTransition::named(ScenePhase::Active, "作者场景");
     let assets = CriticalSceneAssets::for_transition(&request, vec![]);
     let mut prerequisites = SceneLoadingPrerequisites::default();
     prerequisites.retirement_pending = true;

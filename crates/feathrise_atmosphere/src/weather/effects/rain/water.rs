@@ -34,7 +34,7 @@ pub(super) fn set_properties(properties: &mut EffectProperties, mask: &RainWater
     } // 稳定相机范围不重复触发Hanabi属性提取。
     if properties.get_stored(STATE) != Some(state.into()) {
         properties.set(STATE, state.into());
-    } // 停雨/切图/资格失效立即停止读旧图。
+    } // 停雨/切换场景/资格失效立即停止读旧图。
 } // 完成有界属性同步。
 
 pub(crate) fn sync_weather_rain_water(
@@ -42,7 +42,7 @@ pub(crate) fn sync_weather_rain_water(
     mut emitters: Query<(&mut EffectProperties, &mut EffectMaterial), With<WeatherRainEmitter>>,
 ) {
     // 安排在RainWaterMaskUpdate之后，模拟暂停也执行。
-    let fallback = RainWaterMask::default(); // 独立天气宿主没有地图时安全禁用裁切。
+    let fallback = RainWaterMask::default(); // 独立天气宿主没有场景时安全禁用裁切。
     let mask = mask.as_deref().unwrap_or(&fallback); // 同一完成快照控制范围和图像身份。
     let (bounds, state) = property_values(mask); // 唯一快照只规范化一次。
     for (mut properties, mut material) in &mut emitters {

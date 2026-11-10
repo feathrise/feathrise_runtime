@@ -1,5 +1,5 @@
 //! 树木公共值类型。
-//! 本文件只声明地图层装配树位和四档现有资产所需的数据结构。
+//! 本文件只声明场景层装配树位和四档现有资产所需的数据结构。
 //! 【模块所有权】纯值契约随树木子域内收，字段与公开路径保持兼容。
 
 use bevy::camera::visibility::VisibilityRange; // 复用Bevy 0.18自带带抖动过渡的距离LOD。
@@ -49,13 +49,13 @@ impl From<TreeMeshPart> for MeshWindPart {
 }
 
 /// 单档树木现有资产及其可见范围。
-#[derive(Clone)] // 地图生成时为每棵树复用同一组轻量句柄和范围。
+#[derive(Clone)] // 场景生成时为每棵树复用同一组轻量句柄和范围。
 pub struct TreeLodPrototype {
     pub level: TreeLodLevel,               // 当前原型所属四档身份。
     pub trunk_mesh: Option<Handle<Mesh>>,  // 公告板没有独立树干，实体LOD保存对应树干primitive。
     pub canopy_mesh: Handle<Mesh>, // 实体LOD保存树冠primitive，公告板保存完整impostor primitive。
     pub visibility_range: VisibilityRange, // 相邻档共享一致交叉区，避免距离边界突然跳变。
-    pub casts_shadow: bool,        // 地图质量预算决定当前档是否进入阴影图，树干与树冠必须保持一致。
+    pub casts_shadow: bool,        // 场景质量预算决定当前档是否进入阴影图，树干与树冠必须保持一致。
 } // 完成单档树木原型定义。
 
 /// 一种树木的完整现有渲染资产句柄。
@@ -68,10 +68,10 @@ pub struct TreePrototype {
     pub ground_embed_depth: f32,     // 树根原点吸附地表后继续下扎的米制深度，避免坡面露缝。
 } // 完成共享树木原型定义。
 
-/// 地图内容层离线确定的一棵树。
+/// 场景内容层离线确定的一棵树。
 #[derive(Clone, Copy, Debug, PartialEq)] // 常量表可直接复制，不持有运行时资产或实体。
 pub struct TreePlacement {
-    pub id: u16,            // 地图内稳定编号。
+    pub id: u16,            // 场景内稳定编号。
     pub position: Vec3,     // 世界X/Z由内容表固定，Y交给统一地面吸附解算。
     pub yaw_radians: f32,   // 稳定朝向用于打散重复资产轮廓。
     pub uniform_scale: f32, // 统一缩放保持树木比例并提供有限体量变化。

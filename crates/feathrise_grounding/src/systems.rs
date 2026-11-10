@@ -31,14 +31,14 @@ pub(crate) struct GroundSnapQueries<'w, 's> {
 /// 只查询所有权和禁用状态，不借用变换；允许水花系统同时更新自己的GlobalTransform。
 #[derive(SystemParam)]
 pub struct ActiveGroundColliders<'w, 's> {
-    owners: Query<'w, 's, &'static feathrise_scene_core::residency::MapInstanceOwner>,
+    owners: Query<'w, 's, &'static feathrise_scene_core::residency::SceneInstanceOwner>,
     parents: Query<'w, 's, &'static ChildOf>,
     disabled: Query<'w, 's, (), With<avian3d::prelude::RigidBodyDisabled>>,
 }
 
 impl ActiveGroundColliders<'_, '_> {
     pub fn is_active(&self, entity: Entity) -> bool { self.owner(entity).is_some() }
-    /// 外层None表示禁用/异常层级，内层None表示父地图；不得把两者混为同一来源。
+    /// 外层None表示禁用/异常层级，内层None表示父场景；不得把两者混为同一来源。
     pub fn owner(&self, entity: Entity) -> Option<Option<Entity>> {
         let mut cursor = entity;
         let mut owner = None;
@@ -52,10 +52,10 @@ impl ActiveGroundColliders<'_, '_> {
     }
 }
 
-/// 先确定真实命中的来源，再验证覆盖；父图的边界不能拒绝位于外侧的子地图。
+/// 先确定真实命中的来源，再验证覆盖；父图的边界不能拒绝位于外侧的子场景。
 #[derive(SystemParam)]
 pub struct GroundSurfaceFilter<'w, 's> {
-    terrain_owners: Query<'w, 's, &'static feathrise_scene_core::residency::MapTerrainOwner>,
+    terrain_owners: Query<'w, 's, &'static feathrise_scene_core::residency::SceneTerrainOwner>,
     active: ActiveGroundColliders<'w, 's>,
     frames: Query<'w, 's, &'static GlobalTransform>,
     regions: Option<Res<'w, feathrise_scene_core::residency::InstanceResourceTable<TerrainCollisionRegion>>>,
@@ -64,10 +64,10 @@ pub struct GroundSurfaceFilter<'w, 's> {
 impl GroundSurfaceFilter<'_, '_> {
     pub fn is_active(&self, entity: Entity) -> bool { self.collider_source(entity).is_some() }
     /// 全局玩法查询按实际命中取得源框架；隐藏候选或缺少框架时没有兜底父图。
-    pub fn source(&self, entity: Entity) -> Option<(Option<Entity>, feathrise_scene_core::residency::MapSourceFrame)> {
+    pub fn source(&self, entity: Entity) -> Option<(Option<Entity>, feathrise_scene_core::residency::SceneSourceFrame)> {
         let owner = self.collider_source(entity)?;
         let frame = if let Some(owner) = owner {
-            feathrise_scene_core::residency::MapSourceFrame::from_transform(self.frames.get(owner).ok()?.compute_transform())
+            feathrise_scene_core::residency::SceneSourceFrame::from_transform(self.frames.get(owner).ok()?.compute_transform())
         } else { default() };
         Some((owner, frame))
     }
@@ -85,7 +85,7 @@ impl GroundSurfaceFilter<'_, '_> {
         let Some(owner) = self.collider_source(hit) else { return false; };
         if let Some(expected) = self.collider_source(subject).flatten() {
             if owner != Some(expected) && !owner.is_some_and(|owner| self.terrain_owners.get(owner)
-                .is_ok_and(|terrain| terrain.map_instance == Some(expected))) { return false; }
+                .is_ok_and(|terrain| terrain.scene_instance == Some(expected))) { return false; }
         }
         match source {
             GroundSnapSource::Any => {},
@@ -93,7 +93,7 @@ impl GroundSurfaceFilter<'_, '_> {
             GroundSnapSource::Instance(expected) => {
                 // 显式实例的承托未就绪时继续等待，不能落到父图或另一份相同来源。
                 if owner != Some(expected) && !owner.is_some_and(|owner|
-                    self.terrain_owners.get(owner).is_ok_and(|terrain| terrain.map_instance == Some(expected))) { return false; }
+                    self.terrain_owners.get(owner).is_ok_and(|terrain| terrain.scene_instance == Some(expected))) { return false; }
             },
         }
         if let Some(owner) = owner {
@@ -140,8 +140,8 @@ pub(crate) fn snap_pending_entities_to_ground(
         if filter.source == GroundSnapSource::Unavailable { continue; } // 显式未就绪来源不能被最近的其它地面兜底。
         query_filter.mask = filter.mask; // 不带应用过滤输入的通用实体保持全层查询。
         let parent_frame = sources.parent_frame(entity);
-        let world_position = parent_frame.transform_point3(transform.translation); // 子地图传送点等根仍保存源局部Transform。
-        let (ray_start_y, ray_distance) = ground_snap.ray_window(world_position.y); // 新地图角色保留承托楼层，旧入口保持原射线范围。
+        let world_position = parent_frame.transform_point3(transform.translation); // 子场景传送点等根仍保存源局部Transform。
+        let (ray_start_y, ray_distance) = ground_snap.ray_window(world_position.y); // 新场景角色保留承托楼层，旧入口保持原射线范围。
         let ray_origin = Vec3::new(
             // 射线起点完全不依赖实体原始 Y，因此地下出生也能恢复。
             world_position.x, // 保留设计或随机生成的水平 X 坐标。
@@ -164,7 +164,7 @@ pub(crate) fn snap_pending_entities_to_ground(
                 warn!(
                     "地面吸附未命中：{display_name} ({entity:?})，X/Z=({:.2}, {:.2})",
                     transform.translation.x, transform.translation.z
-                ); // 输出实体与水平坐标供排查地图缺口。
+                ); // 输出实体与水平坐标供排查场景缺口。
                 ground_snap.mark_miss_reported(); // 标记本次请求已报告，防止日志每帧刷屏。
             } // 结束首次未命中诊断。
             continue; // 保留 pending=true，地形碰撞稍后可用时自动再试。

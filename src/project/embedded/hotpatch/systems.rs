@@ -24,7 +24,7 @@ pub(in crate::project::embedded) fn prepare(app: &mut App, config: &Configuratio
         .spawn(move || worker::run(root, input_rx, output_tx, worker_stop, worker_generation))
         .map_err(|error| format!("代码补丁后台槽启动失败：{error}"))?;
     app.init_resource::<FunctionHotpatchState>().insert_non_send(Runtime {
-        sender: input_tx, receiver: output_rx, stop, map_generation: generation,
+        sender: input_tx, receiver: output_rx, stop, scene_generation: generation,
         worker: Some(worker), in_flight: None, reply: None, ready_sent: false,
         last_patch_id: 0, last_source_generation: 0, epoch: 0, base_build: base_build.into(),
         aslr_reference,
@@ -41,7 +41,7 @@ pub(in crate::project::embedded) fn receive(world: &mut World, embedded: &mut Em
     let state = *world.resource::<EmbeddedProjectState>();
     let request = Request { patch_id, source_generation, base_build, artifact, sha256,
         project_id: embedded.config.identity.project_id.clone(), session: embedded.config.identity.session,
-        map_generation: embedded.transport.identity.generation, pid: std::process::id(), world_id: state.world_id,
+        scene_generation: embedded.transport.identity.generation, pid: std::process::id(), world_id: state.world_id,
         aslr_reference: subsecond::aslr_reference() as u64 };
     let Some(mut runtime) = world.remove_non_send::<Runtime>() else {
         let outcome = Outcome { request, result: Err("当前运行实例未协商函数体热更新能力".into()) };
@@ -72,7 +72,7 @@ pub(in crate::project::embedded) fn receive(world: &mut World, embedded: &mut Em
             let _ = embedded.transport.send(outcome.message(runtime.epoch));
         }
     } else {
-        runtime.map_generation.store(request.map_generation, Ordering::Release);
+        runtime.scene_generation.store(request.scene_generation, Ordering::Release);
         match runtime.sender.try_send(request.clone()) {
             Ok(()) => {
                 runtime.last_patch_id = request.patch_id;
@@ -93,7 +93,7 @@ pub(super) fn advance(world: &mut World) {
     let Some(mut embedded) = world.remove_non_send::<EmbeddedRuntime>() else {
         world.insert_non_send(runtime); return;
     };
-    runtime.map_generation.store(embedded.transport.identity.generation, Ordering::Release);
+    runtime.scene_generation.store(embedded.transport.identity.generation, Ordering::Release);
     if embedded.failed { runtime.stop.store(true, Ordering::Release); }
     let state = *world.resource::<EmbeddedProjectState>();
     if embedded.ready && !embedded.failed && !runtime.ready_sent {

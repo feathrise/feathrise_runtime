@@ -7,8 +7,8 @@ use feathrise_scene_core::state::ScenePhase; // 游戏场景枚举
 #[derive(Component, Debug, Clone)] // 组件 + 调试 + 克隆支持
 pub struct Portal {
     pub target_scene: ScenePhase,       // 目标场景：碰触后切换到此场景
-    pub target_map_id: Option<String>, // DynamicMapScene使用的稳定MapId；静态场景保持None。
-    pub target_display_name: String,   // 目标清单中的实际地图名，供LoadingScene显示。
+    pub target_scene_id: Option<String>, // DynamicSceneRoot使用的稳定SceneId；静态场景保持None。
+    pub target_display_name: String,   // 目标清单中的实际场景名，供LoadingScene显示。
     pub spawn_position: Vec3,          // 到达目标场景后玩家的出生坐标
     pub label: String,                 // 显示标签：门上方文字提示（如 "前往郊区"）
 }

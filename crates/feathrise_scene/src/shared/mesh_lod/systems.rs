@@ -12,7 +12,7 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, futures::check_ready},
 };
-use feathrise_map_content::MeshDisplayLodSettings;
+use feathrise_scene_content::MeshDisplayLodSettings;
 
 pub(super) fn mesh_inserted(
     event: On<Insert<Mesh3d>>,
@@ -56,7 +56,7 @@ fn supported_display(world: &World, entity: Entity) -> bool {
             .get::<MeshMaterial3d<StandardMaterial>>(entity)
             .is_some()
             || world
-                .get::<crate::DynamicMapTerrainPrimitive>(entity)
+                .get::<crate::DynamicSceneTerrainPrimitive>(entity)
                 .is_some())
 }
 
@@ -214,7 +214,7 @@ pub(super) fn drive(
         } else if runtime.cache.contains_key(&key) {
             runtime.queue_cache(key);
         }
-    } // 孤儿缓存和失败票据有界清理，地图卸载不残留0字节tombstone。
+    } // 孤儿缓存和失败票据有界清理，场景卸载不残留0字节tombstone。
     if runtime.release.is_none()
         && let Some((handle, bytes)) = runtime.retired.pop_front()
     {
@@ -439,7 +439,7 @@ pub(super) fn drive(
                 runtime.task = Some((
                     key,
                     AsyncComputeTaskPool::get().spawn(async move {
-                        feathrise_map_terrain::build_static_mesh_lods(capture.finish()?)
+                        feathrise_terrain::build_static_mesh_lods(capture.finish()?)
                     }),
                 ));
             }
@@ -546,7 +546,7 @@ pub(super) fn select(world: &mut World) {
                     world.entity_mut(entity).insert(Mesh3d(target.original));
                 }
                 world.entity_mut(entity).remove::<StaticMeshLodOriginal>();
-                continue; // 非来源或层级换图后撤销登记，不永久轮转或反复请求旧作者源。
+                continue; // 非来源或层级切换场景后撤销登记，不永久轮转或反复请求旧作者源。
             }
             if !current_is_ours {
                 if target.applied != 0
@@ -605,7 +605,7 @@ pub(super) fn select(world: &mut World) {
                         .peekable();
                     if relevant.peek().is_none() {
                         continue;
-                    } // 资产/NPC离屏相机不能决定地图网格精度。
+                    } // 资产/NPC离屏相机不能决定场景网格精度。
                     let pixels = relevant
                         .map(|view| view.error_pixels(pose, radius, level.error))
                         .fold(0.0f32, f32::max);

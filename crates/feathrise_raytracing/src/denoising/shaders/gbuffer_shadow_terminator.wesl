@@ -1,5 +1,5 @@
 //! 基于Bevy Solari 0.20.1语义扩展GBuffer解析，为动态低模高度场惰性重建真实三角guide与虚拟平滑面起点。
-//! 【功能设计】A/B槽完整保留标准平滑PBR，使大小地图和RR guide沿用正式语义；G槽低十九位保存同序三角编号且RGB9E5指数恒零。
+//! 【功能设计】A/B槽完整保留标准平滑PBR，使大小场景和RR guide沿用正式语义；G槽低十九位保存同序三角编号且RGB9E5指数恒零。
 //! 真正发射主射线时才按编号读取三角，并按Ray Tracing Gems II第4章抬升虚拟起点；DI同次解析复用几何法线判断相机侧。
 //! 第四轮逐面终止线能量因子已因实机产生棱角且不改善黑边而撤回，禁止几何法线再次进入项目Solari BRDF。
 //! 第八轮连续视线法线和第九轮几何光源侧门均被实机排除；第十轮实机确认恢复第七轮相机侧基线并隔离主表面镜面可保持平滑且消除黄边。
@@ -35,7 +35,7 @@ struct ResolvedPrimaryRaySurface { // 一次三角读取同时服务射线起点
 
 fn gpixel_resolve(gpixel: vec4<u32>, depth: f32, pixel_id: vec2<u32>, view_size: vec2<f32>, world_from_clip: mat4x4<f32>) -> ResolvedGPixel {
     let world_position = reconstruct_world_position(pixel_id, depth, view_size, world_from_clip); // 保留官方深度反投影。
-    let world_normal = octahedral_decode(unpack_24bit_normal(gpixel.a)); // 大小地图、RR guide与项目Solari统一读取标准平滑法线。
+    let world_normal = octahedral_decode(unpack_24bit_normal(gpixel.a)); // 大小场景、RR guide与项目Solari统一读取标准平滑法线。
     let deferred_flags = unpack_flags(gpixel.a); // 高八位独立读取项目动态地形标记。
     let dynamic_terrain = u32((deferred_flags & DEFERRED_FLAGS_DYNAMIC_TERRAIN_BIT) != 0u); // 普通标准材质得到零。
     let clipmap_terrain = u32((deferred_flags & DEFERRED_FLAGS_CLIPMAP_TERRAIN_BIT) != 0u);

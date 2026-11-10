@@ -8,15 +8,15 @@ use crate::constants::{
 use crate::types::GpuBladeProfileSlot;
 use bevy::prelude::{Vec2, Vec4}; // 测试直接构造风场、足迹和profile向量，不依赖资源入口的私有导入。 // 锁定公共四槽profile索引契约。
 
-#[test] // 未进入草地图时公开流送快照必须是明确的停用状态而不是资源等待。
-fn streaming_stats_default_to_an_inactive_empty_map() {
+#[test] // 未进入草场景时公开流送快照必须是明确的停用状态而不是资源等待。
+fn streaming_stats_default_to_an_inactive_empty_scene() {
     let stats = GpuBladeStreamingStats::default(); // 插件安装阶段构建主世界全零流送快照。
     assert_eq!(stats.phase, GpuBladeStreamingPhase::Inactive); // F3不得把尚未启用误报为首载卡住。
-    assert!(stats.map_code.is_empty()); // 没有正式地图时不得伪造消费项目内容归属。
-    assert_eq!(stats.resident_assets, 0); // 未进入地图时不得声称持有任何草地强句柄。
-    assert_eq!(stats.resident_input_bytes, 0); // 未进入地图时不得显示旧地图数值纹理显存。
-    assert_eq!(stats.peak_speed, 0.0); // 未进入地图时不得保留旧会话最坏移动速度。
-    assert_eq!(stats.activation, 0.0); // 未进入地图时全局覆盖率保持完全隐藏。
+    assert!(stats.scene_code.is_empty()); // 没有正式场景时不得伪造消费项目内容归属。
+    assert_eq!(stats.resident_assets, 0); // 未进入场景时不得声称持有任何草地强句柄。
+    assert_eq!(stats.resident_input_bytes, 0); // 未进入场景时不得显示旧场景数值纹理显存。
+    assert_eq!(stats.peak_speed, 0.0); // 未进入场景时不得保留旧会话最坏移动速度。
+    assert_eq!(stats.activation, 0.0); // 未进入场景时全局覆盖率保持完全隐藏。
     assert_eq!(stats.prediction_offset, Vec2::ZERO); // 无玩家时预测偏移必须保持有限零值。
 }
 
@@ -59,7 +59,7 @@ fn grass_profiles_support_slot_updates_and_reset() {
         GpuBladeProfile::DEFAULT
     ); // 未触碰槽位不得受热切换污染。
 
-    profiles.reset(); // 恢复公共中性表，验证地图或场景离开时的可逆生命周期。
+    profiles.reset(); // 恢复公共中性表，验证场景或场景离开时的可逆生命周期。
     assert_eq!(profiles, GpuBladeProfiles::default()); // 重置结果必须逐位等于默认构造。
 } // 完成四槽profile热切换与恢复回归。
 
@@ -83,7 +83,7 @@ fn interaction_sources_build_a_bounded_continuous_prefix() {
         let source_center = Vec2::new(source.x, source.y); // 当前有效源世界X/Z中心。
         assert!(bounds_center.distance(source_center) + source.z <= bounds_radius + 0.000_1); // 包围圆必须完整覆盖每个局部源自身半径，不能漏掉边缘单根草。
     }
-    interaction.clear_sources(); // 模拟离开草地图或玩家暂时缺失。
+    interaction.clear_sources(); // 模拟离开草场景或玩家暂时缺失。
     assert_eq!(interaction.active_source_count(), 0); // 清理后shader必须走零源快速路径。
     assert_eq!(
         interaction.wind_tip_strength(),
@@ -110,7 +110,7 @@ fn readback_stats_derive_exact_dedicated_window_buffer_bytes() {
     ); // 紧凑实例、瓦片索引、真实派发参数及隔离分类绑定的scratch必须全部且只计一次。
 }
 
-#[test] // F1和外部地图配置都必须通过同一风力安全上限且不得影响当前足迹。
+#[test] // F1和外部场景配置都必须通过同一风力安全上限且不得影响当前足迹。
 fn wind_tip_strength_is_clamped_without_clearing_sources() {
     let mut interaction = GpuBladeInteraction::default(); // 从正式十六厘米默认风和零足迹开始。
     interaction.set_sources(&[GpuBladeInteractionSource::new(

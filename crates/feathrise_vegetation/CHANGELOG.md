@@ -3,7 +3,7 @@
 ## Unreleased
 
 - P2.4将严格GPU验证入口迁为`rpg_vegetation::blade::GpuBlade*`并退役独立
-  `bevy_learn5_grass`包装package；P5.3b真实地图画面复验通过后继续删除
+  `bevy_learn5_grass`包装package；P5.3b真实场景画面复验通过后继续删除
   `rpg_environment::grass`、`grass-compat`及全部`GpuGrass*`公开别名。
 - 增加`VegetationClaimSampling`与独立`claim_density`，允许优先覆盖按源采样单元
   相交声明空间所有权，同时保持本层实际密度逐点采样。

@@ -1,7 +1,7 @@
 [package]
 description = "Optional Windows Vulkan Streamline and DLSS frame generation integration"
 name = "feathrise_frame_generation"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"
@@ -13,7 +13,7 @@ dlss_wgpu = "=6.0.0" # 复用已审计SR/RR运行库目录，让Streamline首次
 sha2 = { workspace = true } # 启动前重新验证固定生产DLL，防止发布后被其他已签名版本替换。
 ash = "0.38.0" # 只读取wgpu Vulkan后端公开的原生句柄位模式，不创建第二套Vulkan对象。
 bevy = { workspace = true, features = ["raw_vulkan_init"] } # 本crate直接使用设备创建回调，独立检查和测试也必须显式声明，不能依赖根程序DLSS特性碰巧启用。
-# 严格选择唯一玩法主相机，隔离小地图与编辑器预览视图。
+# 严格选择唯一玩法主相机，隔离小场景与编辑器预览视图。
 feathrise_scene_core = { workspace = true }
 feathrise_frame_generation_ui = { workspace = true } # 共享SDK无关的二维/世界UI捕获，不依赖AMD原生运行库。
 feathrise_settings = { workspace = true } # 复用唯一持久画质请求与图形附件租约，不建立第二份设置。

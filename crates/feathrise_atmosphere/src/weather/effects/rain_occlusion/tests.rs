@@ -9,8 +9,8 @@ use crate::WeatherOutput; // 捕获与正式雨丝共用天气输出。
 use bevy::prelude::*; // 无窗口ECS、投影与资产容器。
 use bevy::time::TimeUpdateStrategy; // 手动固定真实时间，使暂停回归完全确定。
 use feathrise_scene_core::view::PrimarySceneView; // 正式天气主相机标记。
-use feathrise_map_content::{ActiveDynamicMap, MapId}; // 动态地图真实身份。
-use feathrise_scene_core::state::ScenePhase; // 测试同枚举切图与离开玩法。
+use feathrise_scene_content::{ActiveDynamicScene, SceneId}; // 动态场景真实身份。
+use feathrise_scene_core::state::ScenePhase; // 测试同枚举切换场景与离开玩法。
 use std::time::Duration; // 确定性的帧时间控制。
 
 fn fixture() -> (App, Entity) {
@@ -29,10 +29,10 @@ fn fixture() -> (App, Entity) {
         precipitation: 1.0,
         ..default()
     }); // 大雨触发唯一合法捕获需求。
-    app.insert_resource(State::new(ScenePhase::Active)); // 验证同一个场景枚举中的地图身份。
-    app.insert_resource(ActiveDynamicMap {
-        map_id: Some(MapId("roof-test-a".into())),
-    }); // 初始地图身份明确有效。
+    app.insert_resource(State::new(ScenePhase::Active)); // 验证同一个场景枚举中的场景身份。
+    app.insert_resource(ActiveDynamicScene {
+        scene_id: Some(SceneId("roof-test-a".into())),
+    }); // 初始场景身份明确有效。
     app.add_systems(Startup, systems::initialize); // 正式初始化系统生成唯一禁用深度相机。
     app.add_systems(Update, systems::update); // 主世界捕获同步可脱离渲染执行。
     let anchor = app
@@ -130,7 +130,7 @@ fn incomplete_caster_batch_disables_capture_until_atomic_restart() {
 #[test] // 锚点丢失、停雨与重新降雨必须归还默认图并创建新的完整捕获身份。
 fn missing_anchor_and_dry_weather_invalidate_previous_capture() {
     // 验证实际系统而不是仅测试资源默认值。
-    let (mut app, anchor) = fixture(); // 初始地图和相机全部有效。
+    let (mut app, anchor) = fixture(); // 初始场景和相机全部有效。
     app.update(); // 初始化并发布第一次大雨捕获需求。
     let first = app.world().resource::<RainOcclusionMap>().image.clone(); // 记录不能跨失效期复用的目标身份。
     assert_ne!(first, Handle::<Image>::default()); // 应生成真实目标而不是默认图。
@@ -144,14 +144,14 @@ fn missing_anchor_and_dry_weather_invalidate_previous_capture() {
     assert!(!app.world().resource::<RainOcclusionMap>().active); // 不保留旧有效标志。
     assert!(!capture_is_active(&mut app)); // GPU捕获视图也立即停用。
     app.world_mut().spawn((
-        // 恢复同地图的合法玩法锚点。
+        // 恢复同场景的合法玩法锚点。
         PrimarySceneView,                                              // 天气所有者恢复。
         Camera::default(),                                         // 再次活动。
         Projection::Perspective(PerspectiveProjection::default()), // 透视资格恢复。
         GlobalTransform::IDENTITY,                                 // 与初始相机相同位置。
     )); // 恢复并不允许复用丢失前的像素。
     app.update(); // 新会话创建新目标。
-    assert_ne!(app.world().resource::<RainOcclusionMap>().image, first); // 同位置同地图也拒绝前会话身份。
+    assert_ne!(app.world().resource::<RainOcclusionMap>().image, first); // 同位置同场景也拒绝前会话身份。
     app.world_mut()
         .resource_mut::<WeatherOutput>()
         .precipitation = 0.0; // 模拟正常天气转换到停雨。
@@ -162,29 +162,29 @@ fn missing_anchor_and_dry_weather_invalidate_previous_capture() {
     ); // 不让下次降雨消费长时间陈旧屋顶。
 } // 缺失输入期间显式使用安全无自动遮挡回退。
 
-#[test] // DynamicMapScene枚举不变时地图ID仍必须使目标换代。
-fn dynamic_map_switch_replaces_target_before_new_capture() {
-    // 防止上一地图屋顶投影污染新地图。
-    let (mut app, _) = fixture(); // 建立第一个动态地图会话。
-    app.update(); // 发布A地图需求。
+#[test] // DynamicSceneRoot枚举不变时场景ID仍必须使目标换代。
+fn dynamic_scene_switch_replaces_target_before_new_capture() {
+    // 防止上一场景屋顶投影污染新场景。
+    let (mut app, _) = fixture(); // 建立第一个动态场景会话。
+    app.update(); // 发布A场景需求。
     let first = app.world().resource::<RainOcclusionMap>().image.clone(); // 保留旧身份供比较。
     app.world_mut()
-        .resource_mut::<ActiveDynamicMap>()
-        .select(MapId("roof-test-b".into())); // 同场景枚举选择另一地图。
-    app.update(); // 新地图必须原子发布新的图像身份。
+        .resource_mut::<ActiveDynamicScene>()
+        .select(SceneId("roof-test-b".into())); // 同场景枚举选择另一场景。
+    app.update(); // 新场景必须原子发布新的图像身份。
     let map = app.world().resource::<RainOcclusionMap>(); // 获取新完整捕获需求。
-    assert!(map.active && map.image != first && map.image != Handle::default()); // 新地图有效且绝不沿用旧图。
+    assert!(map.active && map.image != first && map.image != Handle::default()); // 新场景有效且绝不沿用旧图。
     assert_eq!(
         app.world().resource::<CaptureState>().context,
         Some((
             ScenePhase::Active,
-            Some(MapId("roof-test-b".into()))
+            Some(SceneId("roof-test-b".into()))
         ))
     ); // 缓存身份与发布目标一致。
-    app.world_mut().resource_mut::<ActiveDynamicMap>().map_id = None; // 地图尚未选择或正在撤销。
+    app.world_mut().resource_mut::<ActiveDynamicScene>().scene_id = None; // 场景尚未选择或正在撤销。
     app.update(); // 无身份不能保留B图。
     assert!(!app.world().resource::<RainOcclusionMap>().active); // 无完整上下文时撤销有效需求。
-} // 无GPU执行也能验证跨图身份边界。
+} // 无GPU执行也能验证跨场景身份边界。
 
 #[test] // 缓存补捕获使用真实时间，F12暂停虚拟时间不会使迟到资源永久漏掉。
 fn paused_virtual_time_still_allows_real_time_cache_refresh() {

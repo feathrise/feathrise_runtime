@@ -3,7 +3,7 @@
 //! 时间子域负责日历、世界本地天体轨迹和最终光照写入；天气子域负责连续环境修正、
 //! 雾、云、雨与统一风场。两个插件入口独立保留，以维持组合根原有注册顺序。
 
-pub mod skybox; // 地图作者动态天空/天空盒与 IBL 的异步加载、热更新、校验及回退。
+pub mod skybox; // 场景作者动态天空/天空盒与 IBL 的异步加载、热更新、校验及回退。
 pub mod time;
 pub mod weather;
 
@@ -16,7 +16,7 @@ pub use time::{
     dynamic_day_night_factor,
 };
 pub use weather::{
-    DynamicMapWeatherClimate, UNIFORM_CLIMATE_PROFILE, WeatherAuthoringPreview,
+    DynamicSceneWeatherClimate, UNIFORM_CLIMATE_PROFILE, WeatherAuthoringPreview,
     WeatherClimateProfile, WeatherCommand, WeatherDebugOverride, WeatherGameplayModifiers,
     WeatherKind, WeatherOutput, WeatherPlugin, WeatherPreviewCamera, WeatherRegion,
     WeatherSnapshot, WeatherState, WeatherSystemSet,

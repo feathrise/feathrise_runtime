@@ -149,13 +149,13 @@ mod tests {
                 assert!(
                     images.get(image).is_some(),
                     "CameraUpdateSystems不得观察到已从Assets<Image>移除的渲染目标"
-                ); // 旧顺序会在这里稳定复现用户删除地图后的同类崩溃。
+                ); // 旧顺序会在这里稳定复现用户删除场景后的同类崩溃。
             }
         }
         probe.0 = true; // 全部相机目标通过后发布测试证据。
     }
 
-    #[test] // 地图切换销毁正在烘焙的名牌时，相机必须先脱离已回收的任务纹理。
+    #[test] // 场景切换销毁正在烘焙的名牌时，相机必须先脱离已回收的任务纹理。
     fn orphaned_bake_target_retires_before_bevy_camera_validation() {
         let mut app = App::new(); // 最小ECS App足以验证PostUpdate调度，不初始化RenderApp或窗口。
         app.init_resource::<Assets<Image>>() // 运行时占位图和待回收任务图共用正式资产表。
@@ -179,7 +179,7 @@ mod tests {
             ))
             .id(); // 保存槽位长期绑定的相机身份。
         let retired_billboard = app.world_mut().spawn_empty().id(); // 先取得一个真实但即将失效的任务实体身份。
-        app.world_mut().despawn(retired_billboard); // 模拟地图离场已经销毁NPC及其Billboard任务。
+        app.world_mut().despawn(retired_billboard); // 模拟场景离场已经销毁NPC及其Billboard任务。
         {
             let mut pool = app.world_mut().resource_mut::<BillboardBakePool>(); // 填入旧Update留下的跨阶段槽位记录。
             pool.placeholder_image = placeholder.clone(); // 空闲目标由池长期强持有。
@@ -208,6 +208,6 @@ mod tests {
                 .slots
                 .iter()
                 .all(|slot| slot.billboard.is_none())
-        ); // 旧任务身份同步释放，下一张地图的名牌可以复用同一槽位。
+        ); // 旧任务身份同步释放，下一个场景的名牌可以复用同一槽位。
     }
 }

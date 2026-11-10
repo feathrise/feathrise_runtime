@@ -98,7 +98,7 @@ fn restore_original_visible_sky(
 fn restore_original_environment(
     commands: &mut Commands,         // 延迟命令由链式调度在后续系统前落地。
     entity: Entity,                  // 只修改当前明确请求相机。
-    runtime: &AuthoredSkyboxRuntime, // 原状态在首次请求时冻结，后续换图不覆盖。
+    runtime: &AuthoredSkyboxRuntime, // 原状态在首次请求时冻结，后续切换场景不覆盖。
 ) {
     let mut entity_commands = commands.entity(entity); // 同一实体的插入与移除保持一个命令入口。
     if let Some(environment_map) = runtime.original_environment_map.clone() {
@@ -207,7 +207,7 @@ pub(crate) fn begin_authored_skybox_requests(
                     phase: AuthoredSkyboxPhase::Disabled, // 明确区分未设置与失败。
                     asset_path: None,                     // 禁用态没有当前依赖。
                     revision: request.revision,           // 记录清除动作修订。
-                    detail: "地图未指定天空资源，使用动态天空与相机原环境贴图".to_owned(), // 清除资源后的明确安全模式反馈。
+                    detail: "场景未指定天空资源，使用动态天空与相机原环境贴图".to_owned(), // 清除资源后的明确安全模式反馈。
                     visible_skybox_active: false, // 动态大气与动态云恢复资格；天体圆盘不受天空模式控制。
                 },
             ));
@@ -474,7 +474,7 @@ pub(crate) fn apply_authored_skyboxes(
                 specular_map: resolved.specular_map, // 完整Mip链让水面在斜视角继续清晰反射天空。
                 intensity: resolved.carrier_intensity, // 单一Bevy Uniform只承载镜面值或零镜面时的补光值。
                 rotation: tracked.rotation, // 补光与反射方向共同采用作者设置，避免两个 IBL 通道错位。
-                affects_lightmapped_mesh_diffuse: true, // 动态地图与烘焙网格都接收同一天空补光。
+                affects_lightmapped_mesh_diffuse: true, // 动态场景与烘焙网格都接收同一天空补光。
             },
             WorldEnvironmentMapProfile::new(
                 tracked.base_environment_diffuse_intensity, // 昼夜系统保留完整补光作者语义。

@@ -59,7 +59,7 @@ fn gameplay_camera_retires_visible_skybox_and_restores_it_in_menu() {
 
 #[test]
 fn ready_authored_skybox_suspends_atmosphere_without_overwriting_cube() {
-    let mut app = sky_app(ScenePhase::Active); // 动态地图允许两种互斥可见天空来源。
+    let mut app = sky_app(ScenePhase::Active); // 动态场景允许两种互斥可见天空来源。
     let authored = Skybox {
         brightness: 1_234.0, // 使用可辨识亮度确认动态系统没有恢复旧快照覆盖它。
         rotation: Quat::from_rotation_y(0.31), // 非零旋转确认完整主 Cube 保留。
@@ -167,7 +167,7 @@ fn f12_reopen_preserves_skybox_adopted_after_dynamic_fallback() {
 
 #[test]
 fn f12_orthographic_view_never_receives_dynamic_atmosphere() {
-    let mut app = sky_app(ScenePhase::Active); // F12 只在正式动态玩法地图预览。
+    let mut app = sky_app(ScenePhase::Active); // F12 只在正式动态玩法场景预览。
     app.insert_resource(WeatherAuthoringPreview::new(true)); // 模拟 F12 已打开。
     let preview = app
         .world_mut()

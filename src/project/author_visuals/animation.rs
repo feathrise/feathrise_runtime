@@ -372,9 +372,9 @@ mod tests {
         assert!(mapped.curves().contains_key(&expected));
         assert!(!mapped.curves().contains_key(&wrong));
         let source = AssetId::<AnimationClip>::default();
-        let prefab = Arc::new(feathrise_map_content::author_visuals::AuthorPrefab {
+        let prefab = Arc::new(feathrise_scene_content::author_visuals::AuthorPrefab {
             model: None,
-            transform: feathrise_map_content::author_visuals::AuthorPose {
+            transform: feathrise_scene_content::author_visuals::AuthorPose {
                 translation: [0.; 3],
                 rotation: [0., 0., 0., 1.],
                 scale: [1.; 3],

@@ -1,14 +1,14 @@
 //! 显式摆放JSON与其Scene0依赖的资产事件观察和候选采用阻断。
 
-use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use bevy::asset::{Asset, AssetEvent, AssetId}; // 消息只携带类型化资产身份，不读取或同步遍历内容。
 use bevy::prelude::*; // MessageReader、Res和资源可变借用。
 use bevy::world_serialization::WorldAsset; // Scene0热更事件使用统一World资产类型。
-use feathrise_map_content::{ActiveDynamicMap, MapPlacementsAsset}; // 当前地图目录把JSON事件缩小到唯一正式摆放文档。
+use feathrise_scene_content::{ActiveDynamicScene, ScenePlacementsAsset}; // 当前场景目录把JSON事件缩小到唯一正式摆放文档。
 
 use super::super::resources::{
-    MapPlacementRebuildRequest, MapPlacementRuntimePhase, MapPlacementRuntimeState,
-    MapPlacementRuntimeStatus,
+    ScenePlacementRebuildRequest, ScenePlacementRuntimePhase, ScenePlacementRuntimeState,
+    ScenePlacementRuntimeStatus,
 }; // 事件只推进脏标记、重试门和当前候选阻断身份。
 
 /// 从任一种资产生命周期消息取得统一类型化ID。
@@ -24,43 +24,43 @@ fn event_asset_id<A: Asset>(event: &AssetEvent<A>) -> AssetId<A> {
 
 /// 资产事件只设置脏标记；失败场景修复后按匹配句柄重新检查，稳定帧不遍历世界。
 pub(crate) fn observe_placement_data_events(
-    registry: Option<crate::maps::dynamic_map::sources::MapRuntimeCatalog>,
-    active_dynamic: InstanceRes<ActiveDynamicMap>, // 显式重建按实际当前动态地图接纳，不依赖可能仍滞后一帧的诊断状态。
-    mut document_events: feathrise_scene_core::residency::ResidentAssetEventReader<MapPlacementsAsset>,
-    mut rebuild_requests: MessageReader<MapPlacementRebuildRequest>, // 原样重试只为当前正式地图设置同一脏标记。
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
-    status: InstanceRes<MapPlacementRuntimeStatus>, // 只读取尚未由ActiveDynamicMap发布的当前地图身份。
-    author_preview: Option<crate::maps::dynamic_map::author_sources::TerrainAuthorRes<feathrise_map_content::MapAuthorPreview>>,
+    registry: Option<crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog>,
+    active_dynamic: InstanceRes<ActiveDynamicScene>, // 显式重建按实际当前动态场景接纳，不依赖可能仍滞后一帧的诊断状态。
+    mut document_events: feathrise_scene_core::residency::ResidentAssetEventReader<ScenePlacementsAsset>,
+    mut rebuild_requests: MessageReader<ScenePlacementRebuildRequest>, // 原样重试只为当前正式场景设置同一脏标记。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    status: InstanceRes<ScenePlacementRuntimeStatus>, // 只读取尚未由ActiveDynamicScene发布的当前场景身份。
+    author_preview: Option<crate::scenes::dynamic_scene::author_sources::TerrainAuthorRes<feathrise_scene_content::SceneAuthorPreview>>,
     lifecycle: Option<Res<crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex>>,
 ) {
     if let Some(index) = lifecycle { state.world_asset_events_caught_up = index.events_caught_up(); }
     let registry_changed = registry
         .as_deref()
         .is_some_and(|registry| registry.revision != state.catalog_revision);
-    let current_map_id = active_dynamic
-        .map_id
+    let current_scene_id = active_dynamic
+        .scene_id
         .as_ref()
-        .or(status.map_id.as_ref())
-        .cloned(); // 先冻结当前地图ID，后续才可安全修改公开进度证据。
+        .or(status.scene_id.as_ref())
+        .cloned(); // 先冻结当前场景ID，后续才可安全修改公开进度证据。
     let current_document_id = registry.as_deref().and_then(|registry| {
-        current_map_id
+        current_scene_id
             .as_ref()
-            .and_then(|map_id| registry.handles(map_id))
+            .and_then(|scene_id| registry.handles(scene_id))
             .map(|handles| {
                 author_preview
                     .as_deref()
-                    .and_then(|preview| preview.for_map(current_map_id.as_ref().unwrap()))
+                    .and_then(|preview| preview.for_scene(current_scene_id.as_ref().unwrap()))
                     .map(|preview| preview.placements.id())
                     .unwrap_or(handles.placements.id())
             })
     });
     let mut document_changed = false; // 必须消费本帧全部消息，不让`any`短路留下过期事件。
     for event in document_events.read() {
-        document_changed |= Some(event_asset_id(event)) == current_document_id; // 另一地图的保存事件不能为当前交接门制造无关新候选。
+        document_changed |= Some(event_asset_id(event)) == current_document_id; // 另一场景的保存事件不能为当前交接门制造无关新候选。
     }
     let mut rebuild_requested = false; // 原样重试消息同样全部消费。
     for request in rebuild_requests.read() {
-        rebuild_requested |= active_dynamic.map_id.as_ref() == Some(&request.map_id); // 只有当前动态地图可重建自己的正式文件。
+        rebuild_requested |= active_dynamic.scene_id.as_ref() == Some(&request.scene_id); // 只有当前动态场景可重建自己的正式文件。
     }
     let preview_changed = state.observed_document != current_document_id;
     state.observed_document = current_document_id;
@@ -71,7 +71,7 @@ pub(crate) fn observe_placement_data_events(
 
 /// 共享WorldAsset消息读者用O(1)集合命中当前规划/候选实际引用的Scene0。
 pub(crate) fn world_asset_event_is_relevant(
-    state: &MapPlacementRuntimeState,
+    state: &ScenePlacementRuntimeState,
     asset_id: AssetId<WorldAsset>,
 ) -> bool {
     state
@@ -85,8 +85,8 @@ pub(crate) fn observe_world_asset_event(
     event: &AssetEvent<WorldAsset>,
     asset_id: AssetId<WorldAsset>,
     invalidation: Option<(u64, bool)>, // Some仅表示Bevy会重生实例或资产已被移除；bool说明已有索引根需扫尾。
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
 ) {
     if !world_asset_event_is_relevant(state, asset_id) {
         return;
@@ -131,7 +131,7 @@ pub(crate) fn observe_world_asset_event(
     if ready_revoked || staging_blocked {
         status.advance_progress(); // 反向换代与全局采用阻断都是真实生命周期推进。
     }
-    if status.phase == MapPlacementRuntimePhase::Failed && positive && !state.asset_retry_requested
+    if status.phase == ScenePlacementRuntimePhase::Failed && positive && !state.asset_retry_requested
     {
         state.asset_retry_requested = true;
         status.advance_progress();
@@ -140,8 +140,8 @@ pub(crate) fn observe_world_asset_event(
 
 /// 精确资产的所有旧根信用已经撤销或被新WorldReady追平，解除本epoch全局采用阻断。
 pub(crate) fn complete_world_asset_invalidation(
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
     asset_id: AssetId<WorldAsset>,
     epoch: u64,
 ) {

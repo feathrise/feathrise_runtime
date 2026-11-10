@@ -237,7 +237,7 @@ fn update_value_drag(
         return; // UI换代后旧捕获不再产生业务副作用。
     };
     if disabled {
-        return; // 保存或切图期间禁用的字段保持当前值。
+        return; // 保存或切换场景期间禁用的字段保持当前值。
     }
     let next = value_from_drag(start_value, delta_pixels, &scrub, input.0); // 总位移一次得到确定结果。
     if value.0 == next {

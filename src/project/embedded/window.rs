@@ -245,7 +245,7 @@ pub(super) fn suspend_input(world: &mut World, runtime: &mut Runtime) {
     observe_cursor_owner(runtime, false);
     if let Some(mut state) = world.get_resource_mut::<EmbeddedProjectState>() { state.transitioning = true; }
     if let Some(mut editor) = world.get_resource_mut::<feathrise_scene_core::input::EditorInputState>() {
-        editor.map_editor_open = true;
+        editor.scene_editor_open = true;
     }
     super::systems::reset_mode_input(world, Mode::Editing);
 }

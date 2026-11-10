@@ -38,7 +38,7 @@ pub fn spawn_vegetation_mesh_instance(
             transform,             // 根节点承载世界平移、旋转和缩放。
             Visibility::Inherited, // 各LOD子节点继续按自己的范围参与渲染。
         ))
-        .id(); // 返回根实体供地图绑定场景生命周期或碰撞代理。
+        .id(); // 返回根实体供场景绑定场景生命周期或碰撞代理。
     commands.entity(root).with_children(|children| {
         for lod in &prototype.lods {
             for part in &lod.parts {

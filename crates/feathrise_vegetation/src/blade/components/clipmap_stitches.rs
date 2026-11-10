@@ -1,4 +1,4 @@
-//! 通用高度场边界约束；地形、CPU拾取与GPU草根共用固定布局，不依赖地图作者协议。
+//! 通用高度场边界约束；地形、CPU拾取与GPU草根共用固定布局，不依赖场景作者协议。
 use bevy::{prelude::*, render::render_resource::ShaderType};
 
 /// 插件启动时装配统一绑定与采样正文；测试也调用本入口，避免维护第二套GPU算法。
@@ -92,7 +92,7 @@ impl GpuBladeClipmapStitches {
             .fold(0x7263_7374_6974_6368_u64, |h, v| {
                 h.rotate_left(9) ^ u64::from(v.to_bits())
             });
-        // 高度曲线更新也必须换代草根投射；最多四边各257值，与地图规模无关。
+        // 高度曲线更新也必须换代草根投射；最多四边各257值，与场景规模无关。
         for (edge, info) in self.edges.iter().enumerate() {
             for i in 0..info.x as usize {
                 hash = hash.rotate_left(9) ^ u64::from(self.heights[edge][i / 4][i % 4].to_bits());

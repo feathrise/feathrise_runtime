@@ -25,7 +25,7 @@ pub(crate) fn is_gameplay_scene(scene: Option<&State<ScenePhase>>) -> bool {
     scene.is_none_or(|scene| {
         matches!(
             scene.get(), // 读取当前而非下一场景，避免加载阶段提前显示降雨。
-            ScenePhase::Active // 数据驱动地图按清单气候显示正式天气表现。
+            ScenePhase::Active // 数据驱动场景按清单气候显示正式天气表现。
         ) // 结束玩法场景枚举匹配。
     }) // 没有状态机的最小ECS测试按玩法环境处理，保持系统可独立验证。
 } // 结束玩法场景判断。
@@ -42,15 +42,15 @@ pub(crate) fn supports_camera_local_weather(
 mod tests {
     use super::*; // 测试直接调用私有场景判断函数。
 
-    #[test] // 菜单与加载阶段必须关闭视觉天气，全部正式玩法地图必须启用。
+    #[test] // 菜单与加载阶段必须关闭视觉天气，全部正式玩法场景必须启用。
     fn gameplay_scene_filter_excludes_menu_and_loading() {
         assert!(!is_gameplay_scene(Some(&State::new(ScenePhase::Idle)))); // 主菜单不显示雾雨。
         assert!(!is_gameplay_scene(Some(&State::new(
             ScenePhase::Loading
         )))); // 加载画面不显示雾雨。
         assert!(is_gameplay_scene(Some(&State::new(
-            ScenePhase::Active, // 数据驱动地图不得只有光照修正而缺少云、雨和雾。
-        )))); // 完成动态地图天气表现断言。
+            ScenePhase::Active, // 数据驱动场景不得只有光照修正而缺少云、雨和雾。
+        )))); // 完成动态场景天气表现断言。
         assert!(is_gameplay_scene(None)); // 无状态的最小测试环境默认允许独立运行。
     } // 结束玩法场景过滤测试。
 

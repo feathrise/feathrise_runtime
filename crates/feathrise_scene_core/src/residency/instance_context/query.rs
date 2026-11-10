@@ -1,8 +1,8 @@
-//! 子地图只遍历自身实体索引；父图仍使用原查询过滤，不随实例数量重复扫描整个世界。
+//! 子场景只遍历自身实体索引；父图仍使用原查询过滤，不随实例数量重复扫描整个世界。
 use bevy::{ecs::{entity::{EntityHashMap, EntityHashSet, hash_set}, query::{IterQueryData,
     QueryFilter, QueryIter, QueryManyUniqueIter, ROQueryItem}, system::SystemParam}, prelude::*};
 use std::collections::BTreeMap;
-use super::{MapInstanceOwner, MapRuntimeScope};
+use super::{SceneInstanceOwner, SceneRuntimeScope};
 
 #[derive(Resource, Default)]
 pub(super) struct OwnershipIndex {
@@ -30,14 +30,14 @@ impl OwnershipIndex {
 }
 #[derive(SystemParam)]
 pub struct InstanceQuery<'w, 's, D: IterQueryData + 'static, F: QueryFilter + 'static = ()> {
-    query: Query<'w, 's, (D, Option<&'static MapInstanceOwner>), F>,
-    scope: Option<Res<'w, MapRuntimeScope>>,
+    query: Query<'w, 's, (D, Option<&'static SceneInstanceOwner>), F>,
+    scope: Option<Res<'w, SceneRuntimeScope>>,
     index: Option<Res<'w, OwnershipIndex>>,
 }
 type OwnedIter<'w, 's, D, F> = QueryManyUniqueIter<'w, 's,
-    (D, Option<&'static MapInstanceOwner>), F, std::iter::Copied<hash_set::Iter<'w, Entity>>>;
+    (D, Option<&'static SceneInstanceOwner>), F, std::iter::Copied<hash_set::Iter<'w, Entity>>>;
 enum Inner<'w, 's, D: IterQueryData, F: QueryFilter> {
-    All(QueryIter<'w, 's, (D, Option<&'static MapInstanceOwner>), F>),
+    All(QueryIter<'w, 's, (D, Option<&'static SceneInstanceOwner>), F>),
     Owned(OwnedIter<'w, 's, D, F>),
 }
 pub struct InstanceQueryIter<'w, 's, D: IterQueryData, F: QueryFilter> {
@@ -47,7 +47,7 @@ pub struct InstanceQueryIter<'w, 's, D: IterQueryData, F: QueryFilter> {
 impl<'w, 's, D: IterQueryData, F: QueryFilter> Iterator for InstanceQueryIter<'w, 's, D, F> {
     type Item = D::Item<'w, 's>;
     fn next(&mut self) -> Option<Self::Item> {
-        let belongs = |(value, owner): (D::Item<'w, 's>, Option<&MapInstanceOwner>)|
+        let belongs = |(value, owner): (D::Item<'w, 's>, Option<&SceneInstanceOwner>)|
             (owner.map(|owner| owner.0) == self.instance).then_some(value);
         match &mut self.inner { Inner::All(iter) => iter.find_map(belongs),
             // 索引包含实例内的全部实体；和原查询一样跳过不匹配或已失效的实体。

@@ -6,7 +6,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 ## 使用与入口
 
-SDK 0.2.0 使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源码接入使用同级补丁仓。0.2.0 的发布步骤及两代 SDK 的固定 Git 补丁见[接入说明](docs/crates-io.md)，源码示例见[快速开始](docs/quickstart.md)。
+SDK 0.3.0 使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源码接入使用同级补丁仓。0.3.0 的发布步骤及配套 Git 补丁见[接入说明](docs/crates-io.md)，源码示例见[快速开始](docs/quickstart.md)。
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
@@ -16,7 +16,7 @@ SDK 0.2.0 使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源
 
 ```toml
 [dependencies]
-feathrise_runtime = { version = "0.2.0", path = "../feathrise_runtime" }
+feathrise_runtime = { version = "0.3.0", path = "../feathrise_runtime" }
 ```
 
 外部工程按 SDK 版本配置配套补丁。本仓内部子库同时声明 `version` 与 `path`。本地使用源码，发布归档中的依赖转为 registry 版本。
@@ -27,15 +27,21 @@ Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`
 
 编辑器的源码联调配置见 [SDK 本地开发](docs/crates-io.md#本地修改)。
 
-根入口提供 `run(project, project_plugin)`、`ProjectContext`、`GameView`、`validate_saved_map` 和可取消的 `validate_saved_map_with_check`。`project` 模块对应工程入口库，`app` 模块提供运行装配。`game_plugins::SceneRuntimePlugin` 装配地图、环境与渲染，场景生命周期使用 `ScenePhase`。
+根入口提供 `run(project, project_plugin)`、`ProjectContext`、`GameView`、`validate_saved_scene` 和可取消的 `validate_saved_scene_with_check`。`project` 模块对应工程入口库，`app` 模块提供运行装配。`game_plugins::SceneRuntimePlugin` 装配场景、环境与渲染，场景生命周期使用 `ScenePhase`。
 
-- `project::ProjectViewOrigin`：本次已保存地图的出生参考点。
+- `project::ProjectViewOrigin`：本次已保存场景的出生参考点。
 - `project::SceneRuntimeObserver`：附近物理与流送使用的观察锚点。
-- `project::PrimarySceneView`：地图生命周期创建、供环境和画质系统使用的主相机标记。
+- `project::PrimarySceneView`：场景生命周期创建、供环境和画质系统使用的主相机标记。
 
-这些契约不创建玩家或提供移动、跳跃和跟随相机。当前空工程加载已保存地图、呈现场景视图；第三人称和固定俯视的 `GameView` 都是 3D 元数据。具体控制方式由工程插件实现。编辑器与工程运行在各自的 World 中。
+这些契约不创建玩家或提供移动、跳跃和跟随相机。当前空工程加载已保存场景、呈现场景视图；第三人称和固定俯视的 `GameView` 都是 3D 元数据。具体控制方式由工程插件实现。编辑器与工程运行在各自的 World 中。
 
 公共设置库通过 `RenderSettings`、`SceneDisplaySettings` 和 `EnvironmentPreviewSettings` 接收运行输入；工程管理自己的配置和持久化。FPS/F3 面板和 LOD 状态可共用，工程可通过报告接入自有统计。
+
+## 场景工程格式
+
+主资产根下的目录是 `scenes/catalog.scene_catalog.json`。目录以 `scenes` 列出场景，各清单位于 `scenes/<SceneId>/scene.scene_manifest.json`。目录、清单和场景私有文件用格式 2，地表用格式 3。清单的 `subscenes` 通过 `source_scene_id` 引用同目录内的场景。
+
+工程根的 `startup.scene.json` 用格式 2 保存工程身份、修订和可选 `startup_scene_id`。未指定启动项时采用首个已发布场景，空目录可以启动空世界。SDK 0.3 读取这一代场景格式。
 
 ## 功能特性
 

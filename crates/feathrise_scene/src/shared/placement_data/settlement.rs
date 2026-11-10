@@ -3,19 +3,19 @@
 //! 【功能设计】`WorldInstanceReady`上的多个observer不依赖注册顺序；生命周期observer
 //! 只把真正变化的根写入固定容量去重FIFO，Update再按固定预算读取同帧最终组件值。
 
-use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子地图借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use avian3d::prelude::ColliderConstructorHierarchyReady; // 建筑真实网格碰撞必须加入原子采用门。
 use bevy::prelude::*; // 实体观察、查询、命令与资源更新共用Bevy ECS类型。
 use bevy::world_serialization::{WorldAssetRoot, WorldInstance, WorldInstanceReady}; // 资产根换代与实例完成共同提供定向生命周期事件。
-use feathrise_map_content::MapPlacementAssetTarget; // 直接primitive碰撞完成后无需等待World门。
+use feathrise_scene_content::ScenePlacementAssetTarget; // 直接primitive碰撞完成后无需等待World门。
 
-use crate::shared::large_map::DynamicWaterMeshOverrideStatus; // 水体接管是候选原子采用的显式必要条件。
+use crate::shared::large_scene::DynamicWaterMeshOverrideStatus; // 水体接管是候选原子采用的显式必要条件。
 use crate::shared::world_asset_lifecycle::{
     WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated, WorldAssetRootRegistration,
 }; // 同InstanceId热重载仍用资产epoch撤销旧WorldReady。
 
 use super::components::{
-    MapPlacementInstance, MapPlacementProgressPulse, PlacementBuildingCollisionGeneration,
+    ScenePlacementInstance, ScenePlacementProgressPulse, PlacementBuildingCollisionGeneration,
     PlacementBuildingCollisionReady, PlacementPendingInstance, PlacementPendingRevision,
     PlacementWorldInstanceReady,
 }; // 本模块独占实例完成门标记的写入与消费。
@@ -23,7 +23,7 @@ use super::resources::{
     MAX_PLACEMENT_SETTLEMENT_ROOTS, PlacementSettlementEnqueueResult, PlacementSettlementQueue,
     PlacementWorldAssetInvalidations,
 }; // 固定容量FIFO消除稳定帧全原型扫描，换代票据阻断旧Ready回流。
-use super::resources::{MapPlacementRuntimeState, MapPlacementRuntimeStatus}; // 联合门按根撤销或登记当前候选Ready信用。
+use super::resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus}; // 联合门按根撤销或登记当前候选Ready信用。
 use super::systems::fail_revision; // 任一赋水失败都复用整份修订失败和旧根保留语义。
 
 /// 每帧最多结算的定向根数；与候选生成预算一致，普通无水根不会积压。
@@ -31,7 +31,7 @@ const PLACEMENT_SETTLEMENT_BUDGET_PER_FRAME: usize = 128;
 
 /// 撤销当前候选根上一次World实例化的Ready信用。
 fn invalidate_candidate_root_readiness(
-    state: &mut MapPlacementRuntimeState, // 唯一候选事务持有可撤销集合。
+    state: &mut ScenePlacementRuntimeState, // 唯一候选事务持有可撤销集合。
     entity: Entity,                       // 再次实例化的placement根。
     pending: &PlacementPendingRevision,   // 根全生命期修订身份。
 ) -> bool {
@@ -49,11 +49,11 @@ fn invalidate_candidate_root_readiness(
 
 /// 水体单根增量准备只在真实推进时定向触发；旧候选脉冲不能给当前保存门续命。
 pub(crate) fn on_placement_progress(
-    pulse: On<MapPlacementProgressPulse>, // EntityEvent只唤醒所属根观察器，不分配全局消息队列。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    pulse: On<ScenePlacementProgressPulse>, // EntityEvent只唤醒所属根观察器，不分配全局消息队列。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     pending_roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>,
-    state: InstanceRes<MapPlacementRuntimeState>, // 只核对当前候选身份，不遍历根表。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,
+    state: InstanceRes<ScenePlacementRuntimeState>, // 只核对当前候选身份，不遍历根表。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
 ) {
     let instance_scope = context.instance(pulse.entity);
     let Some(state) = state.for_instance(instance_scope) else { return; };
@@ -72,12 +72,12 @@ pub(crate) fn on_placement_progress(
 /// `WorldAssetRoot`被替换或移除时同步撤销旧实例Ready，不等待下一帧扫描`WorldInstance`。
 pub(super) fn invalidate_discarded_candidate_world_asset(
     discard: On<Discard<WorldAssetRoot>>, // Discard在旧根值仍可查询时触发，覆盖替换与真实移除都会到达。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<(&PlacementPendingRevision, &WorldInstance), With<PlacementPendingInstance>>, // 只直接读取触发事件的一个隐藏候选根。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 旧InstanceId阻断同帧迟到Ready。
     mut settlements: InstanceResMut<PlacementSettlementQueue>, // 已排队的旧联合门请求立即O(1)撤销。
-    mut state: InstanceResMut<MapPlacementRuntimeState>,       // 当前候选Ready集合在事件发生时同步失效。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,     // 换代是一次真实进展，停滞计时从此重新开始。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,       // 当前候选Ready集合在事件发生时同步失效。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,     // 换代是一次真实进展，停滞计时从此重新开始。
     mut commands: Commands, // 门组件使用try_remove，实体若同帧销毁则静默忽略。
 ) {
     let instance_scope = context.instance(discard.entity);
@@ -102,12 +102,12 @@ pub(super) fn invalidate_discarded_candidate_world_asset(
 /// `WorldAssetRoot`真正移除时取消换代阻断和待结算席位，并拒绝仍活动的残缺候选。
 pub(super) fn cancel_removed_candidate_world_asset(
     remove: On<Remove<WorldAssetRoot>>, // Replace不会触发Remove，因此不会误清新实例前的阻断票据。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // Remove前仍可读取旧候选修订。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 实体不再等待任何新World实例。
     mut settlements: InstanceResMut<PlacementSettlementQueue>,           // 根移除必须O(1)取消队列席位。
-    mut state: InstanceResMut<MapPlacementRuntimeState>, // 外部破坏当前候选时撤销旧Ready信用。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>, // 残缺候选沿用整份修订失败语义。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>, // 外部破坏当前候选时撤销旧Ready信用。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>, // 残缺候选沿用整份修订失败语义。
 ) {
     let instance_scope = context.instance(remove.entity);
     let Some(invalidations) = invalidations.for_instance_mut(instance_scope) else { return; };
@@ -132,7 +132,7 @@ pub(super) fn cancel_removed_candidate_world_asset(
 /// 记录当前候选根的Bevy实例已完整生成，不在observer内抢先结算。
 pub(super) fn on_placement_instance_ready(
     ready: On<WorldInstanceReady>, // 携带本次完成的根实体和实例ID。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     mut pending_roots: Query<
         (
             &PlacementPendingRevision,
@@ -144,8 +144,8 @@ pub(super) fn on_placement_instance_ready(
     >, // 公开隔离和私有修订都保留到整批采用，因此每次热更ready都能重新审核。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 资产根替换后只接受不同于旧票据的新Ready。
     mut asset_index: ResMut<WorldAssetLifecycleIndex>, // Ready同步授予当前资产epoch，不等待根失效扫尾。
-    mut state: InstanceResMut<MapPlacementRuntimeState>,       // observer同步撤销该根旧Ready信用。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,     // 新实例完成是候选真实推进而非稳定轮询。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,       // observer同步撤销该根旧Ready信用。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,     // 新实例完成是候选真实推进而非稳定轮询。
     mut commands: Commands, // 延迟写入门标记，避免与水体observer产生查询冲突。
 ) {
     let instance_scope = context.instance(ready.entity);
@@ -192,8 +192,8 @@ fn queue_candidate_settlement(
     entity: Entity,                             // 只定位发生World/水状态变化的精确根。
     pending: &PlacementPendingRevision,         // 入队前核对当前候选修订，避免无关根占用容量。
     settlements: &mut PlacementSettlementQueue, // 同根事件风暴只保留一个双向FIFO席位。
-    state: &mut MapPlacementRuntimeState,       // 队列满时拒绝当前正式候选。
-    status: &mut MapPlacementRuntimeStatus,     // 公开队列硬门诊断。
+    state: &mut ScenePlacementRuntimeState,       // 队列满时拒绝当前正式候选。
+    status: &mut ScenePlacementRuntimeStatus,     // 公开队列硬门诊断。
 ) {
     let matches_current = state.staging.as_ref().is_some_and(|staging| {
         staging.generation == pending.generation && staging.revision == pending.revision
@@ -214,8 +214,8 @@ fn queue_candidate_settlement(
 fn grant_candidate_ready(
     entity: Entity,
     pending: &PlacementPendingRevision,
-    state: &mut MapPlacementRuntimeState,
-    status: &mut MapPlacementRuntimeStatus,
+    state: &mut ScenePlacementRuntimeState,
+    status: &mut ScenePlacementRuntimeStatus,
 ) {
     let matches_current = state.staging.as_ref().is_some_and(|staging| {
         staging.generation == pending.generation && staging.revision == pending.revision
@@ -245,16 +245,16 @@ fn grant_candidate_ready(
 /// Avian完成建筑层级构造时只发布门组件；Insert观察器在命令落地后读取同帧最终状态。
 pub(super) fn on_placement_building_collision_ready(
     ready: On<ColliderConstructorHierarchyReady>,
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     mut roots: Query<
         (
             &PlacementPendingRevision,
-            &MapPlacementInstance,
+            &ScenePlacementInstance,
             &mut PlacementBuildingCollisionGeneration,
         ),
         With<PlacementPendingInstance>,
     >,
-    state: InstanceRes<MapPlacementRuntimeState>,
+    state: InstanceRes<ScenePlacementRuntimeState>,
     mut commands: Commands,
     terrain_shapes: Query<(
         &super::TerrainPatchColliderReady,
@@ -295,19 +295,19 @@ pub(super) fn on_placement_building_collision_ready(
 /// 建筑碰撞门落地后，Scene0进入联合结算，直接primitive立即取得完整信用。
 pub(super) fn queue_inserted_placement_collision_ready(
     insert: On<Insert<PlacementBuildingCollisionReady>>,
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<
         (
             &PlacementPendingRevision,
-            &MapPlacementInstance,
+            &ScenePlacementInstance,
             &PlacementBuildingCollisionGeneration,
             &PlacementBuildingCollisionReady,
         ),
         With<PlacementPendingInstance>,
     >,
     mut settlements: InstanceResMut<PlacementSettlementQueue>,
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
 ) {
     let instance_scope = context.instance(insert.entity);
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
@@ -321,27 +321,27 @@ pub(super) fn queue_inserted_placement_collision_ready(
         return; // 防御外部误插标记，普通资产不能改变既有就绪路径。
     }
     match instance.asset_target() {
-        MapPlacementAssetTarget::Scene0 => queue_candidate_settlement(
+        ScenePlacementAssetTarget::Scene0 => queue_candidate_settlement(
             insert.entity,
             pending,
             settlements,
             state,
             status,
         ),
-        MapPlacementAssetTarget::Primitive { .. }
+        ScenePlacementAssetTarget::Primitive { .. }
             if collision_ready.0 == collision_generation.collision_ready =>
         {
             grant_candidate_ready(insert.entity, pending, state, status)
         }
-        MapPlacementAssetTarget::Primitive { .. } => {} // 陈旧或异常重复边沿不能授信。
-        MapPlacementAssetTarget::Cuboid { .. } | MapPlacementAssetTarget::EditableCuboid { .. } | MapPlacementAssetTarget::EditableMesh { .. } => {} // 有界内置几何不使用World或异步Trimesh完成事件。
+        ScenePlacementAssetTarget::Primitive { .. } => {} // 陈旧或异常重复边沿不能授信。
+        ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => {} // 有界内置几何不使用World或异步Trimesh完成事件。
     }
 }
 
 /// 相关资产epoch推进后按精确根撤销当前候选旧WorldReady；全局采用门已在事件收集时先关闭。
 pub(super) fn invalidate_candidate_world_asset_epoch(
     invalidated: On<WorldAssetRootEpochInvalidated>,
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<
         (
             &PlacementPendingRevision,
@@ -351,8 +351,8 @@ pub(super) fn invalidate_candidate_world_asset_epoch(
         With<PlacementPendingInstance>,
     >,
     mut settlements: InstanceResMut<PlacementSettlementQueue>,
-    mut state: InstanceResMut<MapPlacementRuntimeState>,
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
     mut commands: Commands,
 ) {
     let instance_scope = context.instance(invalidated.entity);
@@ -387,11 +387,11 @@ pub(super) fn invalidate_candidate_world_asset_epoch(
 /// World完成门落地时只定向唤醒该根，不立即读取可能尚未落地的水体状态命令。
 pub(super) fn queue_inserted_placement_world_ready(
     insert: On<Insert<PlacementWorldInstanceReady>>, // 首次Add和同根重写都统一触发Insert。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // 只读取事件实体。
     mut settlements: InstanceResMut<PlacementSettlementQueue>, // 固定容量、按Entity去重。
-    mut state: InstanceResMut<MapPlacementRuntimeState>,     // 只用于当前修订与溢出失败门。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,   // 溢出时发布原子失败。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,     // 只用于当前修订与溢出失败门。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,   // 溢出时发布原子失败。
 ) {
     let instance_scope = context.instance(insert.entity);
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
@@ -412,7 +412,7 @@ pub(super) fn queue_inserted_placement_world_ready(
 /// 水体Pending/Ready/Failed整组件写入时只唤醒已经取得World完成门的候选根。
 pub(super) fn queue_inserted_placement_water_status(
     insert: On<Insert<DynamicWaterMeshOverrideStatus>>, // runtime每次状态发布都使用整组件insert。
-    context: feathrise_scene_core::residency::EntityMapScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<
         &PlacementPendingRevision,
         (
@@ -421,8 +421,8 @@ pub(super) fn queue_inserted_placement_water_status(
         ),
     >, // World尚未ready时由后续门Insert负责入队，不保存无效中间事件。
     mut settlements: InstanceResMut<PlacementSettlementQueue>,  // 同根多次状态写入只占一个席位。
-    mut state: InstanceResMut<MapPlacementRuntimeState>,        // 核对当前候选修订。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>,      // 队列溢出时失败关闭。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,        // 核对当前候选修订。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,      // 队列溢出时失败关闭。
 ) {
     let instance_scope = context.instance(insert.entity);
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
@@ -447,7 +447,7 @@ pub(super) fn process_pending_placement_settlements(
     roots: Query<
         (
             &PlacementPendingRevision,       // 核对它仍属于当前代次和修订。
-            &MapPlacementInstance,           // 建筑根额外要求碰撞层级Ready。
+            &ScenePlacementInstance,           // 建筑根额外要求碰撞层级Ready。
             &DynamicWaterMeshOverrideStatus, // 空覆盖也必须由水体observer明确证明Ready。
             &PlacementWorldInstanceReady,    // 同InstanceId热重载必须核对当前资产epoch。
             Option<&PlacementBuildingCollisionGeneration>, // 建筑Scene热更与碰撞各自推进同一根代次。
@@ -460,8 +460,8 @@ pub(super) fn process_pending_placement_settlements(
         ),
     >, // 层级未完整生成时绝不读取水体结果。
     asset_index: Res<WorldAssetLifecycleIndex>, // O(1)拒绝尚未由新WorldReady追平的旧门标记。
-    mut state: InstanceResMut<MapPlacementRuntimeState>, // 按Entity登记或撤销唯一隐藏候选的Ready信用。
-    mut status: InstanceResMut<MapPlacementRuntimeStatus>, // 赋水失败时发布可见诊断并保留旧完整根。
+    mut state: InstanceResMut<ScenePlacementRuntimeState>, // 按Entity登记或撤销唯一隐藏候选的Ready信用。
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>, // 赋水失败时发布可见诊断并保留旧完整根。
 ) {
     for _ in 0..PLACEMENT_SETTLEMENT_BUDGET_PER_FRAME {
         let Some(entity) = settlements.pop_front() else {

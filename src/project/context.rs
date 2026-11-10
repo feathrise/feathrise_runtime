@@ -143,6 +143,12 @@ fn text<'a>(value: &'a Value, key: &str, maximum: usize) -> Result<&'a str, Stri
 }
 
 pub(crate) fn read_small_json(path: &Path, limit: u64) -> Result<Value, String> {
+    let bytes = read_small_file(path, limit)?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("配置JSON无效：{}：{error}", path.display()))
+}
+
+pub(crate) fn read_small_file(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if !ordinary(&metadata) || !metadata.is_file() || metadata.len() > limit {
         return Err(format!(
@@ -159,8 +165,7 @@ pub(crate) fn read_small_json(path: &Path, limit: u64) -> Result<Value, String> 
     if bytes.len() as u64 > limit {
         return Err("配置读取期间超过约定容量".into());
     }
-    serde_json::from_slice(&bytes)
-        .map_err(|error| format!("配置JSON无效：{}：{error}", path.display()))
+    Ok(bytes)
 }
 
 fn validate_relative(relative: &Path, allow_empty: bool) -> Result<(), String> {

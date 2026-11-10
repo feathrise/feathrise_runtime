@@ -3,7 +3,7 @@
 use super::{EmbeddedProjectState, resources::Runtime};
 use bevy::prelude::*;
 use feathrise_editor_protocol::{AuthorTool, BrushPreview};
-use feathrise_map_content::{ActiveDynamicMap, MapId, TerrainId};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId, TerrainId};
 use feathrise_scene::{ClipmapOverlaySet, DynamicClipmapVegetationOverlay,
     TerrainAuthoringApply, TerrainObjectAuthoringTarget, TerrainObjectClipmapGround};
 use std::collections::BTreeMap;
@@ -17,14 +17,14 @@ struct HeightBinding {
 /// 每个地形只保留当前完整快照及最新局部高度的一份映射，不积累历史或扫描运行实体。
 #[derive(Resource, Default)]
 pub(super) struct HeightSourceBindings {
-    map: Option<MapId>,
+    scene_id: Option<SceneId>,
     snapshot_revision: u64,
     values: BTreeMap<Option<TerrainId>, HeightBinding>,
 }
 
 impl HeightSourceBindings {
-    pub(super) fn new(map: MapId, snapshot_revision: u64) -> Self {
-        Self { map: Some(map), snapshot_revision, values: BTreeMap::new() }
+    pub(super) fn new(map: SceneId, snapshot_revision: u64) -> Self {
+        Self { scene_id: Some(map), snapshot_revision, values: BTreeMap::new() }
     }
 
     /// 完整清单先声明所有合法稀疏源；空live稍后首次发布0修订时也能绑定，但声明本身不授信。
@@ -49,17 +49,17 @@ impl HeightSourceBindings {
     }
 
     /// 只有真实高度发布成功后更新一个键；外层快照变化会拒绝迟到的局部工作。
-    pub(super) fn published_preview(&mut self, map: &MapId, terrain: Option<&TerrainId>, snapshot_revision: u64,
+    pub(super) fn published_preview(&mut self, map: &SceneId, terrain: Option<&TerrainId>, snapshot_revision: u64,
         author_revision: u64, ticket: u64) -> bool {
-        if self.map.as_ref() != Some(map) || self.snapshot_revision != snapshot_revision { return false; }
+        if self.scene_id.as_ref() != Some(map) || self.snapshot_revision != snapshot_revision { return false; }
         let Some(binding) = self.values.get_mut(&terrain.cloned()) else { return false; };
         binding.author_revision = Some(author_revision);
         binding.ticket = ticket;
         true
     }
 
-    pub(super) fn resolve(&self, map: &MapId, terrain: Option<&TerrainId>, path: &str, snapshot_revision: u64, author_revision: u64) -> Option<u64> {
-        if self.map.as_ref() != Some(map) || self.snapshot_revision != snapshot_revision { return None; }
+    pub(super) fn resolve(&self, map: &SceneId, terrain: Option<&TerrainId>, path: &str, snapshot_revision: u64, author_revision: u64) -> Option<u64> {
+        if self.scene_id.as_ref() != Some(map) || self.snapshot_revision != snapshot_revision { return None; }
         let binding = self.values.get(&terrain.cloned())?;
         (binding.path == path && binding.author_revision == Some(author_revision)).then_some(binding.ticket)
     }
@@ -78,29 +78,29 @@ fn brush<'a>(state: &EmbeddedProjectState, runtime: &'a Runtime) -> Option<&'a B
     })
 }
 
-fn binding(state: &EmbeddedProjectState, active: &ActiveDynamicMap, bindings: &HeightSourceBindings,
-    brush: &BrushPreview) -> Option<(MapId, Option<TerrainId>, u64)> {
+fn binding(state: &EmbeddedProjectState, active: &ActiveDynamicScene, bindings: &HeightSourceBindings,
+    brush: &BrushPreview) -> Option<(SceneId, Option<TerrainId>, u64)> {
     let surface = brush.clipmap.as_ref()?;
-    let map = MapId::parse(&surface.map_id).ok()?;
-    if active.map_id.as_ref() != Some(&map) { return None; }
+    let map = SceneId::parse(&surface.scene_id).ok()?;
+    if active.scene_id.as_ref() != Some(&map) { return None; }
     let terrain = surface.terrain_id.as_deref().map(TerrainId::parse).transpose().ok()?;
     let ticket = bindings.resolve(&map, terrain.as_ref(), &surface.height_path, state.revision, surface.authoring_height_revision)?;
     Some((map, terrain, ticket))
 }
 
 /// 在原作者资源交接前设置稳定对象；实例查询由原TerrainAuthoringApply负责，不能猜Entity。
-fn select_target(state: Res<EmbeddedProjectState>, runtime: NonSend<Runtime>, active: Res<ActiveDynamicMap>,
+fn select_target(state: Res<EmbeddedProjectState>, runtime: NonSend<Runtime>, active: Res<ActiveDynamicScene>,
     bindings: Res<HeightSourceBindings>, mut target: ResMut<TerrainObjectAuthoringTarget>) {
     let Some(brush) = brush(&state, &runtime) else { return; };
     let Some((map, terrain, _)) = binding(&state, &active, &bindings, brush) else { return; };
-    if target.map.as_ref() != Some(&map) || target.terrain != terrain {
-        target.map = Some(map);
+    if target.scene_id.as_ref() != Some(&map) || target.terrain != terrain {
+        target.scene_id = Some(map);
         target.terrain = terrain;
     }
 }
 
 /// 每帧先撤回，再授予精确本地页信用；视口隐藏、模式交接、坏来源和GPU迟到都不能留下旧圈。
-fn publish_brush(state: Res<EmbeddedProjectState>, runtime: NonSend<Runtime>, active: Res<ActiveDynamicMap>,
+fn publish_brush(state: Res<EmbeddedProjectState>, runtime: NonSend<Runtime>, active: Res<ActiveDynamicScene>,
     bindings: Res<HeightSourceBindings>, ground: TerrainObjectClipmapGround,
     mut overlay: ResMut<DynamicClipmapVegetationOverlay>) {
     overlay.brush = None;

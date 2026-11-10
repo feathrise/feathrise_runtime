@@ -1,6 +1,6 @@
 //! 通用地表材质插件与RenderApp就绪观察系统。
 //! 【功能设计】沿用原草土地表“真实材质实例、实际专用管线、Forward/Deferred分箱”三重证据，
-//! 地图层只有取得完整GPU结果后才可把离屏预热材质原子转交给白模地形。
+//! 场景层只有取得完整GPU结果后才可把离屏预热材质原子转交给白模地形。
 
 use std::any::TypeId; // 类型擦除材质实例仍需精确匹配TerrainSurfaceMaterial。
 use bevy::core_pipeline::core_3d::Opaque3d; // 通用地表固定进入不透明PBR阶段。
@@ -47,19 +47,19 @@ use super::shaders::register_terrain_surface_shader; // 插件启用时注册内
 
 /// 安装通用地表材质、组件提取和RenderApp状态观察能力。
 #[derive(Clone, Copy, Debug, Default)] // 插件无运行时配置，可由统一EnvironmentPlugin确定性安装一次。
-pub struct TerrainSurfacePlugin; // 地图资产路径、层参数和白模接管仍由场景适配器负责。
+pub struct TerrainSurfacePlugin; // 场景资产路径、层参数和白模接管仍由场景适配器负责。
 
 impl Plugin for TerrainSurfacePlugin {
     // 将主世界材质资产与渲染世界证据链集中装配。
     fn build(&self, app: &mut App) {
-        // Bevy插件构建只登记固定类型和系统，不加载地图资产。
+        // Bevy插件构建只登记固定类型和系统，不加载场景资产。
         super::images::install_shape_normalization(app); // 异步KTX2首次GPU抽取前恢复本入口的明确二维/数组合同。
         register_terrain_surface_shader(app); // 在MaterialPlugin开始专用化前注册固定WGSL句柄。
         super::weather::install_surface_weather(app); // 所有地表和水面共用唯一64字节天气缓冲。
         app.init_resource::<TerrainSurfaceRenderStats>(); // 无RenderApp逻辑测试也能读取稳定全零快照。
         app.init_resource::<super::resources::TerrainSurfaceInstanceFeedback>();
         app.add_plugins(MaterialPlugin::<TerrainSurfaceMaterial>::default()); // 复用StandardMaterial完整PBR和Deferred路径。
-        app.init_resource::<TerrainSurfaceFallbackImages>(); // 单权重图地图共用唯一内部零RGBA句柄。
+        app.init_resource::<TerrainSurfaceFallbackImages>(); // 单权重图场景共用唯一内部零RGBA句柄。
         app.add_plugins((
             // 两个轻量组件使用官方同步提取路径。
             ExtractComponentPlugin::<TerrainSurfaceCarrier>::default(), // 同步正式与预热承接标记。
@@ -88,7 +88,7 @@ impl Plugin for TerrainSurfacePlugin {
     } // 完成插件构建。
 } // 完成插件实现。
 
-/// 把上一完整RenderApp帧的固定证据写回主世界，同时保留地图生命周期字段。
+/// 把上一完整RenderApp帧的固定证据写回主世界，同时保留场景生命周期字段。
 fn publish_terrain_surface_render_stats(
     // ExtractSchedule是一帧延迟但不会读取半帧计数。
     mut main_world: ResMut<MainWorld>, // Bevy官方RenderApp回写主世界资源入口。
@@ -98,9 +98,9 @@ fn publish_terrain_surface_render_stats(
     let mut snapshot = frame_counters.snapshot_and_reset(); // 一次取走全部RenderApp字段并开始新帧计数。
     if let Some(mut stats) = main_world.get_resource_mut::<TerrainSurfaceRenderStats>() {
         // 插件拆装测试允许资源临时不存在。
-        snapshot.phase = stats.phase; // 地图生命周期由主世界负责，RenderApp不得覆盖。
-        snapshot.failure = stats.failure; // 具体失败项同样由地图生命周期系统发布。
-        snapshot.generation = stats.generation; // 当前地图代次同样由主世界维护。
+        snapshot.phase = stats.phase; // 场景生命周期由主世界负责，RenderApp不得覆盖。
+        snapshot.failure = stats.failure; // 具体失败项同样由场景生命周期系统发布。
+        snapshot.generation = stats.generation; // 当前场景代次同样由主世界维护。
         *stats = snapshot; // 原子覆盖其余上一完整渲染帧证据。
     } // 完成可选主世界资源发布。
 } // 完成地表快照发布系统。
@@ -181,7 +181,7 @@ fn observe_terrain_surface_pipeline(
     ); // 完成管线证据发布。
 } // 完成地表RenderApp观察系统。
 
-/// 父图与独立实例共用同一条Forward/Deferred证据链，不借同管线的其他地图或陈旧可见性。
+/// 父图与独立实例共用同一条Forward/Deferred证据链，不借同管线的其他场景或陈旧可见性。
 #[derive(Default)]
 pub(super) struct SurfacePipelineEvidence {
     pub waiting: bool,

@@ -1,13 +1,13 @@
 //! 从源图内部层级计算地形输入变换，整体移动子图不会被误判为修改地形顶点。
 
 use bevy::{ecs::system::SystemParam, math::Affine3A, prelude::*};
-use super::MapRuntimeScope;
+use super::SceneRuntimeScope;
 
 #[derive(SystemParam)]
 pub struct EntitySourceTransform<'w, 's> {
     transforms: Query<'w, 's, &'static Transform>,
     parents: Query<'w, 's, &'static ChildOf>,
-    scope: Option<Res<'w, MapRuntimeScope>>,
+    scope: Option<Res<'w, SceneRuntimeScope>>,
 }
 
 impl EntitySourceTransform<'_, '_> {

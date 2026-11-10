@@ -10,14 +10,14 @@ pub(super) fn apply_vegetation_quality(
     mut views: Query<&mut GpuBladeView>, // 场景内有界的唯一玩法视图；纹理相机没有该标记。
 ) {
     let (density, lod_threshold, view_distance) =
-        settings.graphics.vegetation_quality.runtime_multipliers(); // 每帧只推导三个栈上常量，不扫描地图、资产或逐草实例。
+        settings.graphics.vegetation_quality.runtime_multipliers(); // 每帧只推导三个栈上常量，不扫描场景、资产或逐草实例。
     let target = Vec3::new(density, lod_threshold, view_distance); // 组成可一次比较的目标向量。
     for mut view in &mut views {
         if view.quality_multipliers() == target {
             continue; // 稳定帧不触发组件变更检测或额外 RenderApp 同步。
         } // 完成当前玩法视图的幂等快速路径。
         view.set_quality_multipliers(density, lod_threshold, view_distance); // 新相机与切档都只更新三个有限倍率。
-    } // 完成当前场景全部明确植被视图同步，正常地图只有一个。
+    } // 完成当前场景全部明确植被视图同步，正常场景只有一个。
 } // 完成不会重建候选缓冲或密度纹理的运行时应用。
 
 #[cfg(test)]
@@ -59,7 +59,7 @@ mod tests {
             .resource_mut::<RenderSettings>()
             .graphics
             .vegetation_quality = VegetationQuality::Ultra; // 场景运行中切换到极高档。
-        let new_view = app.world_mut().spawn(GpuBladeView::legacy()).id(); // 模拟切图后同帧生成的新玩法相机。
+        let new_view = app.world_mut().spawn(GpuBladeView::legacy()).id(); // 模拟切换场景后同帧生成的新玩法相机。
         app.update(); // 同帧更新旧视图并接管新视图。
         let expected = Vec3::new(1.0, 0.8, 1.0); // 极高保持作者密度范围并延伸精细 LOD。
         assert_eq!(

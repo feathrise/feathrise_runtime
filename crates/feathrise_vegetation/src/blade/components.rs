@@ -83,7 +83,7 @@ fn release_profile_bank_allocation(
         .map(|allocation| (allocation.epoch.clone(), allocation.ids.clone()));
     if let Some((epoch, ids)) = allocation && !ids.is_empty()
         && let Some(mut banks) = world.get_resource_mut::<super::resources::GpuBladeProfileBanks>() {
-        banks.release(&epoch, &ids); // Arc只浅克隆；移除/替换本根都不扫描其他地图或草窗。
+        banks.release(&epoch, &ids); // Arc只浅克隆；移除/替换本根都不扫描其他场景或草窗。
     }
 }
 
@@ -172,7 +172,7 @@ pub(crate) struct GpuBladePreparedBuffers {
     pub(crate) tile_count: u32, // 当前候选正方形切分后的瓦片总数，变化时必须重建列表容量。
     pub(crate) generation: u32, // 容量变化时递增，供后续绑定组缓存和异步回读识别旧缓冲。
     pub(crate) clipmap_missing_pages: [UVec4; 16], // 局部缺页掩码也是完整输出身份，变化时禁止复用旧候选集合。
-    pub(crate) clipmap_revision: Option<[u64; 3]>, // GPU 输出对应的完整地图/高度/视图修订。
+    pub(crate) clipmap_revision: Option<[u64; 3]>, // GPU 输出对应的完整场景/高度/视图修订。
     pub(crate) output_valid: bool, // 四阶段已就绪且本帧作业会在相机前完成时，才允许最终Draw消费持久间接参数；Queue仅准备候选项。
     pub(crate) source_revision: u64, // 最后真正排入完整Compute作业的作者来源；纹理等待复用旧输出时保持旧值。
 }
@@ -189,7 +189,7 @@ mod patch_lod;
 /// 每个texel以RGBA16依次保存地形单元的NW、NE、SW、SE四角；shader一次textureLoad后按真实三角面插值。
 #[derive(Component, Clone, Debug)]
 pub struct GpuBladeHeightMap {
-    pub(crate) image: Handle<Image>, // 强句柄让地图存活期间保留对应GPU纹理，离场后允许统一释放。
+    pub(crate) image: Handle<Image>, // 强句柄让场景存活期间保留对应GPU纹理，离场后允许统一释放。
 }
 
 /// 单个草场窗口绑定的GPU草地密度概率纹理。
@@ -197,7 +197,7 @@ pub struct GpuBladeHeightMap {
 /// 红通道是零到一的生草概率；shader单次读取最近texel，并用稳定世界草格随机值生成不会随窗口移动洗牌的草株集合。
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct GpuBladeDensityMap {
-    pub(crate) image: Handle<Image>, // 强句柄让地图存活期间保留约2048平方密度资产，离场后允许统一释放。
+    pub(crate) image: Handle<Image>, // 强句柄让场景存活期间保留约2048平方密度资产，离场后允许统一释放。
 }
 
 /// 三维作者样本输入：位置/概率、法线/格距、稳定作者中心，以及可选的有界密度查找索引。
@@ -308,7 +308,7 @@ impl GpuBladeView {
     /// 构造保守兼容视图：只启用既有六平面剔除，不启用屏幕空间LOD。
     pub const fn legacy() -> Self {
         Self {
-            screen_space_lod_enabled: false, // 未显式启用的地图与最小样例继续使用GpuBladePatch中的玩家径向环带。
+            screen_space_lod_enabled: false, // 未显式启用的场景与最小样例继续使用GpuBladePatch中的玩家径向环带。
             lod_pixel_thresholds: Vec4::ZERO, // 禁用模式不得向后续WGSL暴露看似有效的像素阈值。
             lod_ultra_pixel_thresholds: Vec4::ZERO, // 兼容模式不得触发第四级超远交接。
             camera_fade_lod_params: Vec4::ZERO, // 禁用模式不得误触发近镜头整株避让。
@@ -353,7 +353,7 @@ impl GpuBladeView {
                 config.residency_transition_widths[2], // 远级在安全边界内逐父簇交还超远级。
                 config.residency_margin,               // 尾槽保存全部子级共用的外沿安全余量。
             ), // 固定世界哈希乘连续权重，静止镜头不会让同一父簇逐帧换级。
-            quality_multipliers: Vec4::ONE, // 地图作者配置默认使用完整高档，运行时设置可另行幂等覆盖。
+            quality_multipliers: Vec4::ONE, // 场景作者配置默认使用完整高档，运行时设置可另行幂等覆盖。
             lod_pixel_thresholds_ext: [
                 Vec4::new(
                     config.pixel_thresholds[3].x,
@@ -402,7 +402,7 @@ impl GpuBladeView {
 
     /// 更新三个 GPU 画质倍率；非法输入完整保留上一份有效设置。
     pub fn set_quality_multipliers(
-        &mut self,          // 只更新独立质量槽，不改写地图作者LOD规格。
+        &mut self,          // 只更新独立质量槽，不改写场景作者LOD规格。
         density: f32,       // 最终密度概率倍率。
         lod_threshold: f32, // 屏幕LOD阈值倍率。
         view_distance: f32, // 草窗与常驻半径倍率。
@@ -470,7 +470,7 @@ impl GpuBladeView {
 
 impl Default for GpuBladeView {
     fn default() -> Self {
-        Self::legacy() // 未显式升级的地图必须保持当前玩家径向LOD行为。
+        Self::legacy() // 未显式升级的场景必须保持当前玩家径向LOD行为。
     }
 }
 

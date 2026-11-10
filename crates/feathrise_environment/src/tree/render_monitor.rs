@@ -27,7 +27,7 @@ use super::resources::{
 
 /// 为树木插件安装无GPU读回的PBR分箱遥测。
 pub(super) fn install_tree_render_monitor(app: &mut App) {
-    app.init_resource::<TreeRenderMonitorConfig>() // 非树地图保留空资产ID表。
+    app.init_resource::<TreeRenderMonitorConfig>() // 非树场景保留空资产ID表。
         .init_resource::<TreeRenderStats>() // 首次完整渲染帧前向F3提供明确未采样状态。
         .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<
             TreeRenderMonitorConfig,
@@ -66,7 +66,7 @@ fn publish_tree_render_stats(
 
 /// 在官方PBR排队完成后统计七个树木Mesh落入各阶段的真实公开分箱。
 fn observe_tree_render_phases(
-    config: Res<TreeRenderMonitorConfig>, // RenderApp提取到的当前地图七个Mesh身份。
+    config: Res<TreeRenderMonitorConfig>, // RenderApp提取到的当前场景七个Mesh身份。
     opaque_phases: Res<ViewBinnedRenderPhases<Opaque3d>>, // Bevy 0.19.1原生绑定路径下树干保持不透明分箱。
     alpha_mask_phases: Res<ViewBinnedRenderPhases<AlphaMask3d>>, // 只统计真实树冠及公告板遮罩分箱。
     shadow_phases: Res<ViewBinnedRenderPhases<Shadow>>,   // 实体树方向光级联及其他灯光阴影分箱。
@@ -86,9 +86,9 @@ fn observe_tree_render_phases(
         .collect::<HashSet<_>>(); // 类型擦除后与Bevy PBR分箱键使用同一身份口径。
     if mesh_ids.is_empty() {
         *render_stats = TreeRenderStats {
-            sampled: true,        // 空地图同样完成采样，F3可区分未采样与确实无树。
-            ..Default::default()  // 三个阶段保持全零并截断上一地图结果。
-        }; // 完成非树地图快照覆盖。
+            sampled: true,        // 空场景同样完成采样，F3可区分未采样与确实无树。
+            ..Default::default()  // 三个阶段保持全零并截断上一场景结果。
+        }; // 完成非树场景快照覆盖。
         return; // 没有目标资产时无需扫描任何视图分箱。
     } // 完成空配置快速路径。
     if !mdi_mirror.rebuild(
@@ -138,16 +138,16 @@ mod tests {
     #[test] // 重复句柄不能扩大树木监控资产集合。
     fn render_monitor_config_deduplicates_mesh_handles() {
         let handle = Handle::<Mesh>::default(); // 默认UUID句柄无需Assets存储且具有稳定身份。
-        let mut config = TreeRenderMonitorConfig::default(); // 从空地图配置开始。
+        let mut config = TreeRenderMonitorConfig::default(); // 从空场景配置开始。
         assert!(!config.enabled()); // 普通游戏默认不得扫描PBR分箱。
         assert!(config.set_enabled(true)); // 打开树木页形成真实授权边沿。
         assert!(!config.set_enabled(true)); // 稳态重复授权不得伪报变化。
         assert!(config.enabled()); // 配置必须保持当前树木页授权。
         config.replace_from_handles([&handle, &handle]); // 模拟两个LOD错误复用同一Mesh。
         assert_eq!(config.mesh_ids, vec![handle.id()]); // RenderApp只能收到一个唯一资产身份。
-        config.clear(); // 模拟离开树木地图。
-        assert!(config.mesh_ids.is_empty()); // 离场必须截断上一地图目标。
-        assert!(config.enabled()); // 地图资产清理不能擅自改变F3页面授权。
+        config.clear(); // 模拟离开树木场景。
+        assert!(config.mesh_ids.is_empty()); // 离场必须截断上一场景目标。
+        assert!(config.enabled()); // 场景资产清理不能擅自改变F3页面授权。
         assert!(config.set_enabled(false)); // 关闭F3形成撤销边沿。
         assert!(!config.enabled()); // 下一Extract帧必须停止扫描并清除快照。
     } // 完成配置去重与清理验证。

@@ -165,15 +165,15 @@ fn clipmap_uses_real_gpu_identity_and_never_creates_a_flat_fallback() {
     let local_revision = [11, 22, 33];
     let local_missing_pages = [UVec4::new(1, 2, 3, 4); 16];
     preview.clipmap = Some(ClipmapBrushSurface {
-        map_id: "ground".into(),
+        scene_id: "ground".into(),
         terrain_id: None,
-        height_path: "maps/ground/terrain/height_tiles.map_height_manifest.json".into(),
+        height_path: "scenes/ground/terrain/height_tiles.scene_height_manifest.json".into(),
         authoring_height_revision: 9,
     });
     let result = geometry(preview.clone());
     assert!(result.lines.is_empty() && result.strips.is_empty());
     let overlay = clipmap_brush(&preview, local_revision, local_missing_pages).expect("已核验并绑定到本地的GPU参数");
-    assert_eq!(overlay.map_id, MapId("ground".into()));
+    assert_eq!(overlay.scene_id, SceneId("ground".into()));
     assert_eq!(overlay.revision, local_revision);
     assert_eq!(overlay.missing_pages, local_missing_pages);
     assert_eq!(overlay.center, Vec2::new(2.0, -3.0));

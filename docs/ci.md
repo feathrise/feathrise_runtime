@@ -5,8 +5,8 @@
 公开 CI 默认使用工作流中固定的 Bevy 0.20.1 [补丁仓提交](https://github.com/feathrise/feathrise_patches)。仓库变量 `FEATHRISE_PATCH_REV` 可覆盖为同一补丁仓的完整 40 位提交。工作流检出后核对实际提交。将 SDK 与配套补丁仓同级检出后，可以在 SDK 根目录运行以下本地检查。
 
 ```powershell
-cargo check --locked -p feathrise_runtime -p feathrise_map_content -p feathrise_scene -p feathrise_environment -p feathrise_fps_display -p feathrise_plugin_api -p feathrise_sdk_workspace_tests --tests --examples
-cargo test --locked -p feathrise_plugin_api --all-features --lib
+cargo check --locked -p feathrise_runtime -p feathrise_scene_core -p feathrise_scene_content -p feathrise_scene -p feathrise_environment -p feathrise_fps_display -p feathrise_plugin_api -p feathrise_sdk_workspace_tests --tests --examples
+cargo test --locked -p feathrise_plugin_api -p feathrise_editor_protocol -p feathrise_scene_content -p feathrise_scene_core --all-features --lib
 cargo build --manifest-path examples/native_plugin/Cargo.toml --target-dir target --lib
 ```
 

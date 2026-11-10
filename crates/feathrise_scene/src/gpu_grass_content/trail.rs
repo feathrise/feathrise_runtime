@@ -1,5 +1,5 @@
 //! 通用动态植被的固定容量玩家压草轨迹。
-//! 足迹只保存七个世界坐标样本；切图和玩家缺失时清零，稳定帧不分配。
+//! 足迹只保存七个世界坐标样本；切换场景和玩家缺失时清零，稳定帧不分配。
 
 use bevy::prelude::{Resource, Vec2};
 use feathrise_environment::vegetation::blade::{
@@ -21,7 +21,7 @@ pub(crate) const GRASS_TRAIL_LIFETIME: f32 = 1.40;
 /// 历史足迹比当前玩家略弱，避免多个源重叠时形成完全贴地的大圆坑。
 pub(crate) const GRASS_TRAIL_STRENGTH: f32 = 0.78;
 
-/// 单帧水平位移超过十二米视为传送，清空旧轨迹而不在地图间连出压草直线。
+/// 单帧水平位移超过十二米视为传送，清空旧轨迹而不在场景间连出压草直线。
 pub(crate) const GRASS_TRAIL_TELEPORT_DISTANCE: f32 = 12.0;
 const GRASS_TRAIL_CAPACITY: usize = GPU_GRASS_INTERACTION_SOURCE_CAPACITY - 1;
 
@@ -47,7 +47,7 @@ impl BladeTrailState {
     pub(crate) fn clear(&mut self) {
         self.samples.fill(BladeTrailSample::default()); // 所有历史源立即失效。
         self.next_slot = 0; // 环形写指针恢复到首槽便于测试和调试复现。
-        self.last_emission_xz = None; // 下一帧不会从旧地图位置补画足迹。
+        self.last_emission_xz = None; // 下一帧不会从旧场景位置补画足迹。
         self.last_player_xz = None; // 下一帧玩家位置作为新的连续移动起点。
     }
 
@@ -70,7 +70,7 @@ impl BladeTrailState {
         }
         let previous_player_xz = self.last_player_xz.unwrap_or(player_xz); // 已由前置分支保证存在，保留安全回退。
         if player_xz.distance(previous_player_xz) > GRASS_TRAIL_TELEPORT_DISTANCE {
-            self.clear(); // 传送或切图时禁止沿大段直线补出七个错误足迹。
+            self.clear(); // 传送或切换场景时禁止沿大段直线补出七个错误足迹。
             self.last_player_xz = Some(player_xz); // 新位置成为连续移动起点。
             self.last_emission_xz = Some(player_xz); // 新位置由当前玩家源立即覆盖。
             return; // 本帧不生成历史源。

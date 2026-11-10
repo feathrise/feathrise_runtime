@@ -98,7 +98,7 @@ pub(in crate::project::embedded) fn collect(world: &mut World) {
         .get_resource::<feathrise_scene::DynamicClipmapVegetationOverlay>()
         .and_then(|overlay| overlay.brush.as_ref())
     {
-        evidence.clipmap_input = json!({"map":brush.map_id.as_str(),"revision":brush.revision,
+        evidence.clipmap_input = json!({"scene_id":brush.scene_id.as_str(),"revision":brush.revision,
             "missing_pages":brush.missing_pages.map(|page|page.to_array()),
             "center":brush.center.to_array(),"radius":brush.radius,"strength":brush.strength,
             "color":brush.color.to_f32_array()});

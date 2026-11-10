@@ -6,7 +6,7 @@ pub mod validation;
 pub mod wire;
 pub(crate) use service::{requested, run};
 
-/// 预览独占层，不与地图、玩家及作者手柄共享可见性。
+/// 预览独占层，不与场景、玩家及作者手柄共享可见性。
 pub const AUTHOR_RUNTIME_PREVIEW_LAYER: usize = 30;
 
 #[derive(Resource, Clone, Debug)]

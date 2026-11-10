@@ -1,16 +1,16 @@
 //! 用真实异步高度发布检查映射生效时机；完整快照换代后不得发布旧worker结果。
 use super::*;
 use feathrise_editor_protocol::Mode;
-use feathrise_map_content::ActiveDynamicMap;
+use feathrise_scene_content::ActiveDynamicScene;
 use std::time::{Duration, Instant};
 
-const PATH: &str = "maps/fixture/height_tiles.map_height_manifest.json";
+const PATH: &str = "scenes/fixture/height_tiles.scene_height_manifest.json";
 
-fn fixture() -> (App, MapId, u64) {
+fn fixture() -> (App, SceneId, u64) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-    let map = MapId::parse("MAP-height-brush").unwrap();
-    app.insert_resource(ActiveDynamicMap { map_id: Some(map.clone()), ..default() });
+    let map = SceneId::parse("MAP-height-brush").unwrap();
+    app.insert_resource(ActiveDynamicScene { scene_id: Some(map.clone()), ..default() });
     app.insert_resource(EmbeddedProjectState { mode: Mode::Editing, revision: 7, world_id: 33, transitioning: false });
     let ticket = systems::next_height_source_revision().unwrap();
     let mut source = SparseHeightLiveOverride::default();
@@ -53,7 +53,7 @@ fn brush_ticket_moves_only_after_real_height_publication() {
 }
 
 #[test]
-fn replacing_snapshot_rejects_late_height_before_source_or_brush_map_is_changed() {
+fn replacing_snapshot_rejects_late_height_before_source_or_brush_scene_is_changed() {
     let (mut app, map, old_ticket) = fixture();
     let mut state = State::default();
     state.start(app.world(), prepare(map.clone(), None, 18, true, vec![]).unwrap()).unwrap();
@@ -82,7 +82,7 @@ fn first_empty_live_height_binds_a_previously_declared_source() {
     let live = app.world().resource::<SparseHeightLiveOverride>();
     let actual = live.revision();
     assert!(actual > old_ticket);
-    assert_eq!(live.map_id(), Some(&map));
+    assert_eq!(live.scene_id(), Some(&map));
     assert_eq!(live.tile_count(), 0);
     assert_eq!(app.world().resource::<HeightSourceBindings>().resolve(&map, None, PATH, 7, 0), Some(actual));
 }

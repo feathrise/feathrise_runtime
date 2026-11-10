@@ -1,7 +1,7 @@
 # 外部插件只依赖这份字节协议，不链接编辑器或Bevy。
 [package]
 name = "feathrise_plugin_api"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"
@@ -13,7 +13,7 @@ default = []
 # 作者动态库不携带文件解析器；宿主及独立检查命令显式启用。
 reader = ["dep:object"]
 reader-test-support = ["reader"]
-# 地图作者才需要不可变blob读写；普通表单插件不引入哈希实现。
+# 场景作者才需要不可变blob读写；普通表单插件不引入哈希实现。
 blob-io = ["dep:sha2"]
 
 [[bin]]

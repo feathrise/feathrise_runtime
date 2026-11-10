@@ -68,7 +68,7 @@ pub(super) type GpuBladeWindowQuery<'a> = (
 /// 草窗准备阶段共享的渲染资源参数组。
 #[derive(SystemParam)]
 pub(super) struct GpuBladePrepareResources<'w> {
-    clipmap_fallback: Res<'w, super::clipmap_resources::ClipmapFallback>, // 旧地图共享合法禁用绑定。
+    clipmap_fallback: Res<'w, super::clipmap_resources::ClipmapFallback>, // 旧场景共享合法禁用绑定。
     pipeline: Res<'w, GpuBladeComputePipeline>, // 提供计算group0的声明式布局。
     pipeline_cache: Res<'w, PipelineCache>,     // 把声明式布局解析为当前RenderDevice真实布局。
     uniforms: Res<'w, ComponentUniforms<GpuBladePatch>>, // 所有草窗共享的动态uniform缓冲。
@@ -109,7 +109,7 @@ fn output_matches_clipmap_snapshot(
         // 高度模式切换同样属于完整输出身份变化。
         Some((revision, missing_pages, ready)) => {
             ready && output == Some((revision, missing_pages))
-        } // 任一地图/高度/视图变化或未就绪都拒绝复用。
+        } // 任一场景/高度/视图变化或未就绪都拒绝复用。
         None => output.is_none(), // GLB 窗口不得继承之前分页窗口的实例高度。
     } // 完成完整身份判定。
 } // 完成与 GPU 设备无关的原子复用规则。
@@ -146,7 +146,7 @@ pub(super) fn prepare_gpu_grass_compute_jobs(
         if let Some(mut buffers) = buffers {
             // 首次没有输出的窗口不需要失效操作。
             let current =
-                height.map(|height| (height.revision, height.missing_pages, height.ready)); // 捕获完整地图/高度/视图身份与采用状态。
+                height.map(|height| (height.revision, height.missing_pages, height.ready)); // 捕获完整场景/高度/视图身份与采用状态。
             if !output_matches_clipmap_snapshot(
                 buffers
                     .clipmap_revision
@@ -158,7 +158,7 @@ pub(super) fn prepare_gpu_grass_compute_jobs(
             } // 完成单窗历史输出失效。
         } // 完成已有缓冲检查。
     } // 之后任何早退都只能保留仍合法的历史实例。
-    let window_count = grass_windows.iter_mut().count() as u32; // 当前地图可同时包含多种内容的近中远窗口，仅用于等待诊断与空场景快返。
+    let window_count = grass_windows.iter_mut().count() as u32; // 当前场景可同时包含多种内容的近中远窗口，仅用于等待诊断与空场景快返。
     if window_count == 0 {
         return; // 没有草窗时不查询异步管线状态，也不产生虚假的四阶段就绪指标。
     } // 完成空场景快速路径。
@@ -361,7 +361,7 @@ pub(super) fn prepare_gpu_grass_compute_jobs(
                     generation, // 记录这次容量分配代次。
                     clipmap_missing_pages: clipmap_height
                         .map_or([UVec4::ZERO; 16], |height| height.missing_pages), // 不同缺页集合不得复用未抑制的旧草根。
-                    clipmap_revision: clipmap_height.map(|height| height.revision), // 新输出绑定当前完整地图/高度/视图身份。
+                    clipmap_revision: clipmap_height.map(|height| height.revision), // 新输出绑定当前完整场景/高度/视图身份。
                     output_valid: true, // 四阶段已就绪且作业将在相机前执行，因此本帧排队可安全消费该输出。
                     source_revision: source_revision.map_or(0, |revision| revision.0),
                 };
@@ -485,7 +485,7 @@ mod tests {
     #[test] // 取消、迟到、视图切换和 Shader 等待均不得复用不同高度版本的实例。
     fn clipmap_output_reuse_requires_complete_current_identity() {
         // 纯身份测试无需创建 GPU 缓冲。
-        let current = [7, 11, 19]; // 地图、高度、视图三个独立代次。
+        let current = [7, 11, 19]; // 场景、高度、视图三个独立代次。
         assert!(output_matches_clipmap_snapshot(
             Some((current, [UVec4::ZERO; 16])),
             Some((current, [UVec4::ZERO; 16], true))
@@ -499,7 +499,7 @@ mod tests {
             assert!(!output_matches_clipmap_snapshot(
                 Some((current, [UVec4::ZERO; 16])),
                 Some((changed, [UVec4::ZERO; 16], true))
-            )); // 迟到地图、高度或视图结果全部拒绝。
+            )); // 迟到场景、高度或视图结果全部拒绝。
         } // 完成三种换代覆盖。
         assert!(!output_matches_clipmap_snapshot(
             None,
@@ -509,7 +509,7 @@ mod tests {
             Some((current, [UVec4::ZERO; 16])),
             None
         )); // 返回 GLB 也不得继承分页输出。
-        let mut missing = [UVec4::ZERO; 16]; // 保持地图、高度、视图三个修订不变，仅切换待页集合。
+        let mut missing = [UVec4::ZERO; 16]; // 保持场景、高度、视图三个修订不变，仅切换待页集合。
         missing[3].x = 4; // 模拟同内容远景父页尚未换入。
         assert!(!output_matches_clipmap_snapshot(
             Some((current, [UVec4::ZERO; 16])),

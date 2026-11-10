@@ -1,6 +1,6 @@
 //! 使用正式捕获/后台任务/采用系统复验同句柄Mesh热更与真实洞底。
 use super::*;
-use feathrise_map_content::{MapId, MapPlacementRecord};
+use feathrise_scene_content::{SceneId, ScenePlacementRecord};
 
 fn installed(world: &World, root: Entity) -> &Collider {
     world
@@ -49,13 +49,13 @@ fn volume_stream_chunked_upload_captures_more_than_legacy_mesh_vertex_and_triang
     app.add_plugins((MinimalPlugins, TransformPlugin))
         .init_resource::<Assets<Mesh>>()
         .add_message::<AssetEvent<Mesh>>()
-        .init_resource::<MapPlacementRuntimeState>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .add_systems(Update, drive_terrain_collision);
     super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
     super::super::terrain_mesh_upload::install(&mut app);
-    let record: MapPlacementRecord = serde_json::from_value(serde_json::json!({
-        "id":"large-cave","asset_path":"maps/test/volume_sculpt/v-test.glb",
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"large-cave","asset_path":"scenes/test/volume_sculpt/v-test.glb",
         "translation":[7,5,9],"yaw_degrees":0,"scale":[1,1,1],
         "terrain_patch":{"sculpted_volume":true,"streamed_volume":true,"volume_cell_size":0.25,"cutouts":[{"min":[0,0],"max":[256,4]}]}
     })).unwrap();
@@ -90,7 +90,7 @@ fn volume_stream_chunked_upload_captures_more_than_legacy_mesh_vertex_and_triang
     let root = app
         .world_mut()
         .spawn((
-            MapPlacementInstance::new(&MapId("MAP-large-cave".into()), &record),
+            ScenePlacementInstance::new(&SceneId("MAP-large-cave".into()), &record),
             terrain_placement_collision(&record).unwrap(),
             Transform::from_translation(Vec3::from_array(record.translation)),
             Visibility::Hidden,
@@ -146,19 +146,19 @@ fn volume_stream_invalid_geometry_reports_terminal_failure_without_installing_pa
     app.add_plugins(MinimalPlugins)
         .init_resource::<Assets<Mesh>>()
         .add_message::<AssetEvent<Mesh>>()
-        .init_resource::<MapPlacementRuntimeState>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .add_systems(Update, drive_terrain_collision);
     super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
-    let record: MapPlacementRecord = serde_json::from_value(serde_json::json!({
-        "id":"broken-cave","asset_path":"maps/test/volume_sculpt/v-test.glb",
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"broken-cave","asset_path":"scenes/test/volume_sculpt/v-test.glb",
         "translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1],
         "terrain_patch":{"sculpted_volume":true,"streamed_volume":true,"volume_cell_size":0.25,"cutouts":[{"min":[0,0],"max":[4,4]}]}
     })).unwrap();
     let root = app
         .world_mut()
         .spawn((
-            MapPlacementInstance::new(&MapId("MAP-test".into()), &record),
+            ScenePlacementInstance::new(&SceneId("MAP-test".into()), &record),
             terrain_placement_collision(&record).unwrap(),
             GlobalTransform::IDENTITY,
             Visibility::Hidden,
@@ -291,14 +291,14 @@ fn physical_proxy_keeps_unit_scale_and_owned_pose_with_real_physics_hooks() {
         static_shape::StaticTerrainShape::new(mesh),
     ));
     let prepared = physical.shape_scaled().clone();
-    let record: MapPlacementRecord = serde_json::from_str(
-        r#"{"id":"cave-preview","asset_path":"maps/cave.glb","translation":[7,5,9],"yaw_degrees":0,"scale":[2,3,4],"terrain_patch":{}}"#,
+    let record: ScenePlacementRecord = serde_json::from_str(
+        r#"{"id":"cave-preview","asset_path":"scenes/cave.glb","translation":[7,5,9],"yaw_degrees":0,"scale":[2,3,4],"terrain_patch":{}}"#,
     )
     .unwrap();
     let root = app
         .world_mut()
         .spawn((
-            MapPlacementInstance::new(&MapId("MAP-test-cave".into()), &record),
+            ScenePlacementInstance::new(&SceneId("MAP-test-cave".into()), &record),
             global,
             TerrainPatchCollisionRequest { generation: 1 },
             TerrainPatchColliderReady {
@@ -410,8 +410,8 @@ fn check_same_handle_hot_reload(formal: bool) {
         .init_resource::<Assets<Mesh>>()
         .add_message::<AssetEvent<Mesh>>()
         .init_resource::<TerrainCollisionRuntime>()
-        .init_resource::<MapPlacementRuntimeState>()
-        .init_resource::<MapPlacementRuntimeStatus>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
         .init_resource::<TerrainCollisionGarbage>()
         .add_observer(retire_ready_shape)
         .add_observer(retire_installed_shape)
@@ -420,11 +420,11 @@ fn check_same_handle_hot_reload(formal: bool) {
         .add_observer(unregister_request)
         .add_observer(install_ready_collider)
         .add_systems(Update, drive_terrain_collision);
-    let record:MapPlacementRecord=serde_json::from_str(r#"{"id":"cave","asset_path":"maps/cave.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1],"terrain_patch":{}}"#).unwrap();
+    let record:ScenePlacementRecord=serde_json::from_str(r#"{"id":"cave","asset_path":"scenes/cave.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1],"terrain_patch":{}}"#).unwrap();
     let root = app
         .world_mut()
         .spawn((
-            MapPlacementInstance::new(&MapId("MAP-test-cave".into()), &record),
+            ScenePlacementInstance::new(&SceneId("MAP-test-cave".into()), &record),
             terrain_placement_collision(&record).unwrap(),
             Transform::default(),
             GlobalTransform::default(),

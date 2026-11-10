@@ -90,7 +90,7 @@ fn profile_bank_scope_old_root_cannot_release_reused_ids_after_catalog_reset() {
 }
 
 #[test]
-fn profile_bank_scope_retiring_another_resident_map_cannot_release_current_catalog() {
+fn profile_bank_scope_retiring_another_resident_scene_cannot_release_current_catalog() {
     let mut world = World::new();
     world.init_resource::<GpuBladeProfileBanks>();
     let bank = GpuBladeProfileBank::new(GpuBladeProfiles::default(), None);

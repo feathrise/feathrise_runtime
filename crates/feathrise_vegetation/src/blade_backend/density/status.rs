@@ -25,7 +25,7 @@ pub enum VegetationBladeAdoptionPhase {
 /// 可见叶片窗口对当前活动布局的只读采用快照。
 ///
 /// 【功能设计】该资源不驱动迁移，也不等同于项目侧最终画面验收状态；它只回答当前帧有多少
-/// 显式绑定窗口真正持有当前`revision + layer`身份，供F3、严格烟雾和地图适配器观察。
+/// 显式绑定窗口真正持有当前`revision + layer`身份，供F3、严格烟雾和场景适配器观察。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct VegetationBladeAdoptionStatus {
     phase: VegetationBladeAdoptionPhase, // 当前可见窗口采用阶段。
@@ -75,7 +75,7 @@ pub(super) fn sync_blade_adoption_status(
     active: Res<ActiveVegetationLayout>, // 只接受当前原子发布的活动版本。
     cache: Res<VegetationBladeDensityCache>, // 当前版本拒绝记录用于解释为何继续托底。
     coordinator: Res<VegetationGpuMipCoordinator>, // 当前批次存在时报告逐字节校验中。
-    cpu_build: Res<VegetationBladeDensityCpuBuild>, // 大地图候选登记Assets前也报告验证中。
+    cpu_build: Res<VegetationBladeDensityCpuBuild>, // 大场景候选登记Assets前也报告验证中。
     windows: Query<(
         &VegetationBladeLayer,                  // 读取窗口要求的正式层身份。
         Option<&VegetationBladeLayoutRevision>, // 读取后端真正写入的版本与层身份。

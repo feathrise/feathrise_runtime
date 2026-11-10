@@ -1,4 +1,4 @@
-//! 有界资产通知日志：子地图轮转调度不会受Bevy两帧消息保留期影响，也不伪造GPU资产事件。
+//! 有界资产通知日志：子场景轮转调度不会受Bevy两帧消息保留期影响，也不伪造GPU资产事件。
 
 use bevy::{asset::AssetId, prelude::*};
 use std::collections::{BTreeMap, HashMap};

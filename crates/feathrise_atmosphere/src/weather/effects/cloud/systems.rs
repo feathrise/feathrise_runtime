@@ -1,6 +1,6 @@
 //! 动态云 ECS 生命周期：选择唯一视觉相机、跟随位置并原子更新共享材质参数。
 
-use bevy::camera::visibility::RenderLayers; // 天气专属层隔离小地图、菜单和辅助相机。
+use bevy::camera::visibility::RenderLayers; // 天气专属层隔离小场景、菜单和辅助相机。
 use bevy::ecs::system::SystemParam; // 收拢天气上下文、查询与可选资产资源。
 use bevy::light::{NotShadowCaster, NotShadowReceiver}; // 远景云不参与场景阴影图或接受地物阴影。
 use bevy::prelude::*; // Commands、Query、Assets 与基础组件类型。
@@ -44,7 +44,7 @@ type CloudCameraQueryData = (
     Option<&'static Camera>,                // 最小 ECS 测试允许省略真实 Camera。
     Has<WeatherPreviewCamera>,              // 区分 F12 作者相机与玩法主相机。
     Option<&'static Projection>,            // F12 正交测绘视图不显示局部远景云。
-    Option<&'static AuthoredSkyboxRequest>, // 地图模式声明随相机请求发布。
+    Option<&'static AuthoredSkyboxRequest>, // 场景模式声明随相机请求发布。
     Option<&'static AuthoredSkyboxStatus>,  // 主 Cube 真正采用后关闭动态云。
 );
 /// 相机和云实体显式互斥，满足 Transform 借用约束。
@@ -132,7 +132,7 @@ pub(crate) fn sync_weather_cloud_curtain(
         .iter()
         .find(|(_, camera, is_preview, projection, _, _)| {
             *is_preview == preview_active // F12 开关决定当前唯一云层锚点。
-                && camera.is_none_or(|camera| camera.is_active) // 排除切图期间已停用旧相机。
+                && camera.is_none_or(|camera| camera.is_active) // 排除切换场景期间已停用旧相机。
                 && supports_camera_local_weather(*is_preview, *projection) // 正交视图没有局部云穹。
         })
         .and_then(|(transform, _, _, _, request, status)| {
@@ -231,7 +231,7 @@ fn spawn_cloud_curtain(
         MeshMaterial3d(material),          // 绑定世界视线动态云材质。
         Transform::from_translation(position), // 首帧即以相机为中心，不产生平移视差。
         Visibility::Visible,               // 仅从 profile.visible 分支进入创建。
-        RenderLayers::layer(WEATHER_EFFECT_LAYER), // 菜单、小地图与角色预览不绘制。
+        RenderLayers::layer(WEATHER_EFFECT_LAYER), // 菜单、小场景与角色预览不绘制。
         NotShadowCaster,                   // 不进入方向光阴影图。
         NotShadowReceiver,                 // 远景云不接受场景几何阴影。
     ));

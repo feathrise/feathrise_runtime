@@ -7,21 +7,21 @@ use feathrise_scene_core::state::ScenePhase; // 公共生命周期只决定环�
 use crate::weather::constants::DEFAULT_TRANSITION_GAME_SECONDS; // 未指定时长的剧情命令使用二十五游戏分钟过渡。
 use crate::weather::messages::WeatherCommand; // 系统消费剧情、存档工具与 F12 发送的离散天气控制请求。
 use crate::weather::resources::{WeatherDebugOverride, WeatherOutput, WeatherState}; // 系统读写天气状态、覆盖和连续输出资源。
-use crate::{DynamicMapWeatherClimate, UNIFORM_CLIMATE_PROFILE, WeatherClimateProfile}; // 每张玩法地图显式提供气候配置，缺失配置时不自动推进。
+use crate::{DynamicSceneWeatherClimate, UNIFORM_CLIMATE_PROFILE, WeatherClimateProfile}; // 每张玩法场景显式提供气候配置，缺失配置时不自动推进。
 
 use super::output::resolved_weather_output; // 自然天气与唯一运行时调试覆盖由无ECS依赖纯函数完成。
 
 /// 将当前玩法场景同步为其显式登记的共享天气区域。
 pub(crate) fn sync_weather_region(
     scene: Option<Res<State<ScenePhase>>>, // 最小测试应用可能尚未安装游戏场景状态机。
-    dynamic_climate: Res<DynamicMapWeatherClimate>, // 动态地图必须等清单显式发布气候后再同步区域。
+    dynamic_climate: Res<DynamicSceneWeatherClimate>, // 动态场景必须等清单显式发布气候后再同步区域。
     mut weather: ResMut<WeatherState>,    // 只修改区域，不重置当前天气和过渡进度。
 ) {
     let Some(scene) = scene else {
         return; // 没有场景状态时保留快照或默认天气区域，便于独立测试和工具使用。
     }; // 结束可选场景资源判断。
     if let Some(climate) = climate_profile_for_scene(Some(&scene), dynamic_climate.profile()) {
-        weather.set_region(climate.region()); // 当前所有地图保持中性全局天气连续性。
+        weather.set_region(climate.region()); // 当前所有场景保持中性全局天气连续性。
     } // 主菜单与加载场景不覆盖存档区域，避免进入玩法前丢失区域连续性。
 } // 结束天气区域同步系统。
 
@@ -29,12 +29,12 @@ pub(crate) fn sync_weather_region(
 pub(crate) fn handle_weather_commands(
     mut commands: MessageReader<WeatherCommand>, // 按消息写入顺序消费本帧全部天气请求。
     clock: Res<WorldClock>,                      // 立即切换和重抽需要当前月份与时刻。
-    scene: Option<Res<State<ScenePhase>>>,        // 重抽使用当前地图输入的气候配置。
-    dynamic_climate: Res<DynamicMapWeatherClimate>, // 动态地图重抽读取清单已经采用的局部气候。
+    scene: Option<Res<State<ScenePhase>>>,        // 重抽使用当前场景输入的气候配置。
+    dynamic_climate: Res<DynamicSceneWeatherClimate>, // 动态场景重抽读取清单已经采用的局部气候。
     mut weather: ResMut<WeatherState>,           // 过渡、立即切换、重抽和重设种子都修改自动状态。
     mut debug: ResMut<WeatherDebugOverride>,     // 清除覆盖消息只修改运行时强制模式。
 ) {
-    let climate = climate_profile_for_scene(scene.as_deref(), dynamic_climate.profile()); // 当前地图显式提供共享区域、季节权重与局部修正。
+    let climate = climate_profile_for_scene(scene.as_deref(), dynamic_climate.profile()); // 当前场景显式提供共享区域、季节权重与局部修正。
     for command in commands.read() {
         match *command {
             WeatherCommand::TransitionTo {
@@ -77,7 +77,7 @@ pub(crate) fn advance_weather_state(
     time: Res<Time<Virtual>>, // ESC、TAB、F1、F12 和 P 统一暂停该虚拟时间。
     clock: Res<WorldClock>,   // 状态推进读取本帧世界时间Advance后的月份和时刻。
     scene: Option<Res<State<ScenePhase>>>, // 主菜单与加载场景禁止自动天气推进。
-    dynamic_climate: Res<DynamicMapWeatherClimate>, // 动态地图只使用当前清单显式选择的气候。
+    dynamic_climate: Res<DynamicSceneWeatherClimate>, // 动态场景只使用当前清单显式选择的气候。
     mut weather: ResMut<WeatherState>, // 写入稳定剩余、过渡进度、目标与随机序号。
     mut debug: ResMut<WeatherDebugOverride>, // 游戏恢复推进时释放自动模式的 F12 手动过渡预览。
 ) {
@@ -86,10 +86,10 @@ pub(crate) fn advance_weather_state(
     } // 暂停期间保留手动预览，使滑块可在同一帧连续检查天气形成过程。
     let Some(climate) = climate_profile_for_scene(scene.as_deref(), dynamic_climate.profile())
     else {
-        return; // 主菜单、加载或未登记地图没有气候配置时关闭自动天气。
-    }; // 结束当前地图气候配置读取。
+        return; // 主菜单、加载或未登记场景没有气候配置时关闭自动天气。
+    }; // 结束当前场景气候配置读取。
     if !climate.automatic_weather() {
-        return; // 主菜单、加载场景和显式关闭自动天气的未来地图保留后台过程。
+        return; // 主菜单、加载场景和显式关闭自动天气的未来场景保留后台过程。
     } // 结束自动天气场景守卫。
     let hour = clock.hour_wrapped(); // 统一读取零至二十四小时并把24:00哨兵视为午夜。
     let game_seconds = if time.is_paused() {
@@ -101,7 +101,7 @@ pub(crate) fn advance_weather_state(
         game_seconds,  // 已感知暂停并乘世界时间倍率的游戏秒数。
         clock.month(), // 当前月份决定下一节点季节权重。
         hour,          // 当前时刻决定薄雾生成与散尽。
-        climate,       // 当前地图显式气候配置只影响下一次正常抽取。
+        climate,       // 当前场景显式气候配置只影响下一次正常抽取。
     ); // 推进自动天气状态机。
 } // 结束自动天气推进系统。
 
@@ -117,14 +117,14 @@ pub(crate) fn resolve_weather_output(
 /// 返回当前场景显式登记的天气气候配置。
 fn climate_profile_for_scene(
     scene: Option<&State<ScenePhase>>, // 正式运行按当前场景选择，独立测试允许缺少状态机。
-    dynamic_profile: Option<WeatherClimateProfile>, // 动态地图由当前受检清单提供显式区域与局部权重。
+    dynamic_profile: Option<WeatherClimateProfile>, // 动态场景由当前受检清单提供显式区域与局部权重。
 ) -> Option<WeatherClimateProfile> {
     match scene.map(State::get) {
         Some(ScenePhase::Active) => dynamic_profile, // 清单未就绪时停止推进，不再隐式继承硬编码气候。
         Some(ScenePhase::Idle | ScenePhase::Loading) => None, // 非玩法场景没有天气气候消费者。
         None => Some(UNIFORM_CLIMATE_PROFILE), // 独立工具没有场景状态时使用中性退路。
-    } // 返回完整显式配置；ScenePhase新增正式地图时穷尽匹配会要求同步登记。
-} // 结束地图气候配置查询。
+    } // 返回完整显式配置；ScenePhase新增正式场景时穷尽匹配会要求同步登记。
+} // 结束场景气候配置查询。
 
 #[cfg(test)] // ECS测试覆盖二十四倍推进、暂停守卫和消息即时切换。
 mod tests {
@@ -224,9 +224,9 @@ mod tests {
         ); // 恢复后画面重新使用状态机真实过渡进度。
     } // 结束自动预览恢复测试。
 
-    #[test] // 动态地图必须使用当前清单输入的气候，不能偷偷采用另一张地图配置。
+    #[test] // 动态场景必须使用当前清单输入的气候，不能偷偷采用另一个场景配置。
     fn dynamic_scene_requires_and_uses_manifest_climate() {
-        let scene = State::new(ScenePhase::Active); // 构造统一动态地图场景身份。
+        let scene = State::new(ScenePhase::Active); // 构造统一动态场景场景身份。
         assert_eq!(climate_profile_for_scene(Some(&scene), None), None,); // 清单尚未就绪时关闭自动推进，避免沿用上一张图局部倍率。
         let custom_climate = WeatherClimateProfile::new(
             crate::WeatherRegion::Global,
@@ -238,7 +238,7 @@ mod tests {
             climate_profile_for_scene(Some(&scene), Some(custom_climate)),
             Some(custom_climate),
         ); // 清单采用后保留完整输入配置。
-    } // 结束动态地图显式气候测试。
+    } // 结束动态场景显式气候测试。
 
     #[test] // ApplyImmediate消息必须同帧完成状态切换并更新连续输出。
     fn immediate_command_updates_state_and_output_in_same_frame() {

@@ -1,4 +1,4 @@
-//! 每视图预通道后处理；固定一次全屏绘制，不捕获或遍历地图对象。
+//! 每视图预通道后处理；固定一次全屏绘制，不捕获或遍历场景对象。
 use super::components::ShadingView;
 use bevy::{
     asset::{embedded_asset, load_embedded_asset},

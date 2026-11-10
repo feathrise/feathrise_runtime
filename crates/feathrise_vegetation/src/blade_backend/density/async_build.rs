@@ -2,7 +2,7 @@
 
 use bevy::prelude::Resource; // Task槽独立于GPU协调器和活动缓存。
 use bevy::tasks::futures::check_ready; // Update只探测完成状态而不等待CPU任务。
-use bevy::tasks::{AsyncComputeTaskPool, Task}; // 大地图候选准备跨帧离开主线程执行。
+use bevy::tasks::{AsyncComputeTaskPool, Task}; // 大场景候选准备跨帧离开主线程执行。
 
 use crate::{
     ActiveVegetationLayout, VegetationLayerId, VegetationLayoutCommit, VegetationLayoutState,
@@ -13,7 +13,7 @@ use super::systems::build::{
     BuiltBladeDensityBatch, PendingBladeDensityBatchBuild, build_pending_batch_cpu,
 }; // Task只执行不访问ECS或Assets的纯CPU阶段。
 
-const ASYNC_DENSITY_TILE_THRESHOLD: usize = 64; // 小夹具和小地图保持同步，整图与大地图局部换版进入后台。
+const ASYNC_DENSITY_TILE_THRESHOLD: usize = 64; // 小夹具和小场景保持同步，整图与大场景局部换版进入后台。
 
 /// 一个CPU候选任务不可混用的完整身份。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl VegetationBladeDensityCpuBuild {
         })
     }
 
-    /// 判断当前地图规模是否值得把候选CPU构建移出主线程。
+    /// 判断当前场景规模是否值得把候选CPU构建移出主线程。
     pub(super) fn should_start_async(active_tile_count: usize) -> bool {
         active_tile_count >= ASYNC_DENSITY_TILE_THRESHOLD
             && AsyncComputeTaskPool::try_get().is_some() // 逻辑单测无全局池时保持同步行为。

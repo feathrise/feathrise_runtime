@@ -27,7 +27,7 @@ pub(super) fn build_terrain_surface_report(
         // 所有首次失败和热更失败都可从同一行直接读出具体项。
         "地表材质 阶段 {:?} | 代次 {} | 失败 {:?} | 纹理组 就绪/总数/等待/错误 {}/{}/{}/{} | PBR管线 就绪/等待/错误 {}/{}/{} | 承接 主世界/RenderApp {}/{} | Opaque排队 {} | 独立代理 0",
         stats.phase,             // 白模、加载、预热、活动或失败生命周期。
-        stats.generation,        // 当前地图代次用于排除迟到预热结果。
+        stats.generation,        // 当前场景代次用于排除迟到预热结果。
         stats.failure,           // 权重、基础色数组、ARM数组或Shader具体失败项。
         stats.texture_ready,     // 已经上传GpuImage的正式纹理数量。
         stats.texture_expected,  // HN-01固定为三，动态索引PBR地表为五。

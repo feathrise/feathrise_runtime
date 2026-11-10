@@ -39,7 +39,7 @@ fn main() {
 }
 ```
 
-正式场景、F3 与 F1 已改从 `vegetation::blade::GpuBlade*` 读取叶片 API；P5.3b真实地图
+正式场景、F3 与 F1 已改从 `vegetation::blade::GpuBlade*` 读取叶片 API；P5.3b真实场景
 画面复验通过后，旧 `environment::grass / GpuGrass*` 兼容入口已经退役。树木与景观的
 专项验收也已完成。P5.5已把旧景观和树木package的职责分别完整内收至
 `environment::{landscape, tree}`并删除两个旧package；树木与灌木共用的具体风材质也已上提至
@@ -47,4 +47,4 @@ fn main() {
 旧根恢复和树木RenderApp统计均保持不变。默认构建与Devtools仅叶片构建不会引入树木、景观、
 Grounding或Feronia；`mesh-wind`可独立编译，`tree`显式依赖它。新增内容继续使用`vegetation`的
 层、竞争、足迹和通用后端API。地形地表则统一使用`environment::terrain_surface`；它不读取、
-统计或拥有草、麦、树等植被密度，地图适配层只负责提供权重纹理、层参数和失败时的白模策略。
+统计或拥有草、麦、树等植被密度，场景适配层只负责提供权重纹理、层参数和失败时的白模策略。

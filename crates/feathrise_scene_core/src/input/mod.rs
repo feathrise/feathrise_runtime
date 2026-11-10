@@ -9,7 +9,7 @@ pub use types::*;
 use bevy::prelude::*;
 use crate::state::{ScenePhase, LoadingProgress, SceneStartupGate, scene_startup_ready};
 
-/// 玩家主动输入门；地图启动、驻留切换和碰撞空窗均保持原有安全门。
+/// 玩家主动输入门；场景启动、驻留切换和碰撞空窗均保持原有安全门。
 pub fn in_game_mode(
     gate: Res<InputGateState>,
     editor: Option<Res<EditorInputState>>,
@@ -20,7 +20,7 @@ pub fn in_game_mode(
     residency: Option<Res<crate::state::SceneResidencyActivity>>,
 ) -> bool {
     gate.input_allowed
-        && !editor.is_some_and(|editor| editor.map_editor_open)
+        && !editor.is_some_and(|editor| editor.scene_editor_open)
         && !world_pause.is_some_and(|blocks| blocks.blocks_world())
         && scene_startup_ready(startup_gate, scene_state, loading_progress, residency)
 }
@@ -36,7 +36,7 @@ pub fn world_active(
     residency: Option<Res<crate::state::SceneResidencyActivity>>,
 ) -> bool {
     gate.world_active
-        && !editor.is_some_and(|editor| editor.map_editor_open)
+        && !editor.is_some_and(|editor| editor.scene_editor_open)
         && !world_pause.is_some_and(|blocks| blocks.blocks_world())
         && scene_startup_ready(startup_gate, scene_state, loading_progress, residency)
 }

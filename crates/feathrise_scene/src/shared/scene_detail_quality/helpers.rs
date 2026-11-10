@@ -12,7 +12,7 @@ pub(super) fn scaled_margin(authored: &Range<f32>, multiplier: f32) -> Range<f32
 
 /// 从不可变作者范围派生目标档位，最远档的退出边界单独服从最大显示距离倍率。
 pub(super) fn visibility_range_for_quality(
-    authored: &VisibilityRange,  // 首次接管时保存的地图或原型原始范围。
+    authored: &VisibilityRange,  // 首次接管时保存的场景或原型原始范围。
     farthest_lod: bool,          // 树公告板、景观超低档或通用第 4 档才为 true。
     quality: SceneDetailQuality, // 当前持久场景细节档。
 ) -> VisibilityRange {

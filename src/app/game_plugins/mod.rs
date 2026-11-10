@@ -1,4 +1,4 @@
-//! 地图与渲染的公共装配；相机控制、角色、战斗和具体内容由应用另行安装。
+//! 场景与渲染的公共装配；相机控制、角色、战斗和具体内容由应用另行安装。
 
 mod billboard_camera;
 mod interaction;
@@ -14,7 +14,7 @@ pub use feathrise_settings::{StartupDisplayPreferences, StartupWindowPolicy};
 pub use feathrise_scene_core::state::{EditorStartup, ScenePhase};
 pub use interaction::WorldInteractionPlugin;
 
-/// 显式地图装配不创建玩家或原游戏内容；地图拥有视图生命周期，应用自行提供控制。
+/// 显式场景装配不创建玩家或原游戏内容；场景拥有视图生命周期，应用自行提供控制。
 pub struct SceneRuntimePlugin;
 impl Plugin for SceneRuntimePlugin {
     fn build(&self, app: &mut App) {

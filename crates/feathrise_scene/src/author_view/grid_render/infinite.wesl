@@ -1,4 +1,4 @@
-// 当前视图射线与工作平面解析求交；不依赖地图边界、有限窗口或实体深度。
+// 当前视图射线与工作平面解析求交；不依赖场景边界、有限窗口或实体深度。
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 import bevy_render::view::View;
 

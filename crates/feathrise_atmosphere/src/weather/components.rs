@@ -4,7 +4,7 @@ use bevy::{light::VolumetricFog, prelude::*}; // 体积雾作者状态与组件�
 
 /// 标记允许天气系统主动接管的作者预览相机。
 #[derive(Component, Clone, Copy, Debug, Default)]
-pub struct WeatherPreviewCamera; // F12显式安装该标记；普通菜单、小地图和角色预览仍不会收到玩法天气。
+pub struct WeatherPreviewCamera; // F12显式安装该标记；普通菜单、小场景和角色预览仍不会收到玩法天气。
 
 /// 保存玩法相机在天气体积雾首次接管前的作者组件。
 #[derive(Component, Clone, Copy, Debug)]

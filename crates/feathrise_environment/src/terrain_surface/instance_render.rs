@@ -1,4 +1,4 @@
-//! 子地图仅预热候选参与GPU证据聚合；主世界按实例实体与地表世代采用完整反馈。
+//! 子场景仅预热候选参与GPU证据聚合；主世界按实例实体与地表世代采用完整反馈。
 
 use bevy::{prelude::*, core_pipeline::{core_3d::Opaque3d, deferred::Opaque3dDeferred},
     pbr::{RenderMaterialInstances, SpecializedMaterialPipelineCache, SpecializedPrepassMaterialPipelineCache,

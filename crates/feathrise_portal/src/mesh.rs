@@ -68,7 +68,7 @@ pub fn build_portal_edge_beam_mesh(radius: f32, height: f32) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs); // 为标准材质管线提供连续UV布局。
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors); // StandardMaterial把顶点Alpha乘入最终透明度。
     mesh.insert_indices(Indices::U32(indices)); // 四圈三带均使用明确U32索引。
-    mesh // 返回后由启动资源登记一次并跨地图复用。
+    mesh // 返回后由启动资源登记一次并跨场景复用。
 }
 
 #[cfg(test)]

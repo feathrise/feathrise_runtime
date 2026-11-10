@@ -1,8 +1,8 @@
-//! 固定工具数量和语义数值校验；不访问资产、地图、实体或操作系统。
+//! 固定工具数量和语义数值校验；不访问资产、场景、实体或操作系统。
 
 use crate::*;
 
-// 空间线段笔刷原有10个固定盖印轮廓；16项预算保留完整原交互，不按地图规模扩张。
+// 空间线段笔刷原有10个固定盖印轮廓；16项预算保留完整原交互，不按场景规模扩张。
 pub const MAX_AUTHOR_BRUSHES: usize = 16;
 pub const MAX_AUTHOR_TRANSFORMS: usize = 8;
 pub const MAX_AUTHOR_SELECTIONS: usize = 256;
@@ -117,7 +117,7 @@ impl BrushPreview {
 
 impl ClipmapBrushSurface {
     fn valid(&self) -> bool {
-        identity(&self.map_id, 256)
+        identity(&self.scene_id, 256)
             && self.terrain_id.as_ref().is_none_or(|id| identity(id, 256))
             && identity(&self.height_path, 4096)
         // 作者高度初始修订可以为0；接收端按稳定来源及作者时钟映射自己的实际高度票据。

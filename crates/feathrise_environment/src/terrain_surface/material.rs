@@ -5,7 +5,7 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension}; // 复用StandardMaterial�
 use bevy::prelude::{Asset, Handle, Image, Vec2, Vec4}; // 材质描述符只保存固定参数和强图片句柄。
 use bevy::reflect::TypePath; // 自定义材质资产需要稳定运行时类型路径。
 use bevy::render::render_resource::{AsBindGroup, ShaderType}; // 自动建立固定uniform与纹理数组绑定。
-use bevy::render::storage::ShaderBuffer; // 动态地图用存储缓冲表达任意数量的局部地表层。
+use bevy::render::storage::ShaderBuffer; // 动态场景用存储缓冲表达任意数量的局部地表层。
 use bevy::shader::ShaderRef; // 前向和Deferred入口共用正文，但使用设备能力边界不同的内置句柄。
 
 use super::shaders::{TERRAIN_SURFACE_DEFERRED_SHADER_HANDLE, TERRAIN_SURFACE_SHADER_HANDLE}; // Deferred专用句柄只在源码首部增加primitive_index扩展声明。
@@ -14,7 +14,7 @@ use super::shaders::{TERRAIN_SURFACE_DEFERRED_SHADER_HANDLE, TERRAIN_SURFACE_SHA
 pub const MAX_TERRAIN_SURFACE_LAYERS: usize = 8; // 两张RGBA各提供四个线性权重通道。
 
 /// 一层地表的固定PBR与世界平铺参数。
-#[derive(Clone, Copy, Debug, PartialEq)] // 地图规格可在栈上构造固定八项并无分配传入材质。
+#[derive(Clone, Copy, Debug, PartialEq)] // 场景规格可在栈上构造固定八项并无分配传入材质。
 pub struct TerrainSurfaceLayer {
     pub base_color: Color, // 无纹理层直接使用该颜色；有纹理层用它乘基础色数组采样。
     pub perceptual_roughness: f32, // 无纹理层直接使用；有ARM层与数组绿色通道相乘。
@@ -72,27 +72,27 @@ impl Default for TerrainSurfaceLayer {
     } // 完成默认层构造。
 } // 完成默认实现。
 
-/// 地图层构造一份通用地表材质所需的完整固定描述。
+/// 场景层构造一份通用地表材质所需的完整固定描述。
 #[derive(Clone, Debug)] // 描述符只在创建或热更新材质时克隆，不进入逐帧热路径。
 pub struct TerrainSurfaceDescriptor {
     pub world_min: Vec2,                   // 权重纹理左下角对应的世界X/Z米制坐标。
     pub world_max: Vec2,                   // 权重纹理右上角对应的世界X/Z米制坐标。
     pub weight_maps: [Handle<Image>; 2],   // 第一张表达层零至三，第二张表达层四至七或内部零图。
-    pub weight_map_count: u32,             // HN-01为一；未来六至八层地图可设为二。
+    pub weight_map_count: u32,             // HN-01为一；未来六至八层场景可设为二。
     pub base_color_array: Handle<Image>,   // 所有纹理层共享的一张sRGB二维数组。
     pub arm_array: Handle<Image>,          // 所有纹理层共享的一张线性AO/粗糙度/金属度二维数组。
     pub normal_array: Handle<Image>,       // 旧固定层模式绑定中性数组，动态索引模式则读取真实法线。
     pub index_map: Handle<Image>,          // 旧模式绑定零索引回退，但不进行取样。
     pub layer_table: Handle<ShaderBuffer>, // 旧模式绑定中性表，以保持唯一管线布局。
     pub layers: [TerrainSurfaceLayer; MAX_TERRAIN_SURFACE_LAYERS], // 固定八层避免运行时动态uniform和管线变体。
-    pub layer_count: u32,                 // 当前地图实际使用的一至八层数量。
+    pub layer_count: u32,                 // 当前场景实际使用的一至八层数量。
     pub residual_layer: u32,              // 指定用一减显式通道和得到权重的默认地表层。
     pub grass_layer: u32,                 // 指定唯一应用低成本综合色与微法线的草土层。
     pub grass_micro_normal_strength: f32, // 草土微法线强度，零可完全关闭额外扰动。
     pub grass_variation_cell_meters: f32, // 世界稳定综合色噪声的米制格尺度。
-} // 完成通用地图描述符定义。
+} // 完成通用场景描述符定义。
 
-/// 动态地图四槽索引地表所需的完整绑定。
+/// 动态场景四槽索引地表所需的完整绑定。
 #[derive(Clone, Debug)]
 pub struct TerrainSurfaceIndexedDescriptor {
     pub world_min: Vec2,
@@ -115,7 +115,7 @@ struct TerrainSurfaceLayerUniform {
     pbr_and_texture: Vec4, // x粗糙度、y金属度、z平铺米数、w为切片编号加一或零。
 } // 完成单层GPU布局。
 
-/// 动态地图存储表的单层 GPU 镜像；三个 vec4 保持固定四十八字节步长。
+/// 动态场景存储表的单层 GPU 镜像；三个 vec4 保持固定四十八字节步长。
 #[repr(C)]
 #[derive(Clone, Copy, Debug, ShaderType, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TerrainSurfaceIndexedLayer {
@@ -127,13 +127,13 @@ pub struct TerrainSurfaceIndexedLayer {
 }
 
 /// 通用地表材质的固定GPU参数。
-#[derive(Clone, Copy, Debug, PartialEq, ShaderType)] // 固定数组避免每张地图产生不同绑定组布局。
+#[derive(Clone, Copy, Debug, PartialEq, ShaderType)] // 固定数组避免每个场景产生不同绑定组布局。
 struct TerrainSurfaceUniform {
     world_bounds: Vec4, // xy/zw分别为权重纹理世界X/Z最小与最大值。
     counts: Vec4,       // 旧路径的x层数、y权重图数、z残余层、w草土层；索引路径层数读取存储表长度。
     appearance: Vec4,   // x草土微法线强度、y噪声格米数、z为动态地形光追元数据开关，w保留扩展。
-    shading: Vec4,      // x为平直着色开关，y为子地图积水绑定，z为本来源遮罩启用；不增加材质变体。
-    volume_shading: Vec4, // x为体积三向投影，y为体积权重查表；与子地图积水开关独立。
+    shading: Vec4,      // x为平直着色开关，y为子场景积水绑定，z为本来源遮罩启用；不增加材质变体。
+    volume_shading: Vec4, // x为体积三向投影，y为体积权重查表；与子场景积水开关独立。
     source_to_world: bevy::math::Mat4,
     world_to_source: bevy::math::Mat4,
     layers: [TerrainSurfaceLayerUniform; MAX_TERRAIN_SURFACE_LAYERS], // 八层PBR与纹理切片固定表。
@@ -160,9 +160,9 @@ pub struct TerrainSurfaceExtension {
     #[sampler(110)]
     normal_array: Handle<Image>, // 线性切线空间法线数组。
     #[texture(111, sample_type = "u_int")]
-    index_map: Handle<Image>, // 四个 u32 地图局部层索引，只能使用 textureLoad。
+    index_map: Handle<Image>, // 四个 u32 场景局部层索引，只能使用 textureLoad。
     #[storage(112, read_only)]
-    layer_table: Handle<ShaderBuffer>, // 地图局部层到全局预设切片和 PBR 参数的当前快照。
+    layer_table: Handle<ShaderBuffer>, // 场景局部层到全局预设切片和 PBR 参数的当前快照。
     #[storage(113, read_only)]
     volume_lookup: Handle<ShaderBuffer>, // 三维稳定ID解析表；旧路径不开启查询。
     #[storage(114, read_only)]
@@ -179,7 +179,7 @@ pub struct TerrainSurfaceExtension {
 } // 完成材质绑定定义。
 
 impl TerrainSurfaceExtension {
-    /// 实例变换只更新小参数，作者纹理和地表图集始终使用源地图坐标。
+    /// 实例变换只更新小参数，作者纹理和地表图集始终使用源场景坐标。
     pub fn set_source_frame(&mut self, source_to_world: bevy::math::Mat4) -> bool {
         if self.params.source_to_world == source_to_world { return false; }
         self.params.source_to_world = source_to_world;
@@ -190,7 +190,7 @@ impl TerrainSurfaceExtension {
 
     /// 只叠加雨天湿润，完整保留Blender原有StandardMaterial颜色、纹理、法线和PBR。
     pub fn new_passthrough(fallback: &super::resources::TerrainSurfaceFallbackImages) -> Self {
-        // 旧地图无需伪造地表作者层。
+        // 旧场景无需伪造地表作者层。
         Self {
             // 全部未使用纹理仍绑定合法中性资产，不增加加载任务。
             params: TerrainSurfaceUniform {
@@ -218,12 +218,12 @@ impl TerrainSurfaceExtension {
             volume_fields: fallback.neutral_layer_table.clone(),
             volume_origin_step: Vec4::ZERO,
             puddle_mask: None, // HN02没有作者积水遮罩时只表现湿润，禁止伪造水坑。
-            surface_weather: super::weather::surface_weather_buffer_handle(), // 与河湖及动态地图使用同源天气。
+            surface_weather: super::weather::surface_weather_buffer_handle(), // 与河湖及动态场景使用同源天气。
             rain_shelter: crate::rain_shelter::rain_shelter_buffer_handle(), // 默认材质持有完整空代理回退。
         } // 返回保留原材质的合法扩展。
-    } // 结束旧地图雨天接入构造。
-    // 地图层通过描述符一次性创建完整扩展。
-    /// 把公开地图描述符转换为固定GPU布局和四张绑定纹理。
+    } // 结束旧场景雨天接入构造。
+    // 场景层通过描述符一次性创建完整扩展。
+    /// 把公开场景描述符转换为固定GPU布局和四张绑定纹理。
     pub fn new(descriptor: TerrainSurfaceDescriptor) -> Self {
         // 创建与热更新共用同一确定性转换。
         let mut layers = [TerrainSurfaceLayerUniform {
@@ -293,13 +293,13 @@ impl TerrainSurfaceExtension {
             volume_fields: descriptor.layer_table.clone(),
             volume_origin_step: Vec4::ZERO,
             layer_table: descriptor.layer_table, // 旧模式不读取中性表。
-            puddle_mask: None,                   // 由完整地图/作者遮罩资源统一接入，旧图没有积水。
+            puddle_mask: None,                   // 由完整场景/作者遮罩资源统一接入，旧图没有积水。
             surface_weather: super::weather::surface_weather_buffer_handle(), // 固定缓冲兼容新建和热更新材质。
             rain_shelter: crate::rain_shelter::rain_shelter_buffer_handle(), // 热更新继续共用当前遮雨范围。
         } // 返回可直接加入Assets的扩展。
     } // 完成描述符转换。
 
-    /// 构造每像素四槽、地图层数不固定的 PBR 地表扩展。
+    /// 构造每像素四槽、场景层数不固定的 PBR 地表扩展。
     pub fn new_indexed(descriptor: TerrainSurfaceIndexedDescriptor) -> Self {
         let layers = [TerrainSurfaceLayerUniform {
             base_color: Vec4::ONE,
@@ -318,7 +318,7 @@ impl TerrainSurfaceExtension {
                 counts: Vec4::new(descriptor.layer_count as f32, 1.0, 0.0, 0.0), // 零层保留为空作者地表，Shader不会读取哨兵或全局纹理。
                 appearance: Vec4::new(0.0, 1.0, 0.0, 1.0), // w=1 启用索引+存储表路径。
                 shading: Vec4::ZERO,
-                volume_shading: Vec4::ZERO,                       // 动态地图同样从正式平滑法线开始。
+                volume_shading: Vec4::ZERO,                       // 动态场景同样从正式平滑法线开始。
                 layers,
             },
             weight_map_0: descriptor.weight_map,
@@ -351,12 +351,12 @@ impl TerrainSurfaceExtension {
     /// 切换当前地形片元使用作者平滑法线还是逐三角形几何法线。
     pub fn set_flat_shading(&mut self, enabled: bool) {
         self.params.shading.x = if enabled { 1.0 } else { 0.0 }; // 精确布尔编码让Shader使用稳定阈值，不产生管线变体。
-    } // 完成大地图着色模式写入。
+    } // 完成大场景着色模式写入。
 
     /// 返回当前材质是否请求逐三角形平直着色。
     pub fn flat_shading_enabled(&self) -> bool {
         self.params.shading.x > 0.5 // 只读取F1专用分量，不耦合地表模式或光追元数据。
-    } // 完成大地图着色模式读取。
+    } // 完成大场景着色模式读取。
 
     /// 体积接管面沿用地表涂绘；仅陡壁自动三向投影，朝上的缓坡保持原预设投影。
     pub fn set_volume_projection(&mut self, enabled: bool) {
@@ -402,7 +402,7 @@ impl TerrainSurfaceExtension {
     pub fn set_source_puddle_mask(&mut self, image: Option<Handle<Image>>, bounds: Vec4) {
         self.params.shading.y = 1.0; self.params.shading.z = if image.is_some() { 1.0 } else { 0.0 };
         self.params.world_bounds = bounds; // 直通GLB没有作者地表层，也必须登记该源图真实遮罩范围。
-        self.puddle_mask = image; // 子地图自己的遮罩与源范围不会被父图天气的全局换版覆盖。
+        self.puddle_mask = image; // 子场景自己的遮罩与源范围不会被父图天气的全局换版覆盖。
     }
 } // 完成地表扩展构造接口。
 
@@ -421,7 +421,7 @@ impl MaterialExtension for TerrainSurfaceExtension {
 
 /// 白模StandardMaterial加通用地表权重扩展后的完整Bevy材质类型。
 pub type TerrainSurfaceMaterial =
-    ExtendedMaterial<bevy::pbr::StandardMaterial, TerrainSurfaceExtension>; // 地图层只创建一个资产并原子接管唯一地形primitive。
+    ExtendedMaterial<bevy::pbr::StandardMaterial, TerrainSurfaceExtension>; // 场景层只创建一个资产并原子接管唯一地形primitive。
 
 #[cfg(test)] // 固定GPU布局和描述符钳制逻辑由纯CPU测试锁定。
 mod tests {
@@ -486,7 +486,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("动态索引地表WGSL语义错误：{error}"));
     }
 
-    #[test] // 八层uniform大小必须保持WebGPU对齐且不会随地图内容变化。
+    #[test] // 八层uniform大小必须保持WebGPU对齐且不会随场景内容变化。
     fn terrain_surface_uniform_keeps_fixed_layout() {
         // 防止新增字段无意改变WGSL数组步长。
         assert_eq!(std::mem::size_of::<TerrainSurfaceLayerUniform>(), 32); // 每层固定两个vec4。
@@ -519,7 +519,7 @@ mod tests {
         assert!(extension.volume_projection_enabled()); // F12平滑/平直切换不能撤掉体积洞壁投影。
         extension.set_volume_projection(false);
         assert!(!extension.volume_projection_enabled());
-        assert!(!extension.follows_global_puddle_mask()); // 关闭体积投影不能撤掉子地图独立积水。
+        assert!(!extension.follows_global_puddle_mask()); // 关闭体积投影不能撤掉子场景独立积水。
     } // 完成地表平滑/平直着色参数回归。
 
     #[test] // 会话开关必须只复用既有uniform保留槽，不能改变绑定布局或作者描述符。
@@ -545,7 +545,7 @@ mod tests {
             grass_variation_cell_meters: 1.0, // 保持合法世界尺度。
         }); // 完成测试扩展构造。
         assert_eq!(extension.params.appearance.z, 0.0); // 作者材质默认不占用GBuffer发光通道或自定义flags。
-        extension.set_dynamic_terrain_shadow_terminator_data(true); // 模拟动态地图Solari会话副本接管。
+        extension.set_dynamic_terrain_shadow_terminator_data(true); // 模拟动态场景Solari会话副本接管。
         assert_eq!(extension.params.appearance.z, 1.0); // 开启值必须精确越过Shader阈值。
         extension.set_dynamic_terrain_shadow_terminator_data(false); // 模拟会话回退或复用接口关闭。
         assert_eq!(extension.params.appearance.z, 0.0); // 关闭值必须精确恢复默认编码。

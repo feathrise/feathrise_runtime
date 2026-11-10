@@ -10,7 +10,7 @@ use crate::types::SourceCandidate; // 构造当前候选槽以验证完整迟到
 
 fn test_identity() -> AdaptationIdentity {
     AdaptationIdentity {
-        generation: 1,                      // 固定测试地图代次。
+        generation: 1,                      // 固定测试场景代次。
         root: Entity::PLACEHOLDER,          // 测试不访问真实ECS根。
         source_entity: Entity::PLACEHOLDER, // 测试不访问真实源实体。
         source_mesh: Default::default(),    // 默认AssetId足以验证纯捕获逻辑。
@@ -38,14 +38,14 @@ fn indexed_mesh(vertex_count: usize) -> Mesh {
     mesh
 }
 
-/// 构造一项仍属于当前地图代次、源修订和任务票据的固定候选。
+/// 构造一项仍属于当前场景代次、源修订和任务票据的固定候选。
 fn runtime_with_current_candidate() -> (RaytracingRuntime, AdaptationIdentity, AssetId<Mesh>) {
     let root = Entity::from_raw_u32(1).expect("测试根实体索引合法"); // 固定当前目标根。
     let source_entity = Entity::from_raw_u32(2).expect("测试源实体索引合法"); // 固定源primitive。
     let source_mesh = Handle::<Mesh>::default(); // 默认强句柄足以验证纯身份逻辑。
     let source_mesh_id = source_mesh.id(); // 冻结源Mesh AssetId。
     let identity = AdaptationIdentity {
-        generation: 7,               // 当前地图代次。
+        generation: 7,               // 当前场景代次。
         root,                        // 当前目标根。
         source_entity,               // 当前源primitive。
         source_mesh: source_mesh_id, // 当前源Mesh AssetId。
@@ -54,7 +54,7 @@ fn runtime_with_current_candidate() -> (RaytracingRuntime, AdaptationIdentity, A
         contract_index: 0,           // 首个固定契约槽。
     };
     let mut runtime = RaytracingRuntime {
-        generation: identity.generation, // 对齐当前地图代次。
+        generation: identity.generation, // 对齐当前场景代次。
         root: Some(root),                // 发布当前目标根。
         ..Default::default()             // 从无会话状态开始构造测试事务。
     };

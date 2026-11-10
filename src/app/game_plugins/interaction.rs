@@ -32,7 +32,7 @@ fn apply_simulation_pause(
     mut virtual_time: ResMut<Time<Virtual>>,
 ) {
     // 输入许可与模拟时间是不同事实；对话禁输入但不暂停的原应用语义由发布者决定。
-    if input.time_paused || editor.map_editor_open || blockers.blocks_world() {
+    if input.time_paused || editor.scene_editor_open || blockers.blocks_world() {
         physics.pause();
         virtual_time.pause();
     } else {

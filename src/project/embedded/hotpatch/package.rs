@@ -104,8 +104,8 @@ pub(super) fn verify(
 }
 
 pub(super) fn current(request: &Request, stop: &AtomicBool, generation: &AtomicU64) -> Result<(), String> {
-    if stop.load(Ordering::Acquire) || generation.load(Ordering::Acquire) != request.map_generation {
-        return Err("代码补丁采用前会话已停止或地图代次已变化".into());
+    if stop.load(Ordering::Acquire) || generation.load(Ordering::Acquire) != request.scene_generation {
+        return Err("代码补丁采用前会话已停止或场景代次已变化".into());
     }
     Ok(())
 }
@@ -197,7 +197,7 @@ mod tests {
     fn package_target_requires_every_actual_runtime_and_source_identity() {
         let request = Request { patch_id: 1, source_generation: 2, base_build: "a".repeat(64),
             artifact: "p.json".into(), sha256: "b".repeat(64), project_id: "fixture".into(), session: 3,
-            map_generation: 4, pid: 5, world_id: u64::MAX, aslr_reference: 6 };
+            scene_generation: 4, pid: 5, world_id: u64::MAX, aslr_reference: 6 };
         let mut target = Target { project_id: request.project_id.clone(), session: 3, pid: 5,
             world_id: u64::MAX, base_build: request.base_build.clone(), source_generation: 2, patch_id: 1 };
         assert!(target.matches(&request));
@@ -215,7 +215,7 @@ mod tests {
         fs::write(&library,b"owned-dll-fixture").unwrap();
         let mut request = Request { patch_id: 7, source_generation: 11, base_build: "a".repeat(64),
             artifact: "package.json".into(), sha256: String::new(), project_id: "owned-fixture".into(),
-            session: 13, map_generation: 17, pid: std::process::id(), world_id: 19, aslr_reference: 23 };
+            session: 13, scene_generation: 17, pid: std::process::id(), world_id: 19, aslr_reference: 23 };
         let package = serde_json::to_vec(&serde_json::json!({"schema":1,"target":{
             "project_id":request.project_id,"session":request.session,"pid":request.pid,
             "world_id":request.world_id,"base_build":request.base_build,

@@ -7,13 +7,13 @@ use bevy::prelude::{Assets, FromWorld, Handle, Image, Resource, World}; // 回�
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat}; // 构造一乘一线性RGBA零纹理。
 use bevy::render::storage::ShaderBuffer; // 旧固定层管线需绑定一项中性动态层表。
 
-use super::material::TerrainSurfaceIndexedLayer; // 回退存储表与正式动态地图使用同一 GPU 布局。
+use super::material::TerrainSurfaceIndexedLayer; // 回退存储表与正式动态场景使用同一 GPU 布局。
 
-/// 所有单权重图地图共用的内部零纹理。
-#[derive(Resource, Clone, Debug)] // 地图描述符只克隆强句柄，不额外加载磁盘资产。
+/// 所有单权重图场景共用的内部零纹理。
+#[derive(Resource, Clone, Debug)] // 场景描述符只克隆强句柄，不额外加载磁盘资产。
 pub struct TerrainSurfaceFallbackImages {
     pub zero_weight: Handle<Image>, // 第二RGBA槽未使用时绑定合法的一乘一全零图片。
-    pub white_base_color_array: Handle<Image>, // 无纹理地图仍需绑定合法二维数组。
+    pub white_base_color_array: Handle<Image>, // 无纹理场景仍需绑定合法二维数组。
     pub neutral_arm_array: Handle<Image>, // AO一、粗糙度一、金属度零的二维数组。
     pub neutral_normal_array: Handle<Image>, // 切线空间 (0,0,1) 中性法线。
     pub zero_index: Handle<Image>,  // 一乘一 RGBA32_UINT 零索引回退。
@@ -109,15 +109,15 @@ impl FromWorld for TerrainSurfaceFallbackImages {
             neutral_normal_array,
             zero_index,
             neutral_layer_table,
-        } // 发布给所有地图适配器复用同一句柄。
+        } // 发布给所有场景适配器复用同一句柄。
     } // 完成回退资源初始化。
 } // 完成FromWorld实现。
 
-/// 当前地图地表从白模到正式材质的明确生命周期阶段。
+/// 当前场景地表从白模到正式材质的明确生命周期阶段。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)] // 值类型便于F3读取和状态机单元测试。
 pub enum TerrainSurfacePhase {
     #[default]
-    Inactive, // 当前地图没有启用通用权重地表。
+    Inactive, // 当前场景没有启用通用权重地表。
     White,   // 白模已经出现但尚未发起正式纹理加载。
     Loading, // 当前模式的完整纹理组正在由AssetServer异步加载或上传。
     Warming, // 纹理已加载，离屏同网格实体正在等待PBR管线和Forward/Deferred实际排队证据。
@@ -131,20 +131,20 @@ pub enum TerrainSurfaceFailure {
     #[default]
     None, // 当前没有已经确认的失败。
     WeightMap,      // 一张正式RGBA权重图缺失、损坏或依赖失败。
-    IndexMap,       // 动态地图 RGBA32_UINT 局部索引图失败。
+    IndexMap,       // 动态场景 RGBA32_UINT 局部索引图失败。
     BaseColorArray, // 正式sRGB基础色二维数组缺失、损坏或依赖失败。
     NormalArray,    // 正式线性法线二维数组失败。
     ArmArray,       // 正式线性ARM二维数组缺失、损坏或依赖失败。
     ShaderPipeline, // WGSL编译或GPU管线创建已经明确失败。
-    Definition,     // 地图地表JSON版本、层参数或资源路径无效。
+    Definition,     // 场景地表JSON版本、层参数或资源路径无效。
 } // 完成失败项枚举。
 
 /// 主世界读取的上一完整RenderApp帧地表快照。
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)] // 固定小值可无分配覆盖并供测试直接比较。
 pub struct TerrainSurfaceRenderStats {
-    pub phase: TerrainSurfacePhase, // 地图生命周期系统发布的当前白模、等待、活动或失败阶段。
+    pub phase: TerrainSurfacePhase, // 场景生命周期系统发布的当前白模、等待、活动或失败阶段。
     pub failure: TerrainSurfaceFailure, // Failed阶段对应的具体纹理或Shader项。
-    pub generation: u32,            // 每次进入地图或重新加载正式纹理时递增，迟到证据不得跨代采用。
+    pub generation: u32,            // 每次进入场景或重新加载正式纹理时递增，迟到证据不得跨代采用。
     pub texture_ready: u32,         // 完整纹理组中已经存在于RenderAssets<GpuImage>的数量。
     pub texture_expected: u32,      // 当前唯一探针声明的完整纹理数。
     pub texture_waiting: u32,       // 尚未上传但没有明确失败的纹理数量。
@@ -154,15 +154,15 @@ pub struct TerrainSurfaceRenderStats {
     pub pipeline_waiting: u32,      // 材质尚未提取、专用化或管线仍在创建时为一。
     pub pipeline_error: u32,        // 任一WGSL编译或设备创建失败时为一。
     pub phase_queued: u32,          // 全部承接实体已进入自身当前视图的Forward或Deferred表面分箱时为一。
-} // 完成F3与地图预热共享的地表快照。
+} // 完成F3与场景预热共享的地表快照。
 
-/// 上一完整渲染帧的子地图候选反馈；数量由宿主准备席位约束，不按活动地图全量扫描。
+/// 上一完整渲染帧的子场景候选反馈；数量由宿主准备席位约束，不按活动场景全量扫描。
 #[derive(Resource, Default)]
 pub struct TerrainSurfaceInstanceFeedback(pub Vec<(bevy::prelude::Entity, TerrainSurfaceRenderStats)>);
 
 impl TerrainSurfaceRenderStats {
-    // 地图生命周期只修改主世界字段，不触碰RenderApp证据。
-    /// 发布新的地图代次和生命周期阶段。
+    // 场景生命周期只修改主世界字段，不触碰RenderApp证据。
+    /// 发布新的场景代次和生命周期阶段。
     pub fn begin_generation(&mut self) {
         // 每次首次加载或显式热更新都开始新代次。
         self.generation = self.generation.wrapping_add(1).max(1); // 零保留未启用语义，回绕后重新从一开始。
@@ -172,7 +172,7 @@ impl TerrainSurfaceRenderStats {
 
     /// 只切换生命周期阶段，保留上一完整RenderApp证据供诊断解释。
     pub fn set_phase(&mut self, phase: TerrainSurfacePhase) {
-        // 地图系统在主线程状态边界调用。
+        // 场景系统在主线程状态边界调用。
         self.phase = phase; // 固定枚举写入不会触发任何资产或渲染工作。
         if phase != TerrainSurfacePhase::Failed {
             // 离开失败态必须清除上一个修订的原因。
@@ -182,7 +182,7 @@ impl TerrainSurfaceRenderStats {
 
     /// 发布当前修订已经确认的具体失败项。
     pub fn set_failure(&mut self, failure: TerrainSurfaceFailure) {
-        // 地图层在恢复白模后调用。
+        // 场景层在恢复白模后调用。
         self.phase = TerrainSurfacePhase::Failed; // 失败原因与生命周期阶段原子一致。
         self.failure = failure; // 保存无需分配的具体失败身份。
     } // 完成失败状态发布。
@@ -190,7 +190,7 @@ impl TerrainSurfaceRenderStats {
     /// 清空离图状态和全部上一帧证据。
     pub fn clear(&mut self) {
         // HN-01离场时恢复全局未启用快照。
-        *self = Self::default(); // 一次覆盖所有固定字段，避免漏清旧地图证据。
+        *self = Self::default(); // 一次覆盖所有固定字段，避免漏清旧场景证据。
     } // 完成快照清理。
 } // 完成主世界快照接口。
 
@@ -277,13 +277,13 @@ impl TerrainSurfaceRenderFrameCounters {
 
     /// 在下一帧ExtractSchedule开始时取走并清零上一完整渲染帧。
     pub(super) fn snapshot_and_reset(&self) -> TerrainSurfaceRenderStats {
-        // 返回不含地图生命周期字段的渲染快照。
+        // 返回不含场景生命周期字段的渲染快照。
         let take = |counter: &AtomicU32| counter.swap(0, Ordering::Relaxed); // 每个字段在同一明确帧边界原子取走。
         TerrainSurfaceRenderStats {
             // 把内部计数映射为主世界公开字段。
             phase: TerrainSurfacePhase::Inactive, // 发布系统会保留主世界当前生命周期阶段。
             failure: TerrainSurfaceFailure::None, // 发布系统会保留主世界当前失败原因。
-            generation: 0,                        // 发布系统会保留主世界当前地图代次。
+            generation: 0,                        // 发布系统会保留主世界当前场景代次。
             texture_ready: take(&self.texture_ready), // 发布已上传纹理数并归零。
             texture_expected: take(&self.texture_expected), // 发布期望纹理数并归零。
             texture_waiting: take(&self.texture_waiting), // 发布等待纹理数并归零。

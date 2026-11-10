@@ -4,7 +4,7 @@ use crate::constants::{
 }; // 正式路径按候选实际派生字节执行同一停止线。
 
 #[test]
-fn dynamic_budget_accepts_small_map_and_rejects_oversized_terrain() {
+fn dynamic_budget_accepts_small_scene_and_rejects_oversized_terrain() {
     let small = RaytracingBudgetSnapshot {
         instances: DYNAMIC_EXPECTED_INSTANCE_COUNT,
         vertices: 4_225,

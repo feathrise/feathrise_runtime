@@ -1,4 +1,4 @@
-//! 本轮补丁请求与包身份；源码代次、地图代次和运行代次保持独立。
+//! 本轮补丁请求与包身份；源码代次、场景代次和运行代次保持独立。
 use feathrise_editor_protocol::Message;
 use serde::Deserialize;
 
@@ -11,7 +11,7 @@ pub(super) struct Request {
     pub sha256: String,
     pub project_id: String,
     pub session: u64,
-    pub map_generation: u64,
+    pub scene_generation: u64,
     pub pid: u32,
     pub world_id: u64,
     pub aslr_reference: u64,

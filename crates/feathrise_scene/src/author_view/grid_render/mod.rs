@@ -106,7 +106,7 @@ fn queue_grid(
         }
         // Bevy 0.19的AlwaysOnTop键是负无穷，IndexMap::sort_by_key稳定保留同键插入顺序。
         // 本系统严格早于Gizmo排队，因此网格先画，随后才画选中高亮、落点十字和变换手柄。
-        // 复用相机身份，每个作者视图只追加一个临时项，不新增地图实体、网格或逐线编码。
+        // 复用相机身份，每个作者视图只追加一个临时项，不新增场景实体、网格或逐线编码。
         phase.add_transient(Transparent3d {
             sorting_info: TransparentSortingInfo3d::AlwaysOnTop,
             distance: f32::NEG_INFINITY,
@@ -158,7 +158,7 @@ fn prepare_grid_bindings(
     for (entity, installed) in &cameras {
         if installed.is_some_and(|installed| installed.buffers == key) { continue; }
         commands.entity(entity).insert(GridBindGroup { buffers: key, binding: bindings.entries[slot].1.clone() });
-    } // 缓冲换代才替换小型绑定组件；缓存最多8项，与地图、可见线条和像素数无关。
+    } // 缓冲换代才替换小型绑定组件；缓存最多8项，与场景、可见线条和像素数无关。
 }
 
 struct DrawGrid;

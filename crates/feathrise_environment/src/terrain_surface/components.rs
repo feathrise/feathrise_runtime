@@ -7,7 +7,7 @@ use bevy::render::sync_component::SyncComponent; // Bevy 0.19提取插件要求�
 
 use super::material::TerrainSurfaceMaterial; // 主世界材质仲裁必须使用完整扩展材质类型身份。
 
-/// 子地图的渲染证据不能混入父图；实体地址与地表世代共同拒绝迟到反馈。
+/// 子场景的渲染证据不能混入父图；实体地址与地表世代共同拒绝迟到反馈。
 #[derive(Component, Clone, Copy, Debug, ExtractComponent)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct TerrainSurfaceInstanceScope { pub instance: bevy::prelude::Entity, pub generation: u32 }
@@ -21,7 +21,7 @@ pub struct TerrainSurfaceInstanceWarmup;
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)] // 零尺寸标记可直接跨世界复制。
 pub struct TerrainSurfaceCarrier; // RenderApp只观察显式承接实体，不扫描所有PBR网格。
 
-/// 仅用于材质管线准备的离屏副本；有Mesh/AABB也不属于可取景、可编辑的地图内容。
+/// 仅用于材质管线准备的离屏副本；有Mesh/AABB也不属于可取景、可编辑的场景内容。
 #[derive(Component, Clone, Copy, Debug, Default, ExtractComponent)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct TerrainSurfaceWarmup;
@@ -49,12 +49,12 @@ impl SyncComponent<bevy::render::RenderApp> for TerrainSurfaceCarrier {
 
 /// 记录一个运行时系统对正式地表材质的精确临时替代。
 ///
-/// 【功能设计】动态地图仍拥有 `source` 对应的作者地表；Solari 等运行时系统只能在同一实体上
-/// 临时安装 `installed`。地图稳定核对仅在两个带代次 AssetId 同时匹配时保留替代，避免双方逐帧
-/// 抢写 `MeshMaterial3d`；租约撤销、资产回收或实体换代后则立即恢复地图自己的正式材质。
+/// 【功能设计】动态场景仍拥有 `source` 对应的作者地表；Solari 等运行时系统只能在同一实体上
+/// 临时安装 `installed`。场景稳定核对仅在两个带代次 AssetId 同时匹配时保留替代，避免双方逐帧
+/// 抢写 `MeshMaterial3d`；租约撤销、资产回收或实体换代后则立即恢复场景自己的正式材质。
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerrainSurfaceMaterialOverride {
-    source: AssetId<TerrainSurfaceMaterial>, // 地图适配器当前持有的正式作者材质。
+    source: AssetId<TerrainSurfaceMaterial>, // 场景适配器当前持有的正式作者材质。
     installed: AssetId<TerrainSurfaceMaterial>, // 租约所有者实际安装到实体的会话材质。
 }
 
@@ -83,12 +83,12 @@ impl TerrainSurfaceMaterialOverride {
 /// 同步当前模式完整运行时纹理组的 GPU 上传状态；探针不参与绘制。
 #[derive(Component, Clone, Debug)] // 旧固定层为三张，动态索引 PBR 为五张，不分拆版本证据。
 pub struct TerrainSurfaceTextureProbe {
-    pub(super) images: Vec<Handle<Image>>, // 顺序由地图适配器冻结，RenderApp 只核对全部句柄。
+    pub(super) images: Vec<Handle<Image>>, // 顺序由场景适配器冻结，RenderApp 只核对全部句柄。
     pub(super) failed: bool,               // 任一根资产或依赖明确失败时整体置位。
 } // 完成纹理探针数据定义。
 
 impl TerrainSurfaceTextureProbe {
-    // 地图层只通过具名构造器发布完整或失败状态。
+    // 场景层只通过具名构造器发布完整或失败状态。
     /// 为已经发起异步加载的完整纹理组创建等待探针。
     pub fn new(images: impl IntoIterator<Item = Handle<Image>>) -> Self {
         Self {

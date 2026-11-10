@@ -105,7 +105,7 @@ pub struct GpuBladeProfiles {
 impl Default for GpuBladeProfiles {
     fn default() -> Self {
         Self {
-            profiles: [GpuBladeProfile::DEFAULT; GPU_GRASS_PROFILE_CAPACITY], // 四槽默认无地图语义并共享中性安全外观。
+            profiles: [GpuBladeProfile::DEFAULT; GPU_GRASS_PROFILE_CAPACITY], // 四槽默认无场景语义并共享中性安全外观。
         }
     }
 }
@@ -167,7 +167,7 @@ pub struct GpuBladeProfileBanks {
     banks: Vec<GpuBladeProfileBank>, // 数量由实际开发者预设派生，不设置产品硬上限。
     free: std::collections::BTreeSet<usize>, // 复用空槽而不移动其他根仍在使用的ID。
     references: Vec<usize>, // 室外草窗与三维继承根独立持有；最后一个根退役才回收槽位。
-    epoch: std::sync::Arc<()>, // 整目录重置或地图驻留交换后，旧根不能归还另一来源的同号槽。
+    epoch: std::sync::Arc<()>, // 整目录重置或场景驻留交换后，旧根不能归还另一来源的同号槽。
 }
 
 impl GpuBladeProfileBanks {
@@ -180,7 +180,7 @@ impl GpuBladeProfileBanks {
 
     /// 清除全部数据驱动批次；既有批次零仍由兼容资源继续提供。
     pub fn clear(&mut self) {
-        self.banks.clear(); // 离开动态地图时释放目录持有的全部纹理强句柄。
+        self.banks.clear(); // 离开动态场景时释放目录持有的全部纹理强句柄。
         self.references.clear();
         self.free.clear(); self.epoch = std::sync::Arc::new(());
     }
