@@ -40,7 +40,7 @@ pub(super) struct HeightSources {
 pub(super) fn next_height_source_revision() -> Result<u64, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value|value.checked_add(1))
+    NEXT.try_update(Ordering::Relaxed, Ordering::Relaxed, |value|value.checked_add(1))
         .map_err(|_| "实时高度来源票据已耗尽".into())
 }
 

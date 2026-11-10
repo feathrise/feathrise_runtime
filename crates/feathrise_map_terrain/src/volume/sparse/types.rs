@@ -72,7 +72,7 @@ impl VolumeMemoryBudget {
         bytes: usize,
     ) -> Result<Arc<VolumeBuffer<T>>, String> {
         self.used
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
                 used.checked_add(bytes).filter(|n| {
                     *n <= self
                         .limit

@@ -71,7 +71,7 @@ impl VoxelWorkBudget {
     pub(in crate::maps::dynamic_map) fn acquire(&self) -> Option<VoxelWorkLease> {
         use std::sync::atomic::Ordering;
         self.busy
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |busy| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |busy| {
                 (busy < 2).then_some(busy + 1)
             })
             .ok()?;
