@@ -6,7 +6,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 ## 使用与入口
 
-SDK 0.3.0 使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源码接入使用同级补丁仓。0.3.0 的发布步骤及配套 Git 补丁见[接入说明](docs/crates-io.md)，源码示例见[快速开始](docs/quickstart.md)。
+场景版源码沿用 Cargo 包版本 `0.2.0`，使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源码接入使用同级补丁仓。 [快速开始](docs/quickstart.md) · [已发布版本接入](docs/crates-io.md)
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
@@ -16,14 +16,14 @@ SDK 0.3.0 使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源
 
 ```toml
 [dependencies]
-feathrise_runtime = { version = "0.3.0", path = "../feathrise_runtime" }
+feathrise_runtime = { version = "0.2.0", path = "../feathrise_runtime" }
 ```
 
 外部工程按 SDK 版本配置配套补丁。本仓内部子库同时声明 `version` 与 `path`。本地使用源码，发布归档中的依赖转为 registry 版本。
 
 渲染补丁必须在消费工程的根 `Cargo.toml` 或显式 Cargo 配置中提供，库包自己的 `[patch]` 不会向上传递。0.20.1 源码的补丁包括 `avian3d`、`bevy_anti_alias`、`bevy_render`、`bevy_core_pipeline`、`bevy_extract`、`wgpu-hal`、`dlss_wgpu` 和 `wgpu-ffx`。使用 crates.io SDK 时，从独立补丁仓的配套 Git 提交取得该发布版本的补丁。
 
-Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`。registry 来源的 `version` 是完整发布版本，`git`／`rev` 仅选择上述补丁；新工程使用精确 SDK 版本，不需要维护者的本地 SDK 目录。配置变化不升级已有工程。
+Feathrise 的 `sdk-source.toml` 为场景工程选择配套源码。历史工程使用 registry 时，`version` 指定已发布的 SDK 版本，`git` 和 `rev` 指定配套补丁的仓库和修订。
 
 编辑器的源码联调配置见 [SDK 本地开发](docs/crates-io.md#本地修改)。
 
@@ -41,7 +41,7 @@ Feathrise 新建工程的 `sdk-source.toml` 支持 `path`、`git` 和 `registry`
 
 主资产根下的目录是 `scenes/catalog.scene_catalog.json`。目录以 `scenes` 列出场景，各清单位于 `scenes/<SceneId>/scene.scene_manifest.json`。目录、清单和场景私有文件用格式 2，地表用格式 3。清单的 `subscenes` 通过 `source_scene_id` 引用同目录内的场景。
 
-工程根的 `startup.scene.json` 用格式 2 保存工程身份、修订和可选 `startup_scene_id`。未指定启动项时采用首个已发布场景，空目录可以启动空世界。SDK 0.3 读取这一代场景格式。
+工程根的 `startup.scene.json` 用格式 2 保存工程身份、修订和可选 `startup_scene_id`。未指定启动项时采用首个已发布场景，空目录可以启动空世界。
 
 ## 功能特性
 

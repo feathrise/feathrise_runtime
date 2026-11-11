@@ -1,7 +1,7 @@
 # 通用种植核心：层分布、空间竞争、边界净空与可插拔实现后端。
 [package]
 name = "feathrise_vegetation"
-version = "0.3.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97.1"
 publish = ["crates-io"]

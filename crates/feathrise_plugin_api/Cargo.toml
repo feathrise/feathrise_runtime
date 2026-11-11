@@ -1,7 +1,7 @@
 # 外部插件只依赖这份字节协议，不链接编辑器或Bevy。
 [package]
 name = "feathrise_plugin_api"
-version = "0.3.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"

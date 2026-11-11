@@ -2,7 +2,7 @@
 [package]
 description = "Frame timing and rendering diagnostics for Bevy projects"
 name = "feathrise_fps_display"
-version = "0.3.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/feathrise/feathrise_runtime"
@@ -12,7 +12,7 @@ dlss_frame_generation = ["dep:feathrise_frame_generation"] # DLSS构建读取Str
 fsr3_frame_generation = ["dep:feathrise_fsr3_frame_generation"] # 仅候选构建连接FSR呈现快照。
 
 [dependencies]
-feathrise_ui_widgets = { version = "0.3.0", path = "../feathrise_ui_widgets" } # F3 面板复用左键与遮挡三态。
+feathrise_ui_widgets = { version = "0.2.0", path = "../feathrise_ui_widgets" } # F3 面板复用左键与遮挡三态。
 feathrise_frame_generation = { workspace = true, optional = true } # 主世界POD快照供FPS采样，不从UI调用SDK。
 feathrise_fsr3_frame_generation = { workspace = true, optional = true } # 只读取现有主世界计数，不直接调用原生层。
 avian3d = { workspace = true }

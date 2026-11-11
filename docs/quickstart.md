@@ -48,17 +48,17 @@ cargo run --locked --example minimal_project -- --capture "$env:TEMP/feathrise-m
 
 ## 在自己的工程使用
 
-推荐由 Feathrise 新建工程：它会生成根依赖、补丁、空资产目录及工程描述，工程只编译 SDK 和自身代码。编辑器通过 `sdk-source.toml` 选择 registry 版本、本地路径或固定 Git 提交。
+用 Feathrise 创建场景工程时，将 `sdk-source.toml` 指向配套 SDK 与补丁源码。编辑器会生成根依赖、补丁、空资产目录及工程描述，工程只编译 SDK 和自身代码。
 
 联调当前 Bevy 0.20.1 源码时，在工程根的 `Cargo.toml` 使用路径依赖，并按[本地修改](crates-io.md#本地修改)载入同级补丁配置。
 
 ```toml
 [dependencies]
 bevy = "=0.20.1"
-feathrise_runtime = { version = "0.3.0", path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
+feathrise_runtime = { version = "0.2.0", path = "../feathrise_runtime", default-features = false, features = ["default_font"] }
 ```
 
-SDK 0.3.0 发布后可使用[场景版 registry 配方](crates-io.md#sdk-030--bevy-0201)。Cargo 补丁配置写入消费工程根清单。首次生成锁文件后，再用 cargo check --locked 复验。
+Cargo 补丁配置写入消费工程根清单。首次生成锁文件后，再用 `cargo check --locked` 复验。
 
 编辑器创建的工程入口使用实际 `ProjectContext::load`，例如：
 

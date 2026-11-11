@@ -1,7 +1,7 @@
 # feathrise_environment：统一聚合GPU叶片植被、树木和固定景观公共底座。
 [package]
 name = "feathrise_environment"
-version = "0.3.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97.1"
 publish = ["crates-io"]
@@ -44,7 +44,7 @@ full = [
 bytemuck = { workspace = true }
 bevy_app = { workspace = true }
 bevy = { workspace = true, optional = true }
-feathrise_vegetation = { path = "../feathrise_vegetation", version = "0.3.0", default-features = false }
+feathrise_vegetation = { path = "../feathrise_vegetation", version = "0.2.0", default-features = false }
 feathrise_grounding = { workspace = true, optional = true }
 
 [dev-dependencies]
