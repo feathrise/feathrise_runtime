@@ -3325,8 +3325,8 @@ dependencies = [
  "feathrise_environment",
  "feathrise_frame_generation",
  "feathrise_fsr3_frame_generation",
- "feathrise_scene_content",
  "feathrise_scene",
+ "feathrise_scene_content",
  "feathrise_scene_core",
  "feathrise_settings",
  "feathrise_ui_widgets",
@@ -3398,29 +3398,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "feathrise_scene_content"
-version = "0.2.0"
-dependencies = [
- "bevy",
- "serde",
- "serde_json",
- "sha2",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "feathrise_terrain"
-version = "0.2.0"
-dependencies = [
- "bevy",
- "bytemuck",
- "meshopt",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
 name = "feathrise_plugin_api"
 version = "0.2.0"
 dependencies = [
@@ -3472,10 +3449,10 @@ dependencies = [
  "feathrise_fsr3",
  "feathrise_fsr3_frame_generation",
  "feathrise_grounding",
- "feathrise_scene_content",
  "feathrise_portal",
  "feathrise_raytracing",
  "feathrise_scene",
+ "feathrise_scene_content",
  "feathrise_scene_core",
  "feathrise_settings",
  "feathrise_ui_widgets",
@@ -3506,17 +3483,28 @@ dependencies = [
  "feathrise_billboard_text",
  "feathrise_environment",
  "feathrise_grounding",
- "feathrise_scene_content",
- "feathrise_terrain",
  "feathrise_portal",
+ "feathrise_scene_content",
  "feathrise_scene_core",
  "feathrise_settings",
+ "feathrise_terrain",
  "image",
  "serde",
  "serde_json",
  "sha2",
  "wesl",
  "wgpu",
+]
+
+[[package]]
+name = "feathrise_scene_content"
+version = "0.2.0"
+dependencies = [
+ "bevy",
+ "serde",
+ "serde_json",
+ "sha2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3545,6 +3533,18 @@ dependencies = [
  "feathrise_scene_core",
  "serde",
  "wgpu",
+]
+
+[[package]]
+name = "feathrise_terrain"
+version = "0.2.0"
+dependencies = [
+ "bevy",
+ "bytemuck",
+ "meshopt",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
