@@ -99,7 +99,7 @@ pub struct BillboardText {
     ///
     /// - `true`（默认）：常规头顶文字，等待首帧布局后按内容宽度裁切（窄而紧凑）。
     /// - `false`：固定整张纹理映射（用于正方形徽标等内容已填满纹理的场景），
-    ///   立即可见、不做 UV 裁切，世界宽度按纹理宽高比由 `world_height` 推导。
+    ///   不做 UV 裁切，世界宽度按纹理宽高比由 `world_height` 推导；仍在完整烘焙后显示。
     pub crop_to_text: bool,
 }
 
@@ -201,8 +201,6 @@ pub struct BillboardTextLink {
     pub(crate) bake_ready: bool,
     /// 是否仍在等待首次文本布局同步（同步前隐藏，避免错误宽度闪烁）。
     pub(crate) needs_layout_sync: bool,
-    /// 离屏内容完成布局后继续保留的渲染帧数；归零后释放2D源并归还相机槽位。
-    pub(crate) bake_frames_remaining: u8,
 }
 
 impl BillboardTextLink {

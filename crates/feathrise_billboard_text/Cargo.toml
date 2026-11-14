@@ -15,6 +15,4 @@ readme = "README.md"
 [dependencies]
 bevy = { workspace = true }
 
-# 示例（cargo run -p feathrise_billboard_text --example basic）按需启用更多 Bevy 功能。
-[dev-dependencies]
-bevy = { workspace = true }
+# 测试和示例复用上方Bevy依赖；不重复登记相同dev依赖，以便宿主工作区按实际依赖图运行本库回归。

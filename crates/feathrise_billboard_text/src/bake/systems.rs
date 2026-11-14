@@ -7,7 +7,8 @@ use bevy::render::render_resource::TextureFormat; // 创建透明占位渲染目
 use bevy::sprite::Anchor; // 让文字和装饰以离屏纹理中心为锚点。
 use bevy::text::TextLayoutInfo; // 读取实际排版宽度以裁切最终网格和UV。
 
-use super::helpers::{advance_bake_retirement, first_idle_slot}; // 复用可测试的纯状态逻辑。
+use super::helpers::{bake_draw_is_complete, first_idle_slot}; // 复用可测试的纯状态逻辑。
+use std::sync::atomic::Ordering; // 主世界只非阻塞读取当前任务的渲染提交回执。
 use crate::components::BillboardTextLink; // 读取任务规格并写回烘焙状态。
 use crate::constants::{DEFAULT_BAKE_POOL_SIZE, DEFAULT_BASE_LAYER}; // 固定池容量与隔离层范围。
 use crate::helpers::{
@@ -62,6 +63,8 @@ pub(crate) fn setup_billboard_bake_pool(
             camera_entity,   // 固定槽位整个游戏运行期复用该相机。
             layer,           // 当前任务2D源必须使用相同隔离层。
             billboard: None, // Startup时所有槽位均为空闲。
+            generation: 0,
+            rendered_generation: default(),
         });
     }
 }
@@ -181,7 +184,8 @@ pub(crate) fn assign_billboard_bake_jobs(
         link.decoration_entities = decoration_entities; // 保存当前任务所有装饰实体。
         link.decoration_meshes = decoration_meshes; // 保存当前任务动态装饰网格。
         link.decoration_materials = decoration_materials; // 保存当前任务动态装饰材质。
-        link.bake_frames_remaining = 2; // 为文字布局和最终纹理写入保留完整帧。
+        // CPU排版完成不代表GPU已经画出字；每次分配独立代次，等待该任务真实提交后再清理。
+        pool.slots[slot_index].generation = pool.slots[slot_index].generation.wrapping_add(1).max(1);
         pool.slots[slot_index].billboard = Some(billboard); // 最后占用槽位，保证前面失败不会留下半任务。
     }
 }
@@ -231,7 +235,7 @@ pub fn sync_billboard_layouts(
         if let Some(mut mesh) = meshes.get_mut(&mesh_handle.0) {
             // 最终动态网格仍存在时原地更新。
             *mesh = build_billboard_mesh(mesh_width, link.world_height, u_min, u_max); // 保持文字比例并移除多余透明边缘。
-            link.needs_layout_sync = false; // 下一帧开始进入最终纹理保留计数。
+            link.needs_layout_sync = false; // 布局已完整，后续仍须等待当前任务的真实渲染提交。
         }
     }
 }
@@ -257,8 +261,12 @@ pub(crate) fn finish_billboard_bakes(
             release_camera_slot(slot, &placeholder_image, &mut cameras); // 立即停用固定相机，避免继续引用已释放纹理。
             continue; // 失效任务没有Link可继续清理。
         };
-        if !advance_bake_retirement(link.needs_layout_sync, &mut link.bake_frames_remaining) {
-            // 未完成布局或最终帧时继续占用槽位。
+        if !bake_draw_is_complete(
+            link.needs_layout_sync,
+            slot.generation,
+            slot.rendered_generation.load(Ordering::Acquire),
+        ) {
+            // 字形、图集或最终输出管线尚未绘制时继续持有源；旧任务的迟到回执不能完成新任务。
             continue; // 当前帧末尾固定相机仍需写入目标纹理。
         }
 

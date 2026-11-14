@@ -5,6 +5,7 @@ use std::collections::VecDeque; // FIFO队列保证同优先级的名字按请�
 use bevy::prelude::*; // Resource、Entity、Handle和Image类型。
 
 use crate::types::BillboardBakeSlot; // 非ECS槽位数据独立放在types.rs。
+use crate::types::BillboardBakeRenderJob; // RenderApp只保留当前固定槽位的轻量任务快照。
 
 /// 固定离屏相机池：Billboard数量只增长队列，不再增长Camera2d数量。
 #[derive(Resource, Default)] // 插件初始化空池，Startup系统再创建固定相机实体。
@@ -13,3 +14,7 @@ pub struct BillboardBakePool {
     pub(crate) slots: Vec<BillboardBakeSlot>, // 固定数量的可复用相机槽位。
     pub(crate) placeholder_image: Handle<Image>, // 空闲相机指向的1×1占位纹理，避免引用已释放目标。
 }
+
+/// 渲染世界独占的当前帧任务，不向玩法层暴露管线或渲染实体。
+#[derive(Resource, Default)]
+pub(crate) struct BillboardBakeRenderJobs(pub(crate) Vec<BillboardBakeRenderJob>);

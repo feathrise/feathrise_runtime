@@ -1,9 +1,11 @@
 // bake/mod.rs — 固定离屏相机池功能域入口。
 
 mod helpers; // 纯状态推进和空闲槽位选择逻辑。
+mod render; // 跨世界确认实际绘制与最终纹理输出，避免冷启动提前销毁文字源。
 mod systems; // 相机池创建、任务分配、布局同步和槽位回收系统。
 
 pub use systems::sync_billboard_layouts;
+pub(crate) use render::configure_bake_render_receipts;
 pub(crate) use systems::{
     // 只向crate插件层暴露需要注册的系统。
     assign_billboard_bake_jobs,  // 将FIFO等待任务分配给空闲固定相机。

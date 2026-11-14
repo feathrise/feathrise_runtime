@@ -26,8 +26,11 @@ pub struct PortalPlugin;
 
 impl Plugin for PortalPlugin {
     fn build(&self, app: &mut App) {
+        // 字体留给应用在PreStartup提供，不能提前插入默认资源遮蔽应用的中文字体选择。
         app.init_resource::<PortalDestination>()
-            .init_resource::<PortalLabelFont>()
             .add_systems(Startup, systems::setup_portal_visual_meshes);
     }
 }
+
+#[cfg(test)] // 真实GPU启动文字回归仅随测试程序装配。
+mod startup_render_tests;

@@ -173,7 +173,6 @@ pub fn spawn_billboard_texts(
             bake_spec: Some(spec.clone()),              // 排队期间保存生成2D源所需的完整规格。
             bake_ready: false,                          // 固定相机尚未写入最终纹理。
             needs_layout_sync,                          // 裁切文字需要等待TextLayoutInfo。
-            bake_frames_remaining: 2,                   // 布局完成后至少保留一个完整最终渲染帧。
         });
 
         bake_pool.waiting.push_back(billboard_entity); // 所有超出固定槽位容量的请求自然留在FIFO队列。

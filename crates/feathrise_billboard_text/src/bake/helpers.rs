@@ -7,24 +7,16 @@ pub(super) fn first_idle_slot(slots: &[BillboardBakeSlot]) -> Option<usize> {
     slots.iter().position(|slot| slot.billboard.is_none()) // FIFO任务始终优先占用编号最小的空闲槽位。
 }
 
-/// 推进最终纹理保留帧；只有布局完成且本次归零时才允许释放槽位。
-pub(super) fn advance_bake_retirement(
-    needs_layout_sync: bool,   // true表示尚未得到可用于裁切的最终文字布局。
-    frames_remaining: &mut u8, // 布局完成后仍需跨过的Update计数。
-) -> bool {
-    if needs_layout_sync || *frames_remaining == 0 {
-        // 布局未完成或已经归零时保持状态不变。
-        return false; // 当前帧不能释放相机槽位。
-    }
-    *frames_remaining -= 1; // 为渲染提取保留至少一个写入最终纹理的完整帧。
-    *frames_remaining == 0 // 仅从1变为0的这一次请求完成清理。
+/// 必须同时具有最终布局和当前非零代次的提交回执；旧回执与尚未绘制均保持隐藏。
+pub(super) fn bake_draw_is_complete(needs_layout_sync: bool, generation: u64, rendered_generation: u64) -> bool {
+    !needs_layout_sync && generation != 0 && rendered_generation == generation
 }
 
-#[cfg(test)] // 纯状态测试不启动渲染器，验证相机并发硬上限和烘焙帧时序。
+#[cfg(test)] // 纯状态测试不启动渲染器，验证相机并发硬上限和渲染回执身份。
 mod tests {
     use bevy::prelude::*; // World用于生成有效且互不重复的Entity标识。
 
-    use super::{advance_bake_retirement, first_idle_slot}; // 直接测试生产系统调用的纯函数。
+    use super::{bake_draw_is_complete, first_idle_slot}; // 直接测试生产系统调用的纯函数。
     use crate::constants::DEFAULT_BAKE_POOL_SIZE; // 回归默认固定池容量。
     use crate::types::BillboardBakeSlot; // 构造与生产资源相同的槽位数据。
 
@@ -43,6 +35,8 @@ mod tests {
                     camera_entity: *camera_entity, // 固定相机实体整个测试期间不替换。
                     layer: index,                  // 测试只需保证不同槽位使用不同层。
                     billboard: None,               // 初始没有正在烘焙的任务。
+                    generation: 0,
+                    rendered_generation: default(),
                 })
                 .collect(); // 得到与默认容量完全一致的固定池。
 
@@ -65,15 +59,14 @@ mod tests {
         assert_eq!(slots[1].camera_entity, reused_camera); // 复用不得创建或替换Camera2d实体。
     }
 
-    #[test] // 最终文字布局完成后应保留一个完整渲染帧再释放固定槽位。
-    fn baked_billboard_slot_retires_after_one_final_render_frame() {
-        let mut frames_remaining = 2; // 新任务从两个Update计数开始，为最终渲染留出一帧。
-        assert!(!advance_bake_retirement(true, &mut frames_remaining)); // 布局未完成时不得推进。
-        assert_eq!(frames_remaining, 2); // 等布局期间帧预算保持不变。
-        assert!(!advance_bake_retirement(false, &mut frames_remaining)); // 第一次推进只准备最终渲染。
-        assert_eq!(frames_remaining, 1); // 当前帧末尾仍由固定相机写入最终纹理。
-        assert!(advance_bake_retirement(false, &mut frames_remaining)); // 下一次Update才允许归还槽位。
-        assert_eq!(frames_remaining, 0); // 完成后计数稳定归零。
-        assert!(!advance_bake_retirement(false, &mut frames_remaining)); // 已完成任务不得重复释放。
+    #[test] // 冷启动、布局未就绪、旧任务或重复回执均不能被CPU帧数绕过。
+    fn only_current_render_receipt_completes_a_laid_out_bake() {
+        assert!(!bake_draw_is_complete(false, 0, 0));
+        assert!(!bake_draw_is_complete(true, 1, 1));
+        assert!(!bake_draw_is_complete(false, 1, 0));
+        assert!(!bake_draw_is_complete(false, 2, 1));
+        assert!(!bake_draw_is_complete(false, 2, 3));
+        assert!(bake_draw_is_complete(false, 2, 2));
+        assert!(bake_draw_is_complete(false, 2, 2)); // 纯判据幂等；清理系统由槽位身份确保只退休一次。
     }
 }

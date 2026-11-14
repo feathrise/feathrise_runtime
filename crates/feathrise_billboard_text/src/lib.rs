@@ -97,6 +97,7 @@ impl Plugin for BillboardTextPlugin {
         app.add_plugins(MaterialPlugin::<BillboardColorMaterial>::default());
         app.add_plugins(MaterialPlugin::<BillboardTemporalGuideMaterial>::default());
         app.init_resource::<resources::BillboardBakePool>(); // 初始化等待队列，Startup再创建固定相机实体。
+        bake::configure_bake_render_receipts(app); // 真实渲染提交后才完成烘焙，不能以CPU帧数猜测GPU就绪。
         app.init_resource::<systems::BillboardTemporalGuideState>(); // 只在时间链状态切换时批量更新引导层。
         app.add_systems(Startup, bake::setup_billboard_bake_pool); // 全程只保留固定数量的Camera2d烘焙槽位。
         app.add_systems(
@@ -187,6 +188,8 @@ mod tests {
                 camera_entity: camera,              // 退休门应原地修复这一固定相机。
                 layer: 0,                           // 渲染层与本次目标生命周期验证无关。
                 billboard: Some(retired_billboard), // 槽位尚未来得及消费业务实体销毁。
+                generation: 1,
+                rendered_generation: default(),
             });
         }
         app.world_mut()

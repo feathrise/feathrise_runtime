@@ -493,3 +493,76 @@ fn parked_request_is_consumed_after_reactivation_even_after_added_tick_expires()
     );
     assert_eq!(app.world().resource::<Assets<Image>>().len(), 2);
 }
+
+#[test]
+fn pending_render_receipt_preserves_sources_and_current_receipt_retires_once() {
+    use std::sync::atomic::Ordering;
+
+    let mut app = fixture();
+    let task = start_task(&mut app);
+    let (generation, receipt) = {
+        let pool = app.world().resource::<BillboardBakePool>();
+        (pool.slots[0].generation, pool.slots[0].rendered_generation.clone())
+    };
+    // 无窗口状态回归：再多CPU Update也不能替代RenderApp的当前任务提交回执。
+    for _ in 0..64 {
+        app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap();
+    }
+    assert!(!app.world().get::<BillboardTextLink>(task.billboard).unwrap().is_ready());
+    assert!(app.world().get::<Camera>(task.camera).unwrap().is_active);
+    for &source in &task.source_entities {
+        assert!(app.world().get_entity(source).is_ok());
+    }
+    assert!(app.world().resource::<Assets<Mesh>>().get(&task.decoration_meshes[0]).is_some());
+
+    // 本测试只注入回执验证消费边界；真实绘制另由GPU窗口回归证明。
+    receipt.store(generation, Ordering::Release);
+    app.world_mut().get_mut::<BillboardTextLink>(task.billboard).unwrap().needs_layout_sync = true;
+    app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap();
+    assert!(!app.world().get::<BillboardTextLink>(task.billboard).unwrap().is_ready());
+    app.world_mut().get_mut::<BillboardTextLink>(task.billboard).unwrap().needs_layout_sync = false;
+    app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap();
+    let link = app.world().get::<BillboardTextLink>(task.billboard).unwrap();
+    assert!(link.is_ready());
+    assert!(link.text_entity.is_none() && link.bake_spec.is_none());
+    assert!(link.outline_entities.is_empty() && link.decoration_entities.is_empty());
+    assert!(!app.world().get::<Camera>(task.camera).unwrap().is_active);
+    assert!(app.world().resource::<BillboardBakePool>().slots[0].billboard.is_none());
+    for &source in task.source_entities.iter().skip(1) {
+        assert!(app.world().get_entity(source).is_err());
+    }
+    assert!(app.world().get_entity(task.source_entities[0]).is_ok()); // 最终3D引导继续复用已完成纹理。
+    assert!(app.world().resource::<Assets<Mesh>>().get(&task.decoration_meshes[0]).is_none());
+    assert!(app.world().resource::<Assets<ColorMaterial>>().get(&task.decoration_materials[0]).is_none());
+    app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap(); // 重复消费不得回收最终纹理。
+    assert!(app.world().resource::<Assets<Image>>().get(&task.image).is_some());
+}
+
+#[test]
+fn cancelled_task_receipt_does_not_complete_reused_slot() {
+    use std::sync::atomic::Ordering;
+
+    let mut app = fixture();
+    let previous = start_task(&mut app);
+    let (old_generation, receipt) = {
+        let pool = app.world().resource::<BillboardBakePool>();
+        (pool.slots[0].generation, pool.slots[0].rendered_generation.clone())
+    };
+    app.world_mut().despawn(previous.owner);
+    app.world_mut().run_system_once(update_billboard_texts).unwrap();
+    app.world_mut().run_system_once(bake::release_orphaned_bake_slots).unwrap();
+    assert_released(&app, &previous);
+    let current = start_task(&mut app);
+    let generation = app.world().resource::<BillboardBakePool>().slots[0].generation;
+    assert_eq!(current.camera, previous.camera);
+    assert_ne!(current.image.id(), previous.image.id());
+    assert_ne!(generation, old_generation);
+
+    receipt.store(old_generation, Ordering::Release); // 取消之后才到达的旧提交不能发布新标签。
+    app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap();
+    assert!(!app.world().get::<BillboardTextLink>(current.billboard).unwrap().is_ready());
+    assert!(app.world().get::<Camera>(current.camera).unwrap().is_active);
+    receipt.store(generation, Ordering::Release);
+    app.world_mut().run_system_once(bake::finish_billboard_bakes).unwrap();
+    assert!(app.world().get::<BillboardTextLink>(current.billboard).unwrap().is_ready());
+}

@@ -10,7 +10,7 @@ use crate::resources::{PortalLabelFont, PortalVisualMeshes}; // 字体由应用�
 pub(super) fn setup_portal_visual_meshes(
     mut commands: Commands,           // 共享句柄通过资源提供给正式传送图生成系统。
     mut meshes: ResMut<Assets<Mesh>>, // 五个小型程序网格只在启动阶段登记一次。
-    label_font: Res<PortalLabelFont>, // 只消费已经提供的句柄，不选择游戏目录或主动加载原字体。
+    label_font: Option<Res<PortalLabelFont>>, // 等应用完成PreStartup注入，不选择游戏目录或主动加载原字体。
     existing: Option<Res<PortalVisualMeshes>>, // 多插件测试或热重建不得覆盖仍被实体使用的共享句柄。
 ) {
     if existing.is_some() {
@@ -29,13 +29,42 @@ pub(super) fn setup_portal_visual_meshes(
             PORTAL_VISUAL_RADIUS,    // 光幕严格沿实际触发边缘生成。
             PORTAL_EDGE_BEAM_HEIGHT, // 提高后的十四米顶部通过顶点Alpha渐隐。
         )),
-        label_font: label_font.0.clone(), // 固定网格与应用字体共同持有稳定资产身份。
+        // 应用未提供字体时才在此回退；显式提供的默认句柄也必须保留，兼容中立工程。
+        label_font: label_font.map(|font| font.0.clone()).unwrap_or_default(),
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neutral_portal_startup_can_use_default_font_without_a_provider() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>().add_plugins(crate::PortalPlugin);
+        assert!(!app.world().contains_resource::<PortalLabelFont>());
+        app.update();
+        assert_eq!(app.world().resource::<PortalVisualMeshes>().label_font, Handle::<Font>::default());
+        assert_eq!(app.world().resource::<Assets<Mesh>>().len(), 5);
+        assert!(!app.world().contains_resource::<AssetServer>());
+    }
+
+    #[test]
+    fn application_font_from_prestartup_reaches_shared_visuals() {
+        let font = bevy::asset::uuid_handle!("96030658-569c-4e6c-b6b4-982f38dca548");
+        let expected = font.clone();
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .add_plugins(crate::PortalPlugin)
+            .add_systems(PreStartup, move |mut commands: Commands, supplied: Option<Res<PortalLabelFont>>| {
+                // 应用通常只在尚未提供字体时加载自己的字体，SDK不能用默认占位阻止这个分支。
+                if supplied.is_none() {
+                    commands.insert_resource(PortalLabelFont(font.clone()));
+                }
+            });
+        app.update();
+        assert_eq!(app.world().resource::<PortalVisualMeshes>().label_font, expected);
+    }
 
     #[test]
     fn neutral_portal_startup_needs_no_player_session_or_asset_server() {

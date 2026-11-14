@@ -21,6 +21,6 @@ pub struct PortalDestination {
     pub dynamic_scene_id: Option<String>, // DynamicSceneRoot进入前保存目标SceneId，静态场景保持None。
 }
 
-/// 应用显式提供标签字体；默认空句柄使用Bevy字体，公共库不读取原游戏字体路径。
+/// 应用在Startup前提供标签字体；未提供或显式使用空句柄时回退Bevy字体，公共库不读取游戏路径。
 #[derive(Resource, Default, Clone)]
 pub struct PortalLabelFont(pub Handle<Font>);
