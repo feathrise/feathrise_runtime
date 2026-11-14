@@ -6,6 +6,7 @@ use feathrise_scene_core::residency::SceneResidencyAppExt;
 mod application;
 pub mod animation_retarget; // SDK作者预览与游戏共享跨GLB骨架映射和骨长保护，不依赖应用角色类型。
 pub mod author_view;
+pub mod paint_surface; // 模型与地形的只读种植表面；索引和密度编译由调用方后台任务拥有。
 pub use application::{SceneViewLayers, ScenePhysicsPolicy, SceneApplicationHooks, SceneApplicationStartupStatus, SceneApplicationSet, SceneCollisionParticipant, SceneRuntimeObserver, VegetationInteractionSource, WaterInteractionSource};
 pub use scenes::dynamic_scene::sources::SceneRuntimeCatalog;
 
@@ -55,6 +56,8 @@ pub use scenes::{
     DYNAMIC_TERRAIN_MESH_NAME,
     DYNAMIC_TERRAIN_WHITE_MATERIAL_NAME,
     DynamicBladeDraft,
+    DynamicModelVegetationDraft,
+    DynamicModelVegetationStatus,
     DynamicBladeDraftSnapshot, // 完整Blade会话快照供F12发布。
     DynamicClipmapAuthoringView,
     DynamicClipmapGroundSurface,

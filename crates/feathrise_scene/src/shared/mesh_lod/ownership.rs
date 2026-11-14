@@ -42,20 +42,13 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
             if !instance.definition.enabled
                 || !matches!(
                     instance.definition.terrain.kind,
-                    SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield
+                    SceneTerrainKind::Gltf
                 )
             {
                 return None;
             }
             // 可雕刻GLB的隐藏输入保持原始身份，仅正式采用显示进入通用LOD。
-            if instance.definition.terrain.kind == SceneTerrainKind::Heightfield
-                && world
-                    .get::<crate::DynamicSceneTerrainPrimitive>(entity)
-                    .is_none()
-                && world.get::<avian3d::prelude::Collider>(entity).is_none()
-            {
-                return None;
-            }
+
             return Some(Owner {
                 root: cursor,
                 policy: instance.definition.mesh_lod.unwrap_or_default(),

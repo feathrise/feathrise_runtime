@@ -100,7 +100,10 @@ impl BuildingVegetationClearanceState {
 
     /// 离开正式场景时撤销其净空；不影响另一张图的作者覆盖清理。
     pub(crate) fn clear_formal(&mut self) {
-        if self.formal.take().is_some() || self.formal_identity.take().is_some() {
+        // 值与去重身份必须同次清除；短路求值会残留身份，阻止相同来源再次发布。
+        let had_value = self.formal.take().is_some();
+        let had_identity = self.formal_identity.take().is_some();
+        if had_value || had_identity {
             self.allocate_revision(); // 即使当前有作者覆盖，也保留正式来源换代的全局顺序。
         }
     }
@@ -138,7 +141,10 @@ impl BuildingVegetationClearanceState {
 
     /// 关闭 F12 或作者索引失效时回到上一完整正式快照。
     pub fn clear_authoring(&mut self) {
-        if self.authoring.take().is_some() || self.authoring_identity.take().is_some() {
+        // 索引仅失效一帧后也允许原身份重新发布，不能留下已无对应值的去重键。
+        let had_value = self.authoring.take().is_some();
+        let had_identity = self.authoring_identity.take().is_some();
+        if had_value || had_identity {
             self.allocate_revision(); // 回退正式值也必须使当前消费者观察到来源变化。
         }
     }
@@ -205,5 +211,54 @@ mod tests {
         let restored = state.snapshot_for(&scene_id).expect("应恢复上一正式快照");
         assert_eq!(restored.revision, formal.revision); // 正式快照本身没有被作者操作改写。
         assert_eq!(restored.regions[0].corners[0], Vec2::splat(1.0)); // 原始正式几何恢复。
+    }
+
+    #[test]
+    fn clear_formal_allows_same_identity_to_republish_and_is_idempotent() {
+        let scene_id = SceneId::parse("MAP-clearance").expect("测试场景 ID 合法");
+        let mut state = BuildingVegetationClearanceState::default();
+        state.set_formal(scene_id.clone(), 3, 5, Arc::from(vec![quad(1.0)]));
+        let original_revision = state.snapshot_for(&scene_id).unwrap().revision;
+        state.clear_formal();
+        assert!(state.snapshot_for(&scene_id).is_none());
+        assert!(state.formal_identity.is_none(), "正式值与去重身份必须同次撤销");
+        let cleared_revision = state.next_revision;
+        assert_ne!(cleared_revision, original_revision);
+        state.clear_formal();
+        assert_eq!(state.next_revision, cleared_revision, "重复清理不能继续触发植被换代");
+
+        // 模拟短暂退出后重进同一批次；原去重身份不能拦截恢复的完整值。
+        state.set_formal(scene_id.clone(), 3, 5, Arc::from(vec![quad(2.0)]));
+        let restored = state.snapshot_for(&scene_id).expect("同身份正式来源应可重新发布");
+        assert_ne!(restored.revision, original_revision);
+        assert_eq!(restored.regions[0].corners[0], Vec2::splat(2.0));
+    }
+
+    #[test]
+    fn clear_authoring_allows_same_identity_to_republish_and_is_idempotent() {
+        let scene_id = SceneId::parse("MAP-clearance").expect("测试场景 ID 合法");
+        let identity = BuildingVegetationClearanceAuthoringIdentity {
+            scene_id: scene_id.clone(),
+            author_revision: 7,
+            structure_revision: 11,
+            catalog_revision: 5,
+        };
+        let mut state = BuildingVegetationClearanceState::default();
+        state.set_formal(scene_id.clone(), 3, 5, Arc::from(vec![quad(1.0)]));
+        state.set_authoring(identity.clone(), vec![quad(2.0)]);
+        let original_revision = state.snapshot_for(&scene_id).unwrap().revision;
+        state.clear_authoring();
+        assert!(state.authoring_identity.is_none(), "作者值与去重身份必须同次撤销");
+        assert_eq!(state.snapshot_for(&scene_id).unwrap().regions[0].corners[0], Vec2::splat(1.0));
+        let cleared_revision = state.next_revision;
+        assert_ne!(cleared_revision, original_revision);
+        state.clear_authoring();
+        assert_eq!(state.next_revision, cleared_revision, "索引持续失效不应反复推进净空版本");
+
+        // 模拟 BVH 失效一帧后以相同来源恢复；应重新覆盖正式净空。
+        state.set_authoring(identity, vec![quad(3.0)]);
+        let restored = state.snapshot_for(&scene_id).expect("同身份作者来源应可重新发布");
+        assert_ne!(restored.revision, original_revision);
+        assert_eq!(restored.regions[0].corners[0], Vec2::splat(3.0));
     }
 }

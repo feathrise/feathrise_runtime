@@ -46,7 +46,7 @@ pub use constants::{
     GPU_GRASS_PATCH_AABB_HORIZONTAL_MARGIN, // 场景和独立示例必须共用能覆盖草簇重映射与顶点形变的水平AABB余量。
 };
 #[cfg(feature = "diagnostics")] // 公共默认构建不暴露未安装的异步回读配置。
-pub use diagnostics::GpuBladeReadbackConfig; // 自动运动烟雾可切换逐帧异步采样，正式默认仍为每四帧。
+pub use diagnostics::{GpuBladeReadbackConfig, GPU_BLADE_READBACK_WINDOW_CAPACITY}; // 自动运动烟雾可逐帧、按窗口只读采样，正式默认仍为每四帧全场聚合。
 #[cfg(feature = "diagnostics")]
 pub use gpu_compute::pipeline_diagnostic::gpu_blade_compute_pipeline_states;
 pub use mesh::ensure_vertical_blade_uv; // 通用库只提供叶片网格准备工具，具体资产路径与预算由消费者维护。

@@ -31,6 +31,12 @@ pub use mesh_lod::{MeshCollisionLodSettings, MeshDisplayLodSettings, MeshLodMode
 mod courtyard_presets; // 全局院落组合预设及显式成员原型。
 mod distribution; // 编辑器和运行时共享的确定性植被散布纯函数。
 mod loaders; // 接管场景复合JSON和水域原始R8加载器。
+mod placement_glb; // Blender 和 Feathrise 共享同一个摆放源。
+pub use placement_glb::{read_scene_placements, write_scene_placements_glb};
+mod paint_surface; // 模型和地形共用种植目标；稀疏模型密度不依赖编辑器或碰撞。
+pub use paint_surface::{SurfaceTarget, ModelSurfaceAnchor, ModelSurfaceVegetation, ModelSurfaceVegetationSample};
+mod model_vegetation_io; // 模型植被分块与现有场景植被文档共用保存事务。
+pub use model_vegetation_io::{load_model_vegetation_blocks, prepare_model_vegetation_blocks};
 mod scene_instances; // 完整子场景引用、受检刚体变换和后台实例树展开。
 mod placement_transform; // 显式资产变换范围由编辑器、保存和运行时共同采用。
 mod editable_cuboid; // 点边面共用固定拓扑、半毫米坐标和保存前几何校验。
@@ -54,6 +60,8 @@ mod surface_presets; // 全局可编辑 PBR 地表预设、稳定引用和原子
 mod systems; // 首次加载、热更新和失败诊断。
 mod startup; // 独立运行和作者保存共用同一个启动场景契约。
 mod types; // 场景ID、地形种类和资产用途。
+mod vegetation_resolve; // 二维页和稀疏模型密度共用唯一作者组规则。
+pub use vegetation_resolve::{VegetationGroupLayer, resolve_vegetation_group, SurfaceVegetationCompiler};
 mod vegetation_authoring; // 植被作者图层、图层组和离线编译规则；正式运行时层继续保持固定数量。
 mod vegetation_paint_groups; // 跨网格绘制关联独立于网格内部的容量/竞争图层组。
 pub use vegetation_paint_groups::SceneVegetationPaintGroup;
@@ -118,6 +126,8 @@ impl Plugin for SceneContentPlugin {
             .init_asset::<SceneSurfaceAsset>()
             .init_asset::<SceneSurfaceSourceAsset>() // 稀疏技能地形只读CPU作者四槽源。
             .init_asset::<SceneVegetationAsset>()
+            .init_asset::<model_vegetation_io::Block>()
+            .init_asset_loader::<loaders::ModelVegetationBlockLoader>()
             .init_asset::<SceneWaterAsset>()
             .init_asset::<SceneBoundariesAsset>()
             .init_asset_loader::<loaders::SceneCatalogLoader>()
@@ -196,6 +206,7 @@ mod tests {
             display_name: "开封城郊".to_owned(),
             folder: "scenes/HN-01/".to_owned(),
             published: true,
+            placements_glb: false,
             surface_path: None,
             vegetation_path: None,
             water_path: None,
@@ -222,7 +233,7 @@ mod tests {
                 "world_max": [32.0, 32.0],
                 "default_spawn": [0.0, 2.0, 0.0],
                 "terrain": {
-                    "kind": "heightfield",
+                    "kind": "gltf",
                     "glb_path": "scenes/MAP-LEGACY/terrain/terrain.glb",
                     "height_path": "scenes/MAP-LEGACY/terrain/height.r16",
                     "resolution": [9, 9],
@@ -267,12 +278,9 @@ mod tests {
 
     #[test]
     fn sparse_clipmap_cannot_enter_the_glb_derived_water_pipeline() {
-        assert!(SceneTerrainKind::Heightfield.supports_glb_derived_water()); // 成熟路线继续建立正式水域交接。
         assert!(!SceneTerrainKind::SparseClipmap.supports_glb_derived_water()); // 新路线不能进入完整GLB河床构建器。
         assert!(!SceneTerrainKind::Gltf.supports_glb_derived_water()); // 专用旧场景同样不冒充动态GLB高度场。
-        assert!(SceneTerrainKind::Heightfield.supports_static_water());
         assert!(SceneTerrainKind::SparseClipmap.supports_static_water()); // 分页高度路线正式允许湖泊与池塘。
-        assert!(SceneTerrainKind::Heightfield.supports_spline_water());
         assert!(SceneTerrainKind::SparseClipmap.supports_spline_water()); // 世界XYZ Ribbon不依赖完整GLB河床。
         assert!(!SceneTerrainKind::Gltf.supports_spline_water()); // 专用旧场景仍不进入数据驱动样条水。
     }
@@ -334,7 +342,7 @@ mod tests {
             "schema_version": 2, "id": "MAP-notes", "display_name": "备注测试",
             "runtime_scene": "data_driven", "world_min": [-32.0, -32.0],
             "world_max": [32.0, 32.0], "default_spawn": [0.0, 2.0, 0.0],
-            "terrain": {"kind": "heightfield", "glb_path": "scenes/MAP-notes/terrain.glb",
+            "terrain": {"kind": "gltf", "glb_path": "scenes/MAP-notes/terrain.glb",
                 "resolution": [9, 9], "base_height": -80.0, "height_scale": 160.0},
             "asset_roots": []
         })).expect("清单没有备注仍须直接加载"); // 测试不依赖任何可被作者删除的实际场景。

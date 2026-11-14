@@ -205,17 +205,89 @@ impl AssetLoader for SceneVoxelTerrainSourceLoader {
     }
     fn extensions(&self) -> &[&str] { &["scene_voxel_source.json"] }
 }
-json_asset_loader!(
-    ScenePlacementsLoader,
-    ScenePlacementsAsset,
-    "scene_placements.json"
-);
+/// GLB 的摆放信息通过类型读取，标准 GltfLoader 仍负责同一文件的网格与材质子资产。
+#[derive(Default, TypePath)]
+pub(crate) struct ScenePlacementsLoader;
+impl AssetLoader for ScenePlacementsLoader {
+    type Asset = ScenePlacementsAsset;
+    type Settings = ();
+    type Error = BevyError;
+
+    async fn load(
+        &self, reader: &mut dyn Reader, _: &Self::Settings, context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let bytes = read_bounded(reader, usize::MAX, "场景摆放").await?;
+        // Windows 文件监听传入原生分隔符，内嵌网格仍须使用目录登记的统一资产路径。
+        let path = context.path().path().to_str()
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "场景摆放路径不是 UTF-8"))?
+            .replace('\\', "/");
+        Ok(crate::read_scene_placements(&bytes, &path).map_err(|error| Error::new(ErrorKind::InvalidData, error))?)
+    }
+
+    fn extensions(&self) -> &[&str] { &["scene_placements.json"] }
+}
 json_asset_loader!(SceneSurfaceLoader, SceneSurfaceAsset, "scene_surface.json");
-json_asset_loader!(
-    SceneVegetationLoader,
-    SceneVegetationAsset,
-    "scene_vegetation.json"
-);
+/// 模型密度块是植被文档的IO依赖；用类型加载器保持有界读取和原生热更新追踪。
+#[derive(Default, TypePath)]
+pub(crate) struct ModelVegetationBlockLoader;
+impl AssetLoader for ModelVegetationBlockLoader {
+    type Asset = crate::model_vegetation_io::Block;
+    type Settings = ();
+    type Error = BevyError;
+    async fn load(&self, reader: &mut dyn Reader, _: &(), _: &mut LoadContext<'_>) -> Result<Self::Asset, Self::Error> {
+        let bytes = read_bounded(reader, crate::model_vegetation_io::MAX_BYTES, "模型植被块").await?;
+        let mut block: Self::Asset = serde_json::from_slice(&bytes)?;
+        if block.samples.len() > crate::model_vegetation_io::BLOCK_SAMPLES {
+            return Err(Error::new(ErrorKind::InvalidData, "模型植被块超过4096样本预算").into());
+        }
+        block.source_bytes = bytes.len();
+        Ok(block)
+    }
+    fn extensions(&self) -> &[&str] { &[] } // 仅由父文档按明确类型加载，普通JSON不会误选该加载器。
+}
+
+#[derive(Default, TypePath)]
+pub(crate) struct SceneVegetationLoader;
+impl AssetLoader for SceneVegetationLoader {
+    type Asset = SceneVegetationAsset;
+    type Settings = ();
+    type Error = BevyError;
+    async fn load(&self, reader: &mut dyn Reader, _: &(), context: &mut LoadContext<'_>) -> Result<Self::Asset, Self::Error> {
+        let bytes = read_bounded(reader, MAX_SCENE_JSON_BYTES, "场景植被文档").await?;
+        let mut asset: Self::Asset = serde_json::from_slice(&bytes)?;
+        let folder = context.path().path().parent().and_then(|p|p.to_str())
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData,"模型植被文档没有场景私有目录"))?
+            .replace('\\',"/");
+        let mut total = 0usize;
+        let mut targets = std::collections::BTreeSet::new();
+        for shared in std::sync::Arc::make_mut(&mut asset.model_surfaces) {
+            let surface = std::sync::Arc::make_mut(shared);
+            surface.validate().map_err(Error::other)?;
+            if !targets.insert(serde_json::to_string(&surface.target)?) {
+                return Err(Error::other("模型植被目标重复").into());
+            }
+            if surface.sample_blocks.is_empty() { continue; }
+            if !surface.samples.is_empty() { return Err(Error::other("模型植被不能同时声明内联样本和分块源").into()); }
+            let mut samples = Vec::new();
+            for (ordinal, relative) in surface.sample_blocks.iter().enumerate() {
+                crate::model_vegetation_io::validate_block_path(&folder,relative).map_err(Error::other)?;
+                let block = context.load_builder().load_value::<crate::model_vegetation_io::Block>(relative.clone()).await?.take();
+                total = total.checked_add(block.source_bytes).filter(|n|*n <= crate::model_vegetation_io::MAX_BYTES)
+                    .ok_or_else(|| Error::other("模型植被超过64MiB读取预算"))?;
+                if block.format != 1 || block.scene_id != asset.scene_id || block.target != surface.target
+                    || block.topology != surface.topology || block.ordinal != ordinal {
+                    return Err(Error::other("模型植被块身份或顺序不一致").into());
+                }
+                samples.extend(block.samples);
+            }
+            surface.samples = samples;
+            surface.sample_blocks.clear();
+            surface.validate().map_err(Error::other)?;
+        }
+        Ok(asset)
+    }
+    fn extensions(&self) -> &[&str] { &["scene_vegetation.json"] }
+}
 json_asset_loader!(SceneWaterLoader, SceneWaterAsset, "scene_water.json");
 json_asset_loader!(
     SceneBoundariesLoader,
@@ -245,6 +317,74 @@ mod tests {
                 assert_eq!(manifest.runtime_scene, runtime); // 加载不是格式迁移操作。
             }
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn private_placement_glb_reloads_without_native_path_separators_in_records() {
+        use bevy::asset::{AssetApp, AssetPlugin, io::{AssetSourceBuilder, AssetSourceId,
+            memory::{Dir, MemoryAssetReader}}};
+        use std::{path::{Path, PathBuf}, time::{Duration, Instant}};
+
+        const PATH: &str = "scenes/SCENE-private-reload/scene.glb";
+        let native_path = ["scenes", "SCENE-private-reload", "scene.glb"].into_iter().collect::<PathBuf>();
+        assert_ne!(native_path.as_os_str(), Path::new(PATH).as_os_str()); // 原生监听器按组件重组路径。
+        let mut records: ScenePlacementsAsset = serde_json::from_value(json!({
+            "schema_version":SCENE_SCHEMA_VERSION,"scene_id":"SCENE-private-reload","placements":[{
+                "id":"bridge","translation":[0.,1.,0.],"yaw_degrees":0.,"scale":[1.,1.,1.],
+                "asset_target":{"kind":"cuboid","size_mm":[1000,100,1000],
+                    "color_srgb":[80,100,120],"roughness_milli":800,"collision":false}
+            },{"id":"shared","translation":[0.,1.,0.],"yaw_degrees":0.,"scale":[1.,1.,1.],
+                "asset_path":"scene/shared.glb"}]
+        })).unwrap();
+        let initial = crate::write_scene_placements_glb(&records, PATH, None).unwrap();
+        // 移除作者配方可信标记，使该内嵌网格按真实 Primitive 解析，和外部模型共用一个摆放文档。
+        let mut initial = initial;
+        let key = b"feathrise_geometry_hash";
+        let offset = initial.windows(key.len()).position(|window| window == key).unwrap();
+        initial[offset] = b'x';
+        records = crate::read_scene_placements(&initial, PATH).unwrap();
+        assert!(matches!(records.placements[0].asset_target, crate::ScenePlacementAssetTarget::Primitive { .. }));
+
+        let assets = Dir::default();
+        assets.insert_asset(Path::new(PATH), initial.clone());
+        let source = assets.clone();
+        let mut app = App::new();
+        app.register_asset_source(AssetSourceId::Default, AssetSourceBuilder::new(move || {
+            Box::new(MemoryAssetReader { root: source.clone() })
+        }))
+        .add_plugins((TaskPoolPlugin::default(), AssetPlugin {
+            watch_for_changes_override: Some(false), ..Default::default()
+        }))
+        .init_asset::<ScenePlacementsAsset>()
+        .init_asset_loader::<ScenePlacementsLoader>();
+
+        let server = app.world().resource::<AssetServer>().clone();
+        let handle = server.load::<ScenePlacementsAsset>(PATH);
+        fn read_after(app: &mut App, handle: &Handle<ScenePlacementsAsset>, x: f32) -> ScenePlacementsAsset {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                app.update();
+                if let Some(record) = app.world().resource::<Assets<ScenePlacementsAsset>>().get(handle)
+                    && record.placements[0].translation[0] == x {
+                    return record.clone();
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            panic!("等待原摆放加载器采用 {x} 超时");
+        }
+        let loaded = read_after(&mut app, &handle, 0.);
+        assert_eq!(loaded.placements, records.placements);
+
+        records.placements[0].translation[0] = 2.;
+        let changed = crate::write_scene_placements_glb(&records, PATH, Some(&initial)).unwrap();
+        assets.insert_asset(Path::new(PATH), changed);
+        // 向真实 AssetServer 传入与 Windows 监听事件相同的 PathBuf，必须采用新值且保留规范资产身份。
+        server.reload(native_path);
+        let reloaded = read_after(&mut app, &handle, 2.);
+        assert_eq!(reloaded.placements[0].id, "bridge");
+        assert_eq!(reloaded.placements[0].asset_path, PATH);
+        assert_eq!(reloaded.placements, records.placements);
     }
 
     #[test]

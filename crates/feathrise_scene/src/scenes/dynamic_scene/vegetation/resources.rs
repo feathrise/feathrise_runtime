@@ -48,6 +48,17 @@ pub struct DynamicVegetationStatus {
     pub mesh_collision_proxy_count: usize,
     /// 当前 Mesh 常驻块采用的 Clipmap 作者高度身份；GLB 场景保持 `None`。
     pub clipmap_ground_revision: Option<[u64; 5]>,
+    /// 三维worker仅在完整采用时更新回执；字段根指针沿用内部共享快照身份，读取时不扫描作者样本。
+    pub volume_ready: bool,
+    pub volume_generation: u64,
+    pub volume_root: Option<Entity>,
+    pub volume_fields: Vec<(Entity, usize)>,
+    pub volume_ground_revision: Option<[u64; 7]>,
+    pub volume_sources: BTreeMap<String, Handle<Image>>,
+    pub volume_source_counts: BTreeMap<String, u32>,
+    /// 同一三维源实际写入GPU的非零密度数；总源数量还包含零概率承托格。
+    pub volume_source_positive_counts: BTreeMap<String, u32>,
+    pub volume_window_counts: BTreeMap<String, usize>,
     pub detail: String,
 }
 

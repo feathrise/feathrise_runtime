@@ -50,6 +50,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
                     mesh: 6,
                     primitive: 0,
                     material: Some(2),
+                    collision: false,
                 },
                 building_preset_id: None, // 直接 primitive 测试仍是普通资产。
                 courtyard: None,          // 独立摆放记录不属于任何院落副本。
@@ -178,6 +179,7 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
                     mesh: 0,           // 身体Mesh0。
                     primitive: 0,      // 身体Primitive0。
                     material: Some(0), // 原材质不能补齐Skin绑定。
+                    collision: false,
                 }, // 完成直接primitive目标。
                 building_preset_id: None,        // 危险旧记录不伪造建筑目录身份。
                 courtyard: None,                 // 独立摆放记录不属于任何院落副本。

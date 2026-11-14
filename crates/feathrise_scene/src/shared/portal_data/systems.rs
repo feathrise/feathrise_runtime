@@ -631,7 +631,7 @@ mod tests {
             default_spawn: [7.0, 3.5, -9.0],             // 期望玩家实际生成的安全坐标。
             environment: SceneEnvironmentDescriptor::default(), // 目标解析不依赖环境资源。
             terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(),
-                kind: SceneTerrainKind::Heightfield, // 合法清单仍需提供完整地形描述。
+                kind: SceneTerrainKind::Gltf, // 合法清单仍需提供完整地形描述。
                 collision_mode: Default::default(), // 传送目标解析不读取Clipmap碰撞选择。
                 collision_lods: Vec::new(),        // GLB传送测试不消费稀疏碰撞配置。
                 display_lods: None,                // GLB传送测试不消费SparseClipmap显示配置。

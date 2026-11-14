@@ -74,6 +74,7 @@ fn state_with_candidate(
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
         terrain_roots: Vec::new(),
+        primitive_collision_roots: Vec::new(),
         root: staging_root,     // 当前唯一隐藏容器。
         roots: vec![candidate], // 最终完整复验只允许这一根。
         gate,                   // 候选期作者门保持关闭并与根共享。

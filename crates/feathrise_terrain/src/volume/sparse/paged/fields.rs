@@ -67,6 +67,8 @@ pub struct VolumeFieldSample {
 pub struct VolumeFieldSnapshot {
     pub cell_size: f32,
     pub samples: BTreeMap<[i32; 3], VolumeFieldSample>,
+    /// 同一空间格可包含薄壁两侧或两个近邻楼板；主样本保持旧查询路径，附加面不覆盖它。
+    pub additional_samples: BTreeMap<[i32; 3], Vec<VolumeFieldSample>>,
     base_heights: BTreeMap<[i32; 2], Vec<f32>>,
     geometry: ([u8; 32], [u8; 32]),
     // 原生盒体没有Clipmap冻结列，仍需为自动岩土提供统一的源坐标深度。
@@ -74,6 +76,12 @@ pub struct VolumeFieldSnapshot {
 }
 impl VolumeFieldSnapshot {
     pub fn empty(cell_size: f32) -> Self { Self { cell_size, ..Self::default() } }
+    pub fn iter_samples(&self) -> impl Iterator<Item = &VolumeFieldSample> {
+        self.samples.values().chain(self.additional_samples.values().flatten())
+    }
+    pub fn samples_at(&self, cell: &[i32; 3]) -> impl Iterator<Item = &VolumeFieldSample> {
+        self.samples.get(cell).into_iter().chain(self.additional_samples.get(cell).into_iter().flatten())
+    }
     pub fn with_native_geometry(mut self, density_identity: [u8; 32], top: f32) -> Self {
         self.geometry = (density_identity, [0; 32]);
         self.native_top = top.is_finite().then_some(top);
@@ -121,10 +129,7 @@ impl VolumeFieldSnapshot {
         for z in 0..=1 {
             for y in 0..=1 {
                 for x in 0..=1 {
-                    if let Some(value) = self
-                        .samples
-                        .get(&(cell + bevy::math::IVec3::new(x, y, z)).to_array())
-                    {
+                    for value in self.samples_at(&(cell + bevy::math::IVec3::new(x, y, z)).to_array()) {
                         let d = position.distance_squared(Vec3::from_array(value.position));
                         if d < distance && normal.dot(Vec3::from_array(value.normal)) > 0.25 {
                             best = Some(value);
@@ -142,6 +147,8 @@ impl VolumeFieldSnapshot {
 #[serde(deny_unknown_fields)]
 struct Block {
     samples: BTreeMap<u16, VolumeFieldSample>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    additional_samples: BTreeMap<u16, Vec<VolumeFieldSample>>,
 }
 
 /// IO冻结的局部作者块；计算worker只操作这些值，不能在密集投射循环中访问磁盘。
@@ -218,11 +225,11 @@ pub fn load_field_window(
 }
 
 fn decode(bytes: &[u8]) -> Result<Block, String> {
-    if bytes.len() > MAX_FIELD_BYTES || !bytes.starts_with(b"VFS1") {
+    if bytes.len() > MAX_FIELD_BYTES || !(bytes.starts_with(b"VFS1") || bytes.starts_with(b"VFS2")) {
         return Err("三维表面作者块格式或预算无效".into());
     }
     let block: Block = serde_json::from_slice(&bytes[4..]).map_err(|e| e.to_string())?;
-    for (&index, value) in &block.samples {
+    for (&index, value) in block.samples.iter().chain(block.additional_samples.iter().flat_map(|(index, values)| values.iter().map(move |value| (index, value)))) {
         if index >= 32768
             || !Vec3::from_array(value.position).is_finite()
             || !Vec3::from_array(value.normal).is_normalized()
@@ -260,7 +267,8 @@ fn decode(bytes: &[u8]) -> Result<Block, String> {
     Ok(block)
 }
 fn encode(block: &Block) -> Result<Vec<u8>, String> {
-    let mut raw = b"VFS1".to_vec();
+    // 旧单面块仍原样写VFS1；只有多面样本启用VFS2，新读取器同时接受两版。
+    let mut raw = if block.additional_samples.is_empty() { b"VFS1".to_vec() } else { b"VFS2".to_vec() };
     raw.extend(serde_json::to_vec(block).map_err(|e| e.to_string())?);
     if raw.len() > MAX_FIELD_BYTES {
         return Err("三维表面作者块超过2MiB预算".into());
@@ -396,13 +404,16 @@ pub fn decode_surface_fields(
         snapshot.base_heights.insert(p, heights);
     }
     for (p, raw) in bytes.fields {
-        for (index, value) in decode(&raw)?.samples {
+        let decoded = decode(&raw)?;
+        for (index, value) in decoded.samples.into_iter().map(|(index, value)| (index, vec![value]))
+            .chain(decoded.additional_samples) {
             let local = [
                 i32::from(index % 32),
                 i32::from(index / 32 % 32),
                 i32::from(index / 1024),
             ];
             let cell = std::array::from_fn(|i| p[i] * 32 + local[i]);
+            for value in value {
             if (Vec3::from_array(value.position) / volume.cell_size)
                 .round()
                 .as_ivec3()
@@ -411,7 +422,12 @@ pub fn decode_surface_fields(
             {
                 return Err("三维作者样本与格坐标不一致".into());
             }
-            snapshot.samples.insert(cell, value);
+            if let std::collections::btree_map::Entry::Vacant(entry) = snapshot.samples.entry(cell) {
+                entry.insert(value);
+            } else {
+                snapshot.additional_samples.entry(cell).or_default().push(value);
+            }
+            }
         }
     }
     Ok(snapshot)
@@ -529,7 +545,12 @@ pub fn prepare_field_paint(
                 if brush.world_distance(position - center) > brush.radius + brush.world_distance(Vec3::splat(step)) {
                     continue;
                 }
-                let Some((hit, n)) = project(position + normal * step * 1.5, -normal, step * 3.0)
+                // 先在点击层的切平面做极短投射。同格内的近邻楼板不能抢占下层候选；
+                // 弯曲面离开切平面后仍由原完整邻域投射与后续连通检查覆盖。
+                let plane = position + normal * (center - position).dot(normal);
+                let epsilon = (step * 0.0001).max(0.00001);
+                let Some((hit, n)) = project(plane + normal * epsilon, -normal, epsilon * 2.0)
+                    .or_else(|| project(position + normal * step * 1.5, -normal, step * 3.0))
                 else {
                     continue;
                 };
@@ -537,7 +558,10 @@ pub fn prepare_field_paint(
                     continue;
                 }
                 let cell = (hit / step).round().as_ivec3().to_array();
-                candidates.entry(cell).or_insert((hit, n, center));
+                let previous = candidates.entry(cell).or_insert((hit, n, center));
+                if brush.world_distance(hit - center) < brush.world_distance(previous.0 - previous.2) {
+                    *previous = (hit, n, center);
+                }
             }
         }
     }
@@ -587,9 +611,12 @@ pub fn prepare_field_paint(
                         continue;
                     };
                     let delta = q - p;
+                    // 同向平行楼板也可能只隔极小距离；固定半格容差会把它们误连。
+                    // 连通只允许法线变化解释得了的弯曲误差，平面法线相同时仅容忍数值误差。
+                    let bend = delta.length() * (n - m).length() * 0.5;
                     if n.dot(m) > 0.25
                         && delta.length_squared() <= step * step * 20.25
-                        && delta.dot((n + m).normalize()).abs() < step * 0.75
+                        && delta.dot((n + m).normalize()).abs() <= bend + (step * 0.0001).max(0.00001)
                     {
                         connected.insert(neighbor);
                         pending.push(neighbor);
@@ -604,20 +631,30 @@ pub fn prepare_field_paint(
         let Some(data) = blocks.get_mut(&block) else {
             return Err("三维表面投射越出冻结邻域".into());
         };
-        let before = data.samples.get(&index).cloned();
-        let sample = data
-            .samples
-            .entry(index)
-            .or_insert_with(|| VolumeFieldSample {
+        let matches_surface = |sample: &VolumeFieldSample| {
+            let known_normal = Vec3::from_array(sample.normal);
+            let delta = hit - Vec3::from_array(sample.position);
+            known_normal.dot(n) > 0.25
+                && delta.dot((known_normal+n).normalize()).abs() <= (step*0.0001).max(0.00001)
+        };
+        let new_sample = || VolumeFieldSample {
                 position: hit.to_array(),
                 normal: n.to_array(),
                 surface: Vec::new(),
                 vegetation: Vec::new(),
                 puddles: 0,
+            };
+        let primary = data.samples.get(&index).is_none_or(matches_surface);
+        let sample = if primary {
+            data.samples.entry(index).or_insert_with(new_sample)
+        } else {
+            let surfaces = data.additional_samples.entry(index).or_default();
+            let slot = surfaces.iter().position(matches_surface).unwrap_or_else(|| {
+                surfaces.push(new_sample()); surfaces.len()-1
             });
-        if Vec3::from_array(sample.normal).dot(n) < 0.25 {
-            continue;
-        }
+            &mut surfaces[slot]
+        };
+        let before = (!sample.surface.is_empty() || !sample.vegetation.is_empty() || sample.puddles > 0).then(|| sample.clone());
         sample.position = hit.to_array();
         sample.normal = n.to_array();
         let amount = field_paint_response(
@@ -663,7 +700,11 @@ pub fn prepare_field_paint(
         block
             .samples
             .retain(|_, s| !s.surface.is_empty() || !s.vegetation.is_empty() || s.puddles > 0);
-        let bytes = if block.samples.is_empty() {
+        block.additional_samples.retain(|_, samples| {
+            samples.retain(|s| !s.surface.is_empty() || !s.vegetation.is_empty() || s.puddles > 0);
+            !samples.is_empty()
+        });
+        let bytes = if block.samples.is_empty() && block.additional_samples.is_empty() {
             Vec::new()
         } else {
             encode(&block)?

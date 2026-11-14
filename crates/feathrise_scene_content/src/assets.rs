@@ -47,6 +47,9 @@ pub struct SceneCatalogEntry {
     /// false表示编辑草稿，只在编辑器显示；true表示可被游戏运行时进入。
     #[serde(default)]
     pub published: bool,
+    /// 场景摆放使用私有 scene.glb。缺省时沿用已存在的 JSON 工程。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub placements_glb: bool,
     /// 可选地表作者文件；旧场景未声明时继续使用自己的既有适配器。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface_path: Option<String>,
@@ -88,7 +91,7 @@ impl SceneCatalogEntry {
         format!(
             "{}/{}",
             self.folder.trim_end_matches('/'),
-            crate::SCENE_PLACEMENTS_FILE_NAME
+            if self.placements_glb { crate::SCENE_PLACEMENTS_GLB_FILE_NAME } else { crate::SCENE_PLACEMENTS_FILE_NAME }
         )
     }
 }
@@ -143,6 +146,9 @@ pub struct SceneVegetationAsset {
     /// 可选作者图层图；缺少时F12从正式层无损生成一对一作者层，运行时始终忽略该字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authoring: Option<SceneVegetationAuthoring>,
+    /// 模型种植面与二维密度共用图层规则；稳定对象身份不依赖碰撞或地形容器。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_surfaces: std::sync::Arc<Vec<std::sync::Arc<crate::ModelSurfaceVegetation>>>,
 }
 
 impl Default for SceneVegetationAsset {
@@ -152,6 +158,7 @@ impl Default for SceneVegetationAsset {
             scene_id: SceneId::default(),
             layers: Vec::new(),
             authoring: None,
+            model_surfaces: Vec::new().into(),
         }
     }
 }
@@ -495,7 +502,7 @@ pub struct SceneTerrainDescriptor {
     /// 单网格投影的派生约束；只保存对象上的互指作者关系，不把派生数据重复写进源描述。
     #[serde(skip_serializing)]
     pub resolved_stitches: std::sync::Arc<[crate::ClipmapEdgeProfile]>,
-    /// 现有场景为GLTF；动态Heightfield表示“完整GLB三维地形 + 运行时最高表面高度缓存”。
+    /// GLTF保留已有三维地形来源；可编辑高度地形统一由SparseClipmap提供。
     pub kind: SceneTerrainKind,
     /// 只兼容读取旧模式名；运行时唯一使用多层共享碰撞。
     #[serde(default, skip_serializing)] // 仅兼容旧文件读取；唯一新路线无需再保存模式字段。
@@ -716,6 +723,9 @@ pub enum ScenePlacementAssetTarget {
         /// `Some`使用`MaterialN/std`，`None`使用`DefaultMaterial/std`。
         #[serde(default, skip_serializing_if = "Option::is_none")]
         material: Option<u32>,
+        /// GLB 节点可显式启用与可见网格同源的静态碰撞。
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        collision: bool,
     },
     /// 内置参数化立方体；整数规格使撤销、缓存和保存证明具有精确身份，不依赖外部GLB。
     Cuboid {
@@ -758,6 +768,11 @@ impl ScenePlacementAssetTarget {
     /// 内置几何无需磁盘模型路径或AssetServer依赖。
     pub const fn is_builtin(self) -> bool {
         matches!(self, Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. })
+    }
+
+    /// GLB 节点的碰撞使用实际网格，跟随 Blender 的形状变化。
+    pub const fn has_primitive_collision(self) -> bool {
+        matches!(self, Self::Primitive { collision: true, .. })
     }
 
     /// 固定大小参数在作者预览、保存及正式采用前共用同一合法范围。

@@ -125,7 +125,7 @@ fn identity(patch:&SurfaceTrailPatch)->ClipmapSurfaceOverlayIdentity {
 #[cfg(test)] mod tests {
     use super::*;
     fn patch()->SurfaceTrailPatch {SurfaceTrailPatch{scene_id:SceneId::parse("M1-TEST").unwrap(),terrain_id:None,terrain_revision:1,
-        author_revision:1,surface_revision:1,source_epoch:1,source_to_world:Mat4::IDENTITY.to_cols_array(),terrain_kind:SceneTerrainKind::Heightfield,
+        author_revision:1,surface_revision:1,source_epoch:1,source_to_world:Mat4::IDENTITY.to_cols_array(),terrain_kind:SceneTerrainKind::Gltf,
         visible:true,reset:true,block:2,block_revision:1,rgba:vec![17;SURFACE_TRAIL_BLOCK_BYTES]}}
     #[test] fn surface_trail_preparation_preserves_original_rgba_and_rejects_unbased_blocks() {
         let source=patch();let prepared=prepare(SURFACE_TRAIL_FORMAT,&encode_surface_trail(&source).unwrap(),&source.scene_id).unwrap();
@@ -146,7 +146,7 @@ fn identity(patch:&SurfaceTrailPatch)->ClipmapSurfaceOverlayIdentity {
         state.receive(&mut world,prepare(SURFACE_TRAIL_FORMAT,&encode_surface_trail(&source).unwrap(),&source.scene_id).unwrap()).unwrap();
         assert!(!state.adopt_source(&mut world,None).unwrap(),"没有实际地形仍不能回ACK");
         assert!(!state.adopt_source(&mut world,Some((mesh.clone(),Mat4::IDENTITY,SceneTerrainKind::SparseClipmap))).unwrap(),"真实几何类型仍须匹配");
-        assert!(state.adopt_source(&mut world,Some((mesh.clone(),Mat4::IDENTITY,SceneTerrainKind::Heightfield))).unwrap());
+        assert!(state.adopt_source(&mut world,Some((mesh.clone(),Mat4::IDENTITY,SceneTerrainKind::Gltf))).unwrap());
         let entity=state.entity.unwrap();
         assert_eq!(world.get::<Mesh3d>(entity).unwrap().0.id(),mesh.id());
         assert!(world.get::<Transform>(entity).unwrap().to_matrix().abs_diff_eq(original.to_matrix(),0.0005));

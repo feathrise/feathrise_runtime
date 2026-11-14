@@ -35,6 +35,8 @@ pub const SCENE_PORTALS_FILE_NAME: &str = "portals.scene_portals.json";
 
 /// 单个场景目录内的显式实例文件名。
 pub const SCENE_PLACEMENTS_FILE_NAME: &str = "placements.scene_placements.json";
+/// 场景私有 GLB，同时承载静态布景的网格、材质和摆放节点。
+pub const SCENE_PLACEMENTS_GLB_FILE_NAME: &str = "scene.glb";
 
 /// 单个场景目录内的地表层与RGBA权重作者文件名。
 pub const SCENE_SURFACE_FILE_NAME: &str = "surface.scene_surface.json";

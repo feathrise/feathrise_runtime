@@ -14,6 +14,23 @@ pub enum TerrainObjectRaySnapshot {
     Mesh(Collider, SceneSourceFrame),
 }
 impl TerrainObjectRaySnapshot {
+    /// 作者载体分类只针对同次最近命中；公共表面可命中并不等于需要三维字段。
+    pub fn ray_hit_is_three_dimensional(&self, origin: Vec3, direction: Vec3, point: Vec3) -> bool {
+        match self {
+            // 直接读取公共最近面选择的来源；后方即使只差半毫米也不能获得三维资格。
+            // 查询仍在原单飞后台槽，局部最大交距与公共法线查询使用相同缩放。
+            Self::Clipmap(ground, frame) => {
+                let Some(direction) = direction.try_normalize() else { return false; };
+                let local_origin = frame.to_local(origin);
+                let local_direction = frame.world_to_source.transform_vector3(direction);
+                let scale = local_direction.length();
+                ground.ray_surface_with_kind(local_origin, local_direction / scale, 1_000_000.0 * scale)
+                    .is_some_and(|(surface, _, volume)| volume && frame.to_world(surface).distance(point) < 0.05)
+            }
+            Self::Mesh(..) => self.ray_surface(origin, direction, 1_000_000.0)
+                .is_some_and(|(surface, _)| surface.distance(point) < 0.05),
+        }
+    }
     /// 字段投射也使用真实三维面与逆转置法线；调用方在worker中执行密集射线。
     pub fn ray_surface(&self, origin: Vec3, direction: Vec3, maximum: f32) -> Option<(Vec3,Vec3)> {
         let direction = direction.try_normalize()?;
@@ -25,7 +42,7 @@ impl TerrainObjectRaySnapshot {
             Self::Clipmap(ground, frame) => {
                 let local_direction = frame.world_to_source.transform_vector3(direction);
                 let scale = local_direction.length();
-                let (point,normal) = ground.three_dimensional_hit(frame.to_local(origin), local_direction/scale, maximum*scale)?;
+                let (point,normal) = ground.ray_surface(frame.to_local(origin), local_direction/scale, maximum*scale)?;
                 Some((frame.to_world(point), frame.world_to_source.transpose().transform_vector3(normal).try_normalize()?))
             }
         }
@@ -110,14 +127,16 @@ impl TerrainObjectRaySnapshot {
                     _ => None,
                 }
             }
-            Self::Mesh(collider, frame) => {
-                let ray = avian3d::parry::query::Ray::new(frame.to_local(origin), frame.world_to_source.transform_vector3(direction));
-                let distance = collider.shape().cast_local_ray(&ray, 1_000_000.0, false)?;
-                Some(origin + direction * distance)
-            }
+            // 薄板实测中Parry的仅距离查询与完整面查询会出现分歧；拾取和种植资格
+            // 必须复用同一次真实三角面命中，不扰动射线或增厚来源来掩盖空命中。
+            Self::Mesh(..) => self.ray_surface(origin, direction, 1_000_000.0).map(|(point, _)| point),
         }
     }
 }
+
+#[cfg(test)]
+#[path = "terrain_surface_kind_tests.rs"]
+mod surface_kind_tests;
 
 fn source_up_is_world_up(frame: SceneSourceFrame) -> bool {
     frame.source_to_world.transform_vector3(Vec3::Y).try_normalize()
@@ -154,6 +173,20 @@ pub struct TerrainSurfaceVersion {
 impl TerrainSurfaceVersion {
     pub fn same_content(&self, other: &Self) -> bool {
         self.entity == other.entity && self.collider == other.collider && self.content == other.content && self.frame == other.frame
+    }
+    /// 几何修订不含相机换页和对象姿态；公共表面命中仍另带完整实例地址与局部坐标。
+    pub fn geometry_revision(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        digest.update(self.entity.to_bits().to_le_bytes());
+        if let Some((entity, revision)) = self.collider {
+            digest.update([1]); digest.update(entity.to_bits().to_le_bytes()); digest.update(revision.to_le_bytes());
+        } else { digest.update([0]); }
+        if let Some((words, ready)) = self.content {
+            digest.update([1, u8::from(ready)]);
+            for word in words { digest.update(word.to_le_bytes()); }
+        } else { digest.update([0]); }
+        digest.finalize().into()
     }
 }
 impl TerrainObjectQueries<'_, '_> {
@@ -194,6 +227,20 @@ impl TerrainObjectQueries<'_, '_> {
     pub fn instance(&self, owner: &SceneId, id: &TerrainId) -> Option<Entity> {
         self.instance_source(owner, id).map(|(entity, _, _)| entity)
     }
+    /// 显式诊断只克隆已采用显示查询及小身份；三角摘要和射线仍须由调用方放入后台。
+    #[cfg(feature = "test_panel")]
+    pub fn voxel_diagnostic_snapshot(&self, owner: &SceneId, id: &TerrainId)
+        -> Option<(Collider, SceneSourceFrame, serde_json::Value)> {
+        let (entity, _, frame) = self.instance_source(owner, id)?;
+        let runtime = self.voxels.as_ref()?.values.get(&entity)?;
+        Some((runtime.display_query.clone()?, frame, runtime.diagnostic_identity()))
+    }
+    /// 仅报告该已采用地形实例的正式碰撞发布门；显示查询不能代替物理完成证据。
+    pub fn collision_is_ready(&self, owner: &SceneId, id: &TerrainId) -> bool {
+        let Some(entity) = self.instance(owner, id) else { return false; };
+        self.scenes.as_ref().and_then(|table| table.values.get(&entity))
+            .is_some_and(|map| map.active_scene_id.as_ref() == Some(owner) && map.collision_ready)
+    }
     /// 活动地址表可能晚于退役实体失效；父级查询须同时证明真实身份、启用状态和活动批次。
     /// 返回已采用定义与完整源矩阵，供作者比较类型和姿态，不能把旧父级冒充新作者框架。
     pub fn instance_source(&self, owner: &SceneId, id: &TerrainId)
@@ -226,9 +273,6 @@ impl TerrainObjectQueries<'_, '_> {
                 if applied.scene_id != *owner || Some(applied.root) != map.root { return None; }
                 clipmap.display?
             }
-            feathrise_scene_content::SceneTerrainKind::Heightfield => {
-                map.terrain_display?
-            }
             feathrise_scene_content::SceneTerrainKind::Voxel => {
                 // 首块只证明共同顶点布局，足够GPU材质预热；不能代表整套体素块辅助覆盖。
                 let root = self.voxels.as_ref()?.values.get(&entity)?.active?;
@@ -248,8 +292,6 @@ impl TerrainObjectQueries<'_, '_> {
             let applied = clipmap.applied.as_ref()?;
             if applied.scene_id != *owner || Some(applied.root) != map.root { return None; }
             (clipmap.display?, feathrise_scene_content::SceneTerrainKind::SparseClipmap)
-        } else if map.derive_glb_height {
-            (map.terrain_display?, feathrise_scene_content::SceneTerrainKind::Heightfield)
         } else { return None; };
         let (mesh, local) = self.render_meshes.get(display).ok()?;
         Some((mesh.0.clone(), local.to_matrix(), kind))
@@ -264,8 +306,24 @@ impl TerrainObjectQueries<'_, '_> {
         self.snapshot_versioned(entity, owner).map(|(object, snapshot, _)| (object.id.clone(), snapshot))
     }
     pub fn snapshot_versioned(&self, entity: Entity, owner: &SceneId) -> Option<(std::sync::Arc<feathrise_scene_content::SceneTerrainObject>, TerrainObjectRaySnapshot, TerrainSurfaceVersion)> {
+        let (instance, _, _) = self.definitions.get(entity).ok()?;
+        if !instance.path.instances.is_empty() { return None; }
+        self.snapshot_at(entity, owner, &instance.path)
+    }
+    /// 通过完整地址读取种植表面，兄弟子场景不能以相同 TerrainId 借用彼此的变换。
+    pub fn paint_surface_snapshot(&self, path: &feathrise_scene_content::SceneInstancePath) -> Option<crate::paint_surface::PaintSurfaceSnapshot> {
+        let entity = self.runtime.as_ref()?.active_entity(path)?;
+        let (instance, _, _) = self.definitions.get(entity).ok()?;
+        let (object, geometry, version) = self.snapshot_at(entity, &instance.source_scene_id, path)?;
+        Some(crate::paint_surface::PaintSurfaceSnapshot {
+            target: feathrise_scene_content::SurfaceTarget::Terrain { terrain_id: object.id.clone() },
+            instance_path: path.clone(), geometry_revision: version.geometry_revision(),
+            geometry: crate::paint_surface::PaintSurfaceGeometry::Terrain(geometry),
+        })
+    }
+    fn snapshot_at(&self, entity: Entity, owner: &SceneId, path: &feathrise_scene_content::SceneInstancePath) -> Option<(std::sync::Arc<feathrise_scene_content::SceneTerrainObject>, TerrainObjectRaySnapshot, TerrainSurfaceVersion)> {
         let (instance, object, frame) = self.definitions.get(entity).ok()?;
-        if &instance.source_scene_id != owner || !instance.path.instances.is_empty() || !self.active.contains(instance.batch) { return None; }
+        if &instance.source_scene_id != owner || instance.path != *path || !object.definition.enabled || !self.active.contains(instance.batch) { return None; }
         if let Some(snapshot) = self.ground.as_ref().and_then(|table| table.values.get(&entity)).and_then(|surface| surface.snapshot.clone()) {
             let version = TerrainSurfaceVersion { entity, collider: None,
                 content: Some((snapshot.content_revision_words(), snapshot.ready)),

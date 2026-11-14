@@ -391,7 +391,7 @@ fn field_buffer(
 ) -> Result<bevy::render::storage::ShaderBuffer, String> {
     feathrise_environment::terrain_surface::build_volume_fields_with_puddles(
         snapshot.cell_size,
-        snapshot.samples.values().map(|sample| {
+        snapshot.iter_samples().map(|sample| {
             (
                 sample.position,
                 sample.normal,
@@ -447,3 +447,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "native_source_tests.rs"]
+mod native_source_tests;

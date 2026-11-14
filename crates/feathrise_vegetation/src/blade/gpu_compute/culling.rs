@@ -12,6 +12,7 @@ const INACTIVE_HALF_SPACE_DISTANCE: f32 = 1.0e30; // 非法或无穷远平面替
 const GRASS_VIEW_MODE_DISABLED: f32 = 0.0; // 无视图或多视图时连六平面、投影LOD与近镜头避让都保守禁用。
 const GRASS_VIEW_MODE_LEGACY: f32 = 1.0; // 唯一兼容视图只启用现有六平面剔除并继续使用玩家径向LOD。
 const GRASS_VIEW_MODE_SCREEN_SPACE: f32 = 2.0; // 唯一有效透视视图同时启用六平面、投影LOD与近镜头整株避让。
+const GRASS_VIEW_MODE_ORTHOGRAPHIC: f32 = 3.0; // 正交视图使用同一像素LOD，但像素比例不再除以相机深度；沿用既有uniform布局。
 
 /// 与WGSL `GrassViewCulling`严格一致的304字节共享相机数据。
 #[repr(C)] // 向量与扩展数组在Rust、ShaderType和WGSL中都保持声明顺序和十六字节字段边界。
@@ -19,7 +20,7 @@ const GRASS_VIEW_MODE_SCREEN_SPACE: f32 = 2.0; // 唯一有效透视视图同时
 pub(super) struct GpuBladeViewCullingUniform {
     pub(super) frustum_planes: [Vec4; 6], // 左、右、上、下、近、远六平面法线及有符号距离。
     pub(super) camera_position_enabled: Vec4, // xyz保留玩法相机世界位置，w为禁用、兼容或屏幕空间明确模式值。
-    pub(super) camera_forward_pixel_scale: Vec4, // xyz为世界前向，w为单位深度下一米投影到物理像素的比例。
+    pub(super) camera_forward_pixel_scale: Vec4, // xyz为世界前向；w为透视单位深度或正交恒定的一米物理像素比例。
     pub(super) lod_pixel_thresholds: Vec4,       // xy为远转中开始/结束，zw为中转近开始/结束。
     pub(super) lod_ultra_pixel_thresholds: Vec4, // xy为超远转入既有远级子树开始/结束，zw保留。
     pub(super) camera_fade_lod_params: Vec4, // xy为近镜头整株避让范围，z为参考草高，w为统一最细草格。
@@ -60,15 +61,18 @@ impl GpuBladeViewCullingUniform {
         resolution_override: Option<&MainPassResolutionOverride>,
     ) -> Self {
         let viewport_height = main_pass_viewport_height(view.viewport.w, resolution_override); // 固定渲染比例启用时LOD必须跟随真实着色像素而非窗口高度。
-        let pixel_scale = perspective_pixel_scale(view.clip_from_view, viewport_height); // 只接受有限的标准透视投影与非零物理视口高度。
-        let screen_space_enabled = grass_view.uses_screen_space_lod() && pixel_scale.is_some(); // 投影无效时保守回退现有玩家径向LOD。
-        let mode = if screen_space_enabled {
-            GRASS_VIEW_MODE_SCREEN_SPACE // 后续WGSL可用大于一点五明确区分屏幕空间路径。
+        let screen_projection = if grass_view.uses_screen_space_lod() {
+            perspective_pixel_scale(view.clip_from_view, viewport_height)
+                .map(|scale| (GRASS_VIEW_MODE_SCREEN_SPACE, scale))
+                .or_else(|| orthographic_pixel_scale(view.clip_from_view, viewport_height)
+                    .map(|scale| (GRASS_VIEW_MODE_ORTHOGRAPHIC, scale)))
         } else {
-            GRASS_VIEW_MODE_LEGACY // 唯一视图仍允许现有六平面剔除，不因投影不支持而扩大GPU扫描。
-        }; // 完成不复用布尔歧义的GPU模式选择。
-        let camera_forward_pixel_scale = match (screen_space_enabled, pixel_scale) {
-            (true, Some(pixel_scale)) => {
+            None
+        }; // 作者正交视图不能永久停在首帧祖先托底，否则小范围种植会被最远档稀疏预算清空。
+        let screen_space_enabled = screen_projection.is_some();
+        let mode = screen_projection.map_or(GRASS_VIEW_MODE_LEGACY, |(mode, _)| mode);
+        let camera_forward_pixel_scale = match screen_projection {
+            Some((_, pixel_scale)) => {
                 view.world_from_view.forward().as_vec3().extend(pixel_scale)
             } // 世界前向与同一视图的物理像素比例必须成对生效。
             _ => Vec4::ZERO, // 兼容模式不向尚未接入的投影LOD暴露半套相机参数。
@@ -80,7 +84,7 @@ impl GpuBladeViewCullingUniform {
             camera_position_enabled: view.world_from_view.translation().extend(mode), // xyz与明确模式共享一个十六字节槽。
             camera_forward_pixel_scale, // 屏幕空间模式提供相机前向与物理像素比例，兼容模式保持全零。
             lod_pixel_thresholds: if screen_space_enabled {
-                grass_view.lod_pixel_thresholds() // 只有完整有效的唯一透视视图才能启用配置阈值。
+                grass_view.lod_pixel_thresholds() // 只有完整有效的唯一投影视图才能启用配置阈值。
             } else {
                 Vec4::ZERO // 保守回退禁止错误阈值被后续着色器误用。
             },
@@ -193,7 +197,7 @@ fn perspective_pixel_scale(clip_from_view: Mat4, viewport_height: u32) -> Option
         return None; // 最小化窗口或目标尚未建立时禁止产生零除或伪造投影LOD。
     } // 完成视口高度快速保护。
     if !clip_from_view.is_finite() || clip_from_view.w_axis.w.abs() > 0.0001 {
-        return None; // Bevy标准透视矩阵w轴w为零，正交或自定义矩阵保守回退兼容模式。
+        return None; // Bevy标准透视矩阵w轴w为零；正交留给独立分支，其他自定义投影回退兼容模式。
     } // 完成投影类型与有限性检查。
     let vertical_projection_scale = clip_from_view.y_axis.y.abs(); // 标准透视矩阵该项等于一除以二分之一垂直视场角正切。
     let pixel_scale = vertical_projection_scale * viewport_height as f32 * 0.5; // NDC负一到正一对应完整物理视口高度。
@@ -202,6 +206,20 @@ fn perspective_pixel_scale(clip_from_view: Mat4, viewport_height: u32) -> Option
     } else {
         None // 退化投影不得进入屏幕空间LOD或近镜头避让模式。
     } // 完成有限正比例检查。
+}
+
+/// 标准正交投影的一米像素数只取决于缩放和真实视口，不依赖为容纳场景而后移的相机。
+fn orthographic_pixel_scale(clip_from_view: Mat4, viewport_height: u32) -> Option<f32> {
+    if viewport_height == 0 || !clip_from_view.is_finite()
+        || (clip_from_view.w_axis.w - 1.0).abs() > 0.0001
+        || clip_from_view.x_axis.w.abs() > 0.0001
+        || clip_from_view.y_axis.w.abs() > 0.0001
+        || clip_from_view.z_axis.w.abs() > 0.0001
+    {
+        return None; // 未识别的自定义投影继续保守回退，不能把透视参数当作正交比例。
+    }
+    let pixel_scale = clip_from_view.y_axis.y.abs() * viewport_height as f32 * 0.5;
+    (pixel_scale.is_finite() && pixel_scale > 0.0).then_some(pixel_scale)
 }
 
 /// 把Bevy无限远平面或任何非有限值转换为不会错误剔除的有限平面。
@@ -317,6 +335,21 @@ mod tests {
         let override_size = MainPassResolutionOverride(UVec2::new(1286, 724)); // 模拟 1080p 的 67% 固定比例。
         assert_eq!(main_pass_viewport_height(1080, Some(&override_size)), 724); // 草地必须按真实低分辨率主通道选择 LOD。
         assert_eq!(main_pass_viewport_height(1080, None), 1080); // 原生路径继续使用完整窗口物理高度。
+    }
+
+    #[test]
+    fn orthographic_pixels_follow_zoom_and_physical_resolution_without_depth() {
+        let projection = Mat4::orthographic_rh(-10.0, 10.0, -4.0, 4.0, 0.1, 133.0);
+        assert_eq!(orthographic_pixel_scale(projection, 1000), Some(125.0));
+        let wider = Mat4::orthographic_rh(-20.0, 20.0, -8.0, 8.0, 0.1, 10_000.0);
+        assert_eq!(orthographic_pixel_scale(wider, 1000), Some(62.5));
+        assert_eq!(orthographic_pixel_scale(projection, 500), Some(62.5));
+        assert_eq!(orthographic_pixel_scale(projection, 0), None);
+        assert_eq!(orthographic_pixel_scale(Mat4::perspective_infinite_reverse_rh(
+            std::f32::consts::FRAC_PI_4, 1.0, 0.1), 1000), None);
+        let mut invalid = projection;
+        invalid.z_axis.w = -0.1;
+        assert_eq!(orthographic_pixel_scale(invalid, 1000), None);
     }
 
     #[test]

@@ -1,7 +1,6 @@
 //! 数据驱动显式场景实例运行时。
 //!
-//! 编辑器写入每图`placements.scene_placements.json`，本模块在完整校验后原子替换
-//! GLB/GLTF实例根；草、麦等批量植被仍走各自密度系统，不滥用显式实例文件。
+//! 编辑器写入每图摆放文件，本模块在完整校验后原子替换 GLB/GLTF 实例根。
 
 use feathrise_scene_core::residency::SceneInstanceContextAppExt; // 父资源与子实例资源表共同参加场景驻留。
 use feathrise_scene_core::residency::SceneResidencyAppExt;
@@ -79,7 +78,7 @@ pub(crate) use systems::{
 pub fn building_placement_collision(
     record: &ScenePlacementRecord,
 ) -> Option<(RigidBody, ColliderConstructorHierarchy)> {
-    if record.building_preset_id.is_none() {
+    if record.building_preset_id.is_none() || record.asset_target.has_primitive_collision() {
         return None; // 普通资产保持既有无隐式碰撞语义；三维地形必须保留真实空腔。
     }
     Some((

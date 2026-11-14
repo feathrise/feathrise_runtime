@@ -106,11 +106,6 @@ fn clipmap_cell(p: vec2<f32>, cell: vec2<i32>, band_index: u32) -> vec2<f32> { /
     let b = clipmap_corner(q + vec2<f32>(0.0, 1.0), level, inner); // 左上角。
     let c = clipmap_corner(q + vec2<f32>(1.0, 1.0), level, inner); // 右上角。
     let d = clipmap_corner(q + vec2<f32>(1.0, 0.0), level, inner); // 右下角。
-    if side < 0 { // 大部分候选仅走两三角和三次高度采样。
-        let first = clipmap_triangle(p, a, b, d); // 与模板 [a,c,b] 实际坐标绕序相同。
-        if first.y > 0.5&&!stitches_active() { return first; } // 普通网格仍走首次命中的快路径。
-        return clipmap_highest(first,clipmap_triangle(p, d, b, c));
-    } // 完成常规格快速路径。
     var midpoint = vec2<f32>(0.0, 0.5); // Naga 29 Vulkan ArrayStride 兼容：避免只需四项的函数局部数组。
     switch side { // 四条可拆内边与原静态拓扑完全一致。
         case 1: { midpoint = vec2<f32>(0.5, 1.0); } // 上内边。
@@ -118,20 +113,25 @@ fn clipmap_cell(p: vec2<f32>, cell: vec2<i32>, band_index: u32) -> vec2<f32> { /
         case 3: { midpoint = vec2<f32>(0.5, 0.0); } // 下内边。
         default: {} // 默认左内边。
     } // 依赖修复后可撤销兼容展开，不改变任何候选散布规则。
-    let seam = clipmap_vertex(q + midpoint, level, true); // 内边细格中点和细层同位同高。
-    let center = clipmap_vertex(q + vec2<f32>(0.5), level, false); // 粗中心固定在当前层中心，不随细边滑动。
-    for (var edge = 0u; edge < 4u; edge += 1u) { // 四条边中一条拆成两段，共五个真实三角。
-        let next = (edge + 1u) % 4u; // 多边形闭合。
-        if edge == u32(side) { // 内边包含额外细格中点。
-            let first = clipmap_triangle(p, center, clipmap_polygon_corner(edge, a, b, c, d), seam); // 内缘第一扇形面。
-            if first.y > 0.5 {if !stitches_active(){return first;}nearest=clipmap_highest(nearest,first);}
-            let second = clipmap_triangle(p, center, seam, clipmap_polygon_corner(next, a, b, c, d)); // 内缘第二扇形面。
-            if second.y > 0.5 {if !stitches_active(){return second;}nearest=clipmap_highest(nearest,second);}
-        } else { // 其余三条完整边。
-            let result = clipmap_triangle(p, center, clipmap_polygon_corner(edge, a, b, c, d), clipmap_polygon_corner(next, a, b, c, d)); // 普通扇形面。
-            if result.y > 0.5 {if !stitches_active(){return result;}nearest=clipmap_highest(nearest,result);}
-        } // 完成单边检查。
-    } // 完成固定五角拓扑检查。
+    var seam=vec3<f32>(0.0);var center=vec3<f32>(0.0);
+    if side>=0 { // 常规格不需要计算扇形中点。
+        seam=clipmap_vertex(q + midpoint, level, true); // 内边细格中点和细层同位同高。
+        center=clipmap_vertex(q + vec2<f32>(0.5), level, false); // 粗中心固定在当前层中心，不随细边滑动。
+    }
+    let stitched=stitches_active();
+    // 普通格两面、内缘格五面保持原顺序；共用一次调用点，避免FXC反复内联整套取高与接缝查询。
+    for(var triangle=0u;triangle<select(2u,5u,side>=0);triangle+=1u) {
+        var ta=a;var tb=b;var tc=d;
+        if side<0 {
+            if triangle==1u {ta=d;tc=c;} // 正式模板顺序仍为[a,b,d]、[d,b,c]。
+        } else {
+            let split=u32(side);let edge=select(triangle,triangle-1u,triangle>split);
+            ta=center;tb=clipmap_polygon_corner(edge,a,b,c,d);tc=clipmap_polygon_corner((edge+1u)%4u,a,b,c,d);
+            if triangle==split {tc=seam;} else if triangle==split+1u {tb=seam;}
+        }
+        let result=clipmap_triangle(p,ta,tb,tc);
+        if result.y>0.5 {if !stitched{return result;}nearest=clipmap_highest(nearest,result);}
+    }
     return nearest; // 没有有效正面时保持禁草。
 } // 完成有限单元查询。
 
@@ -151,35 +151,30 @@ fn sample_clipmap_envelope(p:vec2<f32>)->vec2<f32> {
     var nearest=vec2<f32>(0.0); // 收敛角落可有多个投影面，与地形深度缓冲同取最高有效正面。
     if any(p < blade_clipmap.scene_bounds.xy) || any(p > blade_clipmap.scene_bounds.zw) { return vec2<f32>(0.0); } // 场景外不生成草。
     let band_count = min(u32(blade_clipmap.options.z), 16u); // 作者编译硬门之外再防御损坏uniform。
+    let stitched=stitches_active();
     for (var band_index = 0u; band_index < band_count; band_index += 1u) { // 可变边界不能再由固定64半格公式反推级别。
         let level = u32(blade_clipmap.options.w) + band_index; // 相邻环带倍率逐级翻倍。
         let limits = blade_clipmap.bands[band_index]; // 当前两轴内外半径。
         let step = blade_clipmap.grid.xy * exp2(f32(level)); // 当前几何格距。
         let local = (p - clipmap_center(level)) / step; // 当前层普通网格局部坐标。
-        if any(abs(local) > vec2<f32>(limits.zw)) && !stitches_active() { continue; }
-        let cell = vec2<i32>(floor(local)); // 普通区域唯一可能单元。
-        let direct = clipmap_cell(p, cell, band_index); // 非接缝只检查该格。
-        if direct.y > 0.5 {if !stitches_active(){return direct;}if nearest.y<0.5||direct.x>nearest.x{nearest=direct;}}
-        for (var z = -1; z <= 1; z += 1) { // 内缘中心偏移不超过半个粗格，最多九个邻格。
-            for (var x = -1; x <= 1; x += 1) { // 不扫描完整环带或整图。
-                if x == 0 && z == 0 { continue; } // 已检查中心格。
-                let result = clipmap_cell(p, cell + vec2<i32>(x, z), band_index); // 包含角点变形及五角扇形。
-                if result.y > 0.5 {if !stitches_active(){return result;}if nearest.y<0.5||result.x>nearest.x{nearest=result;}}
-            } // 完成固定局部邻格 X 检查。
-        } // 完成固定局部邻格 Z 检查。
-        if stitches_active() {
-            for(var candidate=1u;candidate<16u;candidate+=1u) {
-                let source=stitch_candidate(p,blade_clipmap.scene_bounds,step,clipmap_center(level),candidate);
+        if any(abs(local) > vec2<f32>(limits.zw)) && !stitched { continue; }
+        // 中心格与逆接缝格共用单一查询点；每个来源仍先查中心，再按原Z/X顺序查八邻格。
+        for(var candidate=0u;candidate<select(1u,16u,stitched);candidate+=1u) {
+            var source=p;
+            if candidate>0u {
+                source=stitch_candidate(p,blade_clipmap.scene_bounds,step,clipmap_center(level),candidate);
                 if (candidate%4u>0u&&abs(source.x-p.x)<0.000001)||(candidate/4u>0u&&abs(source.y-p.y)<0.000001){continue;}
                 if all(abs(source-p)<vec2<f32>(0.000001)){continue;}
-                let inverse_cell=vec2<i32>(floor((source-clipmap_center(level))/step));
-                let inverse_direct=clipmap_cell(p,inverse_cell,band_index);
-                if inverse_direct.y>0.5&&(nearest.y<0.5||inverse_direct.x>nearest.x){nearest=inverse_direct;}
-                for(var dz=-1;dz<=1;dz+=1){for(var dx=-1;dx<=1;dx+=1){
-                    if dx==0&&dz==0{continue;}
-                    let result=clipmap_cell(p,inverse_cell+vec2<i32>(dx,dz),band_index);
-                    if result.y>0.5&&(nearest.y<0.5||result.x>nearest.x){nearest=result;}
-                }}
+            }
+            let cell=vec2<i32>(floor((source-clipmap_center(level))/step));
+            for(var neighbor=0u;neighbor<9u;neighbor+=1u) {
+                var offset=vec2<i32>(0);
+                if neighbor>0u {
+                    let grid_index=neighbor-1u+select(0u,1u,neighbor>4u);
+                    offset=vec2<i32>(i32(grid_index%3u)-1,i32(grid_index/3u)-1);
+                }
+                let result=clipmap_cell(p,cell+offset,band_index);
+                if result.y>0.5 {if !stitched{return result;}nearest=clipmap_highest(nearest,result);}
             }
         }
     } // 完成几何级定位。
@@ -264,7 +259,7 @@ struct GrassTileDispatch { // 二十字节状态的前三项直接兼容Dispatch
 
 struct GrassViewCulling { // 全部植被窗口共享同一渲染帧的304字节视锥、八档LOD和画质数据。
     frustum_planes: array<vec4<f32>, 6>, // 左、右、上、下、近、远六个世界半空间的单位法线与有符号距离。
-    camera_position_enabled: vec4<f32>, // xyz为相机世界位置；w为零禁用、一仅视锥、二启用屏幕空间LOD。
+    camera_position_enabled: vec4<f32>, // xyz为相机世界位置；w为零禁用、一仅视锥、二透视像素LOD、三正交像素LOD。
     camera_forward_pixel_scale: vec4<f32>, // xyz为相机世界前向，w为半视口高度乘投影矩阵Y缩放。
     lod_pixel_thresholds: vec4<f32>, // xy为远转中像素范围，zw为中转近像素范围。
     lod_ultra_pixel_thresholds: vec4<f32>, // xy为超远代理转入既有远级子树的像素范围，zw保留。
@@ -312,6 +307,7 @@ const MAX_ROOT_GRID_DISPLACEMENT: f32 = 1.0 + ROOT_JITTER_SPAN * 0.5; // 粗瓦�
 const APPEARANCE_CLUSTER_METERS: f32 = 3.4; // 三点四米连续低频簇让相邻草高略相关，同时不形成可见硬块边界。
 const CLUSTER_REMAP_SALT: u32 = 0x632be5abu; // 独立盐决定候选向四个对角邻格之一重映射，禁止与朝向、密度或高度随机相关。
 const SCREEN_SPACE_LOD_MODE: f32 = 1.5; // 相机状态w大于该值时由投影尺寸选择三级草簇，玩家距离只管理常驻边界。
+const ORTHOGRAPHIC_LOD_MODE: f32 = 2.5; // 模式三共享像素阈值，正交像素尺寸不随相机深度缩小。
 const FAR_TO_MIDDLE_LOD_SALT: u32 = 0x2c9277b5u; // 四乘四最细父格使用固定盐在远簇和更细子树间整簇切换。
 const MIDDLE_TO_NEAR_LOD_SALT: u32 = 0x7f4a7c15u; // 二乘二最细父格使用另一固定盐在中簇和四个近叶间整簇切换。
 const ACTIVATION_SALT: u32 = 0x91e10da5u; // 首载覆盖率只控制完整实例出现，禁止与LOD或密度随机源相关。
@@ -647,6 +643,9 @@ fn projected_reference_pixels(parent_world_xz: vec2<f32>) -> f32 { // 把统一�
 
 fn projected_reference_pixels_at(root:vec3<f32>)->f32 {
     let reference_height = max(grass_patch.vegetation_bounds.z, 0.01); // 每个内容窗口独立使用普通草或麦田典型株高。
+    if (grass_view_culling.camera_position_enabled.w >= ORTHOGRAPHIC_LOD_MODE) {
+        return reference_height * max(grass_view_culling.camera_forward_pixel_scale.w, 0.0);
+    } // 正交相机为覆盖场景而后移不能改变LOD；二维与模型/体积样本共同读取此入口。
     let reference_center = root + vec3<f32>(0.0, reference_height * 0.5, 0.0); // 室外沿用稳定参考高度，三维层使用实际层高度。
     let camera_to_parent = (grass_patch.source_to_world * vec4<f32>(reference_center, 1.0)).xyz - grass_view_culling.camera_position_enabled.xyz; // 取得世界相机到父格中心向量。
     let view_depth = dot(camera_to_parent, grass_view_culling.camera_forward_pixel_scale.xyz); // 沿真实相机前向计算透视深度而不是玩家平面距离。
@@ -978,6 +977,7 @@ fn sample_grass_density(root_world: vec2<f32>) -> f32 { // 一次最近读取现
     if ((grass_patch.grid.w & DENSITY_FIELD_ENABLED_FLAG) == 0u) { // 未启用密度字段时完整保留候选。
         return 1.0; // 保持旧固定草块百分百密度回退。
     } // 完成无密度图分支。
+    volume_source_size=textureDimensions(volume_source);
     // 父格中心进入体积覆盖域时，从同一真实外部层的三维作者格读概率。
     // 草根仍只在室外生成；隐藏高度包络只用于排除同XZ的洞底、洞顶。
     if blade_clipmap.options.y>0.5 && inside_volume_footprint(root_world) && volume_texel(0u).w < -1.5 {
@@ -1351,9 +1351,11 @@ fn classify_and_compact( // 主分类入口必须在Rust清零状态后、AlphaM
 
 // 三维作者格由GPU按真实XYZ分档、筛选和生成；实例从不回读CPU。
 @group(0) @binding(12) var volume_source: texture_2d<f32>;
+// 每个调用线程在分类入口查询一次尺寸；FXC会因Naga尺寸包装的局部out参数把嵌套哈希循环强制展开。
+var<private> volume_source_size:vec2<u32>;
 struct VolumeAuthorCell { value:vec4<f32>, surface:vec4<f32>, author:vec4<f32>, }
 fn volume_texel(pixel:u32)->vec4<f32> {
-    let size=textureDimensions(volume_source);
+    let size=volume_source_size;
     return textureLoad(volume_source,vec2<i32>(i32(pixel%size.x),i32(pixel/size.x)),0);
 }
 fn volume_cell(index:u32)->VolumeAuthorCell {
@@ -1381,16 +1383,18 @@ fn volume_density_lookup(uv:vec2<f32>,cell:VolumeAuthorCell,axis:u32)->vec2<f32>
     let step=cell.surface.w;
     let point=volume_surface_point(uv,cell,axis);
     let original_key=vec3<i32>(floor(cell.author.xyz/step+vec3<f32>(0.5)));
-    var delta=vec3<i32>(floor((point-cell.author.xyz)/step+vec3<f32>(0.5)));
+    let tangent_delta=vec3<i32>(floor((point-cell.author.xyz)/step+vec3<f32>(0.5)));
     // UV归属来自稳定作者中心；深度按原作者层相对当前投射点恢复，LOD小幅移位不重新抽签。
-    delta[axis]=i32(floor((point[axis]-cell.value[axis])/step+0.5));
+    // FXC不能寻址动态向量分量左值；用逐分量select保留同一轴选择，禁止强制展开查询循环。
+    let axis_mask=vec3<bool>(axis==0u,axis==1u,axis==2u);
+    let depth_delta=i32(floor((point[axis]-cell.value[axis])/step+0.5));
+    let delta=select(tangent_delta,vec3<i32>(depth_delta),axis_mask);
     let slots=u32(header.y);let salt=u32(volume_texel(1u).x);
     for(var neighbor=0u;neighbor<5u;neighbor=neighbor+1u){
-        var key=original_key+delta;
         var depth_offset=0i;
         if neighbor>0u {depth_offset=i32((neighbor+1u)/2u)*select(-1i,1i,(neighbor&1u)!=0u);}
-        key[axis]=key[axis]+depth_offset;
-        var offset=delta;offset[axis]=offset[axis]+depth_offset;
+        let offset=delta+select(vec3<i32>(0),vec3<i32>(depth_offset),axis_mask);
+        let key=original_key+offset;
         let expected_center=cell.author.xyz+vec3<f32>(offset)*step;
         let base=volume_density_hash(key,step,axis,salt);
         for(var probe=0u;probe<16u;probe=probe+1u){
@@ -1478,8 +1482,10 @@ fn volume_camera_keep_probability(point:vec3<f32>,normal:vec3<f32>)->f32 {
     return lod_transition_weight(content_camera_fade_distances(),distance);
 }
 fn classify_volume_candidate(index:u32) {
+    volume_source_size=textureDimensions(volume_source);
+    if (grass_patch.grid.w&0x20000000u)!=0u {classify_surface_sample(index);return;}
     let divisions=max(u32(grass_patch.density_world.x),1u);let subcells=divisions*divisions;
-    let header=volume_texel(0u);let size=textureDimensions(volume_source);
+    let header=volume_texel(0u);let size=volume_source_size;
     let count=select(size.x*size.y/3u,u32(max(header.x,0.0)),header.w<0.0);
     if index/subcells>=count {return;}
     let cell=volume_cell(index/subcells);
@@ -1530,6 +1536,36 @@ fn classify_volume_candidate(index:u32) {
     let normal_matrix=transpose(mat3x3<f32>(grass_patch.world_to_source[0].xyz,grass_patch.world_to_source[1].xyz,grass_patch.world_to_source[2].xyz));
     let world_normal=normalize(normal_matrix*normal);
     compact_grass[output]=CompactGrassInstance(world_point.x,world_point.y,world_point.z,pack_appearance(seed,root,grass_patch.grid.w,coverage),pack4x8snorm(vec4<f32>(world_normal,1.0)));
+}
+
+// 模型根点来自原primitive/三角面重心细分；只在GPU选择LOD、密度及姿态，不把点重新投到邻面。
+fn classify_surface_sample(index:u32) {
+    if index>=grass_patch.grid.y {return;}
+    let cell=volume_cell(index); let point=cell.value.xyz; let normal=normalize(cell.surface.xyz);
+    let axis=u32(cell.author.w)&3u; let spacing=max(grass_patch.density_world.y,0.01);
+    let fine_cell=vec2<i32>(floor(volume_uv(point,axis)/spacing));
+    let level=(grass_patch.grid.w>>LOD_LEVEL_SHIFT)&LOD_LEVEL_MASK;
+    let world_point=(grass_patch.source_to_world*vec4<f32>(point,1.0)).xyz;
+    let world_focus=(grass_patch.source_to_world*vec4<f32>(grass_patch.focus_radius.xyz,1.0)).xyz;
+    let distance=length(world_point-world_focus); let multiplier=quality_view_distance_multiplier();
+    let limit=max(grass_patch.focus_radius.w*multiplier,0.01);
+    if distance>=limit || !volume_lod_selects(fine_cell,level,spacing,cell,axis) {return;}
+    let seed=hash_u32(u32(cell.author.w)^grass_patch.grid.z);
+    let residency=1.0-smoothstep(limit-clamp(grass_patch.lod_density.z*multiplier,0.01,limit),limit,distance);
+    if probability_rejects(hash_unit(seed^RESIDENCY_FADE_SALT),residency) {return;}
+    atomicAdd(&grass_state.distance_survivors,1u);
+    let side=lod_parent_side(level);
+    // 最细候选各自承担表面积；宽原型按side²稀疏化，保持同一作者密度而不叠加所有档。
+    let probability=density_with_gain(cell.value.w)*cell.surface.w*cell.surface.w/(spacing*spacing*side*side);
+    if probability_rejects(hash_unit(seed^0x165667b1u),probability) {return;}
+    if probability_rejects(hash_unit(seed^CAMERA_PROXIMITY_SALT),volume_camera_keep_probability(point,normal)) {return;}
+    atomicAdd(&grass_state.density_survivors,1u); atomicAdd(&grass_state.surface_survivors,1u);
+    let slot=atomicAdd(&depth_buckets[0u].reserved_instances,1u);
+    if slot>=depth_buckets[0u].capacity {return;}
+    let normal_matrix=transpose(mat3x3<f32>(grass_patch.world_to_source[0].xyz,grass_patch.world_to_source[1].xyz,grass_patch.world_to_source[2].xyz));
+    let world_normal=normalize(normal_matrix*normal); let output=depth_buckets[0u].first_instance+slot;
+    compact_grass[output]=CompactGrassInstance(world_point.x,world_point.y,world_point.z,
+        pack_appearance(seed,volume_uv(point,axis),grass_patch.grid.w,1.0),pack4x8snorm(vec4<f32>(world_normal,1.0)));
 }
 
 @compute @workgroup_size(1) // 单线程收尾在全部分类dispatch完成后生成安全间接实例数。

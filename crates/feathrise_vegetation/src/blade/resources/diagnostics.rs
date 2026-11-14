@@ -91,6 +91,10 @@ impl GpuBladeVegetationReadbackStats {
 pub struct GpuBladeGpuReadbackStats {
     pub sample_sequence: u64, // 单调递增的GPU样本序号，零表示尚未完成首次回读。
     pub source_revision: u64, // 可选统一作者票据；缺失、混合或输出未就绪为0，不能冒称当前新修订。
+    pub selection_ticket: u64, // 与GPU copy同次冻结的诊断目标票据；默认全场聚合为零。
+    pub sampled_main_entities: [u64; crate::diagnostics::GPU_BLADE_READBACK_WINDOW_CAPACITY], // 有效前缀逐项对应实际拷贝，包含主世界实体代次。
+    pub sampled_source_revisions: [u64; crate::diagnostics::GPU_BLADE_READBACK_WINDOW_CAPACITY], // 取已完成Compute缓冲身份，不能借新ECS输入确认旧输出。
+    pub sampled_output_valid_mask: u32, // 与前缀同序的真实输出有效位；等待中的缓冲不能获得绘制信用。
     pub sampled_windows: u32, // 本样本实际回读的草窗状态数量。
     pub truncated_windows: u32, // 超过固定诊断容量而未回读的额外草窗数量。
     pub candidate_count: u64, // GPU状态中的原始候选总数，用作各阶段存活率分母。

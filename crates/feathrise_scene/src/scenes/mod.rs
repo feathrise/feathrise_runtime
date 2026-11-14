@@ -30,6 +30,8 @@ pub use self::dynamic_scene::{
     DYNAMIC_TERRAIN_MESH_NAME,
     DYNAMIC_TERRAIN_WHITE_MATERIAL_NAME,
     DynamicBladeDraft,
+    DynamicModelVegetationDraft,
+    DynamicModelVegetationStatus,
     DynamicBladeDraftSnapshot, // 未保存密度与正式窗口共享生命周期。
     DynamicClipmapAuthoringView,
     DynamicClipmapGroundSurface,

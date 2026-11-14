@@ -45,7 +45,9 @@ fn stitch_position(point:vec2<f32>,bounds:vec4<f32>)->vec2<f32> {
         var bound=bounds[normal];if e%2u==1u{bound=bounds[normal+2u];}
         if abs(p[normal]-bound)<=0.00001 {
             let step=info.y*max(info.w,1.0);
-            p[axis]=clamp(bounds[axis]+floor((p[axis]-bounds[axis])/step+0.5)*step,bounds[axis],bounds[axis+2u]);
+            let snapped=clamp(bounds[axis]+floor((p[axis]-bounds[axis])/step+0.5)*step,bounds[axis],bounds[axis+2u]);
+            // FXC不能寻址动态向量左值；固定分量写入避免将所有调用方的嵌套采样循环强制展开。
+            if axis==0u {p.x=snapped;} else {p.y=snapped;}
         }
     }return p;
 }

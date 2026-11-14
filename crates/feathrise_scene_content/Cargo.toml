@@ -10,7 +10,7 @@ repository = "https://github.com/feathrise/feathrise_runtime"
 [dependencies]
 bevy = { workspace = true }
 serde = { workspace = true, features = ["rc"] } # 子场景引用在IO线程冻结为Arc，主帧共享来源快照。
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] } # 几何版本摘要和米制格距需在JSON往返后保持同一浮点值。
 sha2 = { workspace = true } # 公共作者事务使用流式内容摘要，不复制完整JSON字节。
 
 [target.'cfg(windows)'.dependencies]

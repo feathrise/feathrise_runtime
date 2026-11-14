@@ -28,6 +28,43 @@ fn immutable_object_height_versions_preserve_original_and_reopen_the_same_namesp
 }
 
 #[test]
+fn tiny_clipmap_preserves_boundary_samples_through_save_and_reopen() {
+    // 小于一个请求格距时仍以真实边界的两个格点保存，不扩张到旧64米下限。
+    for extent in [[0.01_f32, 0.01], [0.01, 1.0], [0.37, 0.83]] {
+        let root = test_asset_root();
+        let owner = test_scene_id();
+        let min = extent.map(|value| -value * 0.5);
+        let max = extent.map(|value| value * 0.5);
+        let spec = SparseHeightSpec::new(min, max, 0.125, -8.0, 16.0).unwrap();
+        let restored = SparseHeightSpec::from_resolution(min, max, spec.cells.map(|value| value as u32 + 1), -8.0, 16.0).unwrap();
+        assert_eq!(restored.cells, spec.cells);
+        assert_eq!(restored.actual_spacing_meters, spec.actual_spacing_meters);
+        let end = spec.cells;
+        let mut document = SparseHeightDocument::create_empty(&root, owner.clone(), spec.clone()).unwrap();
+        document.set_grid_height(0, 0, -12.5).unwrap();
+        document.set_grid_height(end[0], end[1], 34.25).unwrap();
+        document.save_dirty().unwrap();
+        let mut reopened = SparseHeightDocument::load(&root, &owner).unwrap();
+        reopened.load_tile(SparseHeightTileKey { x: 0, z: 0 }).unwrap();
+        let reopened_spec = &reopened.manifest().spec;
+        assert_eq!(reopened_spec.world_min, spec.world_min);
+        assert_eq!(reopened_spec.world_max, spec.world_max);
+        assert_eq!(reopened_spec.cells, spec.cells);
+        assert_eq!(reopened_spec.requested_spacing_meters, spec.requested_spacing_meters);
+        assert_eq!(reopened_spec.base_height, spec.base_height);
+        assert_eq!(reopened_spec.height_scale, spec.height_scale);
+        // JSON 解析可能改变派生 f64 的最后一位；作者边界、格数与 f32 输入仍要求逐位一致。
+        for (actual, expected) in reopened_spec.actual_spacing_meters.iter().zip(spec.actual_spacing_meters) {
+            assert!((actual - expected).abs() <= f64::EPSILON * expected.abs().max(1.0));
+        }
+        assert_eq!(reopened.sample_world_height(f64::from(min[0]), f64::from(min[1])).unwrap(), Some(-12.5));
+        assert_eq!(reopened.sample_world_height(f64::from(max[0]), f64::from(max[1])).unwrap(), Some(34.25));
+        std::fs::remove_dir_all(root).unwrap(); // 只清理本用例新建的独占资产根。
+    }
+    assert!(SparseHeightSpec::new([0.0; 2], [0.009; 2], 0.125, -8.0, 16.0).is_err());
+}
+
+#[test]
 fn terrain_namespaces_keep_equal_tile_coordinates_and_history_independent() {
     let root = test_asset_root(); let owner = test_scene_id();
     let a = crate::TerrainId::parse("terrain-a").unwrap(); let b = crate::TerrainId::parse("terrain-b").unwrap();

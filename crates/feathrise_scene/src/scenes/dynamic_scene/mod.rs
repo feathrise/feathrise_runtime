@@ -90,6 +90,8 @@ pub use terrain_derived::{
     DynamicTerrainHeightStatus,
 }; // F12、水域与植被共享同一GLB派生完成值，不再读取磁盘高度图。
 pub use vegetation::{DynamicBladeDraft, DynamicBladeDraftSnapshot}; // 同图未保存Blade复用正式运行时。
+pub use vegetation::DynamicModelVegetationDraft;
+pub use vegetation::DynamicModelVegetationStatus;
 pub use vegetation::{DynamicVegetationPhase, DynamicVegetationStatus}; // 公开动态植被加载、空间常驻和热更证据。
 pub(crate) use water::ClipmapRainHeightMaterial; // 雨水高度捕获复用同一高度页、R8与水深裁切。
 pub use water::{
@@ -115,6 +117,7 @@ impl Plugin for DynamicScenePlugin {
         app.add_plugins(clipmap::ClipmapHeightMaterialPlugin); // 先登记新图外层材质及所有内置位移Shader。
         volume_stream::install(app);
         vegetation::install_volume(app);
+        vegetation::install_models(app);
         water::install_volume(app);
         app.add_plugins(clipmap::ClipmapRaytracingPlugin); // 关闭态不构建；开启后准备世界固定真实高度源。
         app.add_plugins(water::ClipmapWaterMaterialPlugin); // 复用已登记动态水外观，并增加Clipmap高度/R8专用外层。
@@ -183,6 +186,7 @@ impl Plugin for DynamicScenePlugin {
             .init_instance_resource::<clipmap::DynamicClipmapGroundSurface>() // 共享量化页的笔刷地表快照。
             .init_instance_resource::<vegetation::DynamicVegetationState>()
             .init_instance_resource::<DynamicBladeDraft>() // 草稿图片与定义跨F12关闭共同保留。
+            .init_resource::<DynamicModelVegetationDraft>() // 场景根模型画布独立于地形检查器Owner。
             .init_instance_resource::<DynamicVegetationStatus>()
             .init_instance_resource::<water::DynamicWaterState>()
             .init_instance_resource::<water::ClipmapWaterRuntime>()

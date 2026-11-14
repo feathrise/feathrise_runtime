@@ -33,6 +33,13 @@ impl GpuBladePatch {
         patch.density_world.y = spacing.max(0.01);
         patch
     }
+    /// 模型候选已在后台沿原三角面细分，GPU保留精确根点；不能再次投到轴向格或借邻楼层取密度。
+    pub fn with_surface_sample_source(self, count: u32, finest_spacing: f32) -> Self {
+        let mut patch = self.with_volume_source(count);
+        patch.grid.w |= 1 << 29;
+        patch.density_world.y = finest_spacing.max(0.01);
+        patch
+    }
     pub(crate) fn uses_volume_source(&self) -> bool {
         self.grid.w & (1 << 30) != 0
     }

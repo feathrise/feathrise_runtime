@@ -688,9 +688,21 @@ mod tests {
             .any(|pair| (pair.collider1 == visual || pair.collider2 == visual) && pair.generates_constraints());
         assert!(!constraints(&app), "隐藏候选不能给玩法刚体生成承托约束");
         app.world_mut().entity_mut(batch).remove::<(RigidBodyDisabled, bevy_tnua::TnuaNotPlatform)>();
+        let proxy_key = *app.world().get::<avian3d::collider_tree::ColliderTreeProxyKey>(visual).unwrap();
+        assert!(!app.world().resource::<avian3d::collider_tree::ColliderTrees>().get_proxy(proxy_key).unwrap().flags
+            .contains(avian3d::collider_tree::ColliderTreeProxyFlags::BODY_DISABLED),
+            "移除组件时旧Has仍为真，但已有代理必须立即转为启用");
+        assert!(app.world().resource::<avian3d::collider_tree::MovedProxies>().contains(proxy_key),
+            "完全锁定的重叠刚体不会改变AABB，重新启用必须主动登记重检测");
         for _ in 0..4 { app.update(); }
         assert!(constraints(&app), "正式采用后解析盒必须参与真实接触求解");
         app.world_mut().entity_mut(batch).insert((RigidBodyDisabled, bevy_tnua::TnuaNotPlatform));
+        assert!(app.world().resource::<avian3d::collider_tree::ColliderTrees>().get_proxy(proxy_key).unwrap().flags
+            .contains(avian3d::collider_tree::ColliderTreeProxyFlags::BODY_DISABLED));
+        // 重复写入标记也不得通过Discard的旧组件生命周期把代理重新启用。
+        app.world_mut().entity_mut(batch).insert(RigidBodyDisabled);
+        assert!(app.world().resource::<avian3d::collider_tree::ColliderTrees>().get_proxy(proxy_key).unwrap().flags
+            .contains(avian3d::collider_tree::ColliderTreeProxyFlags::BODY_DISABLED));
         for _ in 0..4 { app.update(); }
         assert!(!constraints(&app), "退役批次即使尚未回收，也不能继续承托玩法刚体");
     }

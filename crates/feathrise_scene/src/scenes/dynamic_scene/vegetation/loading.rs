@@ -392,7 +392,7 @@ mod tests {
             "schema_version":2, "id":map.as_str(), "display_name":"未保存草地", // 合法清单身份。
             "runtime_scene":"data_driven", "world_min":[0,0], "world_max":[10,10], // 有效世界范围。
             "default_spawn":[5,0,5], // 默认出生点。
-            "terrain":{"kind":"heightfield", "glb_path":"scenes/test/terrain.glb", "resolution":[2,2], "base_height":0, "height_scale":10} // 验证到地形等待门。
+            "terrain":{"kind":"gltf", "glb_path":"scenes/test/terrain.glb", "resolution":[2,2], "base_height":0, "height_scale":10} // 验证到地形等待门。
         }))
         .unwrap();
         let handle = app
@@ -431,6 +431,7 @@ mod tests {
         source.publish(super::super::DynamicBladeDraftSnapshot {
             source_revision: 7, // 最新作者修订。
             definition: SceneVegetationAsset {
+                model_surfaces: Vec::new().into(),
                 schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
                 scene_id: map,
                 layers: vec![],

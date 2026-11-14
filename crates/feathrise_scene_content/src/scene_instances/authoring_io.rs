@@ -43,7 +43,7 @@ pub fn validate_saved_scene_instances(root: &Path, catalog: &SceneCatalogAsset, 
         if saved.id != id { return Err(format!("子场景{id}清单身份不匹配")); }
         // 新建场景以 terrains 持有地形对象；显式空列表也是可实例化的场景容器。
         if saved.terrains.is_none() && !matches!(saved.terrain.kind,
-            crate::SceneTerrainKind::Heightfield | crate::SceneTerrainKind::SparseClipmap) {
+            crate::SceneTerrainKind::Gltf | crate::SceneTerrainKind::SparseClipmap) {
             return Err(format!("场景{id}缺少可实例化的场景容器或作者地形"));
         }
         let snapshot = source(&saved)?;

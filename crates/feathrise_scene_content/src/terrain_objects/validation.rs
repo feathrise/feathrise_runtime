@@ -26,7 +26,7 @@ pub fn validate_terrain_objects(manifest: &SceneManifestAsset) -> Result<(), Str
             object.voxel.as_ref().map(|voxel| voxel.source_path.as_str())].into_iter().flatten() { validate_path(path)?; }
         match descriptor.kind {
             SceneTerrainKind::Empty => return Err("地形对象不能使用空场景类型".into()),
-            SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield => {
+            SceneTerrainKind::Gltf => {
                 if !descriptor.base_height.is_finite() || !descriptor.height_scale.is_finite() || descriptor.height_scale <= 0.0 {
                     return Err("GLB源的高度范围必须有限且为正".into());
                 }

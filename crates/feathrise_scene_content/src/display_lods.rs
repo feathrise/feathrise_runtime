@@ -735,6 +735,24 @@ mod tests {
         assert!(compile_display_lod_plan(&spec, &oversized).is_err()); // 不静默删除空末环。
     } // 保存预检与运行时使用相同错误。
     #[test]
+    fn single_lod_covers_the_complete_source_and_rejects_oversized_meshes() {
+        let lods = [SceneTerrainDisplayLod { spacing_multiplier: 1, outer_half_extent_meters: None }];
+        for extent in [[0.01_f32, 0.01], [1.0, 0.37], [17.25, 8.0]] {
+            let spec = SparseHeightSpec::new([0.0; 2], extent, 0.125, -8.0, 16.0).unwrap();
+            let plan = compile_display_lod_plan(&spec, &lods).unwrap();
+            assert_eq!(plan.bands.len(), 1);
+            assert_eq!(plan.bands[0].inner_half_cells, [0, 0]);
+            assert_eq!(plan.bands[0].outer_half_cells.map(u64::from), spec.cells);
+            for axis in 0..2 {
+                assert!((plan.actual_half_extents_meters[0][axis] - extent[axis]).abs() < 0.00001);
+            }
+        }
+        // 不以删除来源边缘或偷偷增加LOD来掩盖作者单层配置的容量错误。
+        let oversized = SparseHeightSpec::new([0.0; 2], [8192.0; 2], 0.125, -8.0, 16.0).unwrap();
+        assert!(compile_display_lod_plan(&oversized, &lods).is_err());
+    }
+
+    #[test]
     fn external_camera_coverage_does_not_invent_persistent_height_mips() {
         let spec = SparseHeightSpec::new([-32.0; 2], [32.0; 2], 1.0, -8.0, 16.0).unwrap();
         let lods = [SceneTerrainDisplayLod { spacing_multiplier: 32, outer_half_extent_meters: None }];

@@ -170,6 +170,52 @@ fn definition(id: TerrainId, pose: TerrainObjectTransform) -> Arc<SceneTerrainOb
         voxel:None,surface_path:None,vegetation_path:None,water_path:None,puddles:None})
 }
 
+#[test]
+fn clipmap_and_voxel_paint_queries_remain_available_without_physics_colliders() {
+    use feathrise_scene_core::residency::InstanceResourceTable;
+    use super::{clipmap::{DynamicClipmapGroundSurface, test_ground_snapshot},
+        resources::DynamicSceneRuntimeState, voxel_objects::VoxelObjectRuntime};
+    let mut world = World::new();
+    let owner = SceneId::parse("MAP-paint-without-physics").unwrap();
+    let batch = world.spawn(SubsceneActive).id();
+    let mut addresses = BTreeMap::new();
+    let mut grounds = InstanceResourceTable::<DynamicClipmapGroundSurface>::default();
+    let mut voxels = InstanceResourceTable::<VoxelObjectRuntime>::default();
+    let mut scenes = InstanceResourceTable::<DynamicSceneRuntimeState>::default();
+    for kind in [SceneTerrainKind::SparseClipmap, SceneTerrainKind::Voxel] {
+        let id = TerrainId::parse(if kind == SceneTerrainKind::SparseClipmap { "height" } else { "volume" }).unwrap();
+        let mut object = (*definition(id.clone(), Default::default())).clone();
+        object.terrain.kind = kind;
+        let path = SceneInstancePath::root(owner.clone()).terrain(id.clone());
+        let entity = world.spawn((SubsceneInstance { path: path.clone(), source_scene_id: owner.clone(), generation: 1, batch },
+            TerrainObjectInstance { definition: Arc::new(object) }, SceneSourceFrame::default())).id();
+        addresses.insert(path.clone(), entity);
+        scenes.values.insert(entity, DynamicSceneRuntimeState { active_scene_id: Some(owner.clone()), collision_ready: false, ..default() });
+        if kind == SceneTerrainKind::SparseClipmap {
+            let mut snapshot = test_ground_snapshot(); snapshot.scene_id = owner.clone();
+            let mut ground = DynamicClipmapGroundSurface::default(); ground.snapshot = Some(snapshot);
+            grounds.values.insert(entity, ground);
+        } else {
+            let mut runtime = VoxelObjectRuntime::default();
+            runtime.active = Some(world.spawn_empty().id());
+            runtime.display_query = Some(Collider::cuboid(4., 2., 4.));
+            voxels.values.insert(entity, runtime);
+        }
+    }
+    world.insert_resource(SubsceneRuntime::test_active(batch, addresses));
+    world.insert_resource(grounds); world.insert_resource(voxels); world.insert_resource(scenes);
+    assert_eq!(world.query::<&Collider>().iter(&world).count(), 0, "只读几何不安装物理组件");
+    for (name, origin) in [("height", Vec3::new(20., 100., 20.)), ("volume", Vec3::new(0., 100., 0.))] {
+        let scene = owner.clone(); let id = TerrainId::parse(name).unwrap();
+        let path = SceneInstancePath::root(scene.clone()).terrain(id.clone());
+        let snapshot = world.run_system_once(move |queries: TerrainObjectQueries| {
+            assert!(!queries.collision_is_ready(&scene, &id));
+            queries.paint_surface_snapshot(&path)
+        }).unwrap().expect("关闭物理不撤销种植表面资格");
+        assert!(snapshot.ray_surface(origin, Vec3::NEG_Y, 200.).is_some());
+    }
+}
+
 fn terrain(world: &mut World, owner: &SceneId, batch: Entity, path: &SceneInstancePath,
     generation: u64, pose: TerrainObjectTransform) -> Entity {
     let object = definition(path.terrain_id.clone().unwrap(), pose);

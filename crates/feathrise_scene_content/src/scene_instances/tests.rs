@@ -14,7 +14,7 @@ fn manifest_fixture() -> SceneManifestAsset {
         "schema_version": 2, "id": "MAP-fixture", "display_name": "测试场景",
         "runtime_scene": "data_driven", "world_min": [-32.0, -32.0],
         "world_max": [32.0, 32.0], "default_spawn": [0.0, 2.0, 0.0],
-        "terrain": {"kind": "heightfield", "glb_path": "scenes/MAP-fixture/terrain.glb",
+        "terrain": {"kind": "gltf", "glb_path": "scenes/MAP-fixture/terrain.glb",
             "resolution": [9, 9], "base_height": -80.0, "height_scale": 160.0},
         "asset_roots": []
     })).unwrap() // 子图协议测试不依赖某张实际作者场景。

@@ -89,7 +89,7 @@ pub(super) fn register(world: &mut World) {
             let Some(current) = world.get::<Mesh3d>(entity).map(|mesh| mesh.0.clone()) else {
                 continue;
             };
-            // 已接管Heightfield材质也是静态显示；水、位移Clipmap及植被由所有权门排除。
+            // 使用高度采样材质的GLB仍是静态显示；水、位移Clipmap及植被由所有权门排除。
             if !supported_display(world, entity) {
                 continue;
             }

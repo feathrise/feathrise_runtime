@@ -284,6 +284,7 @@ fn primitive_target_enters_plan_with_direct_mesh_and_material_handles() {
         mesh: 6,
         primitive: 0,
         material: Some(2),
+        collision: false,
     };
     let document = ScenePlacementsAsset {
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
@@ -309,6 +310,7 @@ fn primitive_target_enters_plan_with_direct_mesh_and_material_handles() {
                 mesh: 6,
                 primitive: 0,
                 material: Some(2),
+                collision: false,
             }
         ));
         (

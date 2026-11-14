@@ -11,6 +11,7 @@ pub(super) struct Layer {
     pub(super) image: Image,
     pub(super) cells: Arc<[[[f32; 4]; 3]]>,
     pub(super) count: u32,
+    pub(super) positive_count: u32,
     pub(super) step: f32,
     pub(super) min: Vec3,
     pub(super) max: Vec3,
@@ -22,7 +23,7 @@ pub(super) fn build_with_native_density(
         Vec3,
     )>,
     ground: crate::ClipmapGroundSnapshot,
-    clearances: Option<crate::BuildingVegetationClearanceSnapshot>,
+    clearances: Option<(crate::BuildingVegetationClearanceSnapshot, feathrise_scene_core::residency::SceneSourceFrame)>,
     blade_spans: BTreeMap<String, f32>,
     native: Option<(
         Arc<super::super::resources::DynamicVegetationBuild>,
@@ -30,6 +31,10 @@ pub(super) fn build_with_native_density(
     )>,
 ) -> Result<Vec<Layer>, String> {
     if let Some((source, names)) = &native {
+        #[cfg(feature = "test_panel")]
+        eprintln!("三维植被原生层映射：{}", serde_json::json!({"defined":source.blade_layers.len(),
+            "mapped":names.len(),"first_layers":source.blade_layers.iter().take(8)
+                .map(|layer| (layer.runtime_layer_id,names.get(&layer.runtime_layer_id))).collect::<Vec<_>>()}));
         use feathrise_terrain::volume::sparse::paged::{VolumeFieldSample, VolumeFieldSnapshot};
         let step = ground.base_cell_size().max_element();
         let mut top = VolumeFieldSnapshot::empty(step);
@@ -106,7 +111,7 @@ pub(super) fn build(
         Vec3,
     )>,
     ground: crate::ClipmapGroundSnapshot,
-    clearances: Option<crate::BuildingVegetationClearanceSnapshot>,
+    clearances: Option<(crate::BuildingVegetationClearanceSnapshot, feathrise_scene_core::residency::SceneSourceFrame)>,
     blade_spans: BTreeMap<String, f32>,
 ) -> Result<Vec<Layer>, String> {
     build_core(roots, ground, clearances, blade_spans, None)
@@ -117,22 +122,33 @@ fn build_core(
         Vec3,
     )>,
     ground: crate::ClipmapGroundSnapshot,
-    clearances: Option<crate::BuildingVegetationClearanceSnapshot>,
+    clearances: Option<(crate::BuildingVegetationClearanceSnapshot, feathrise_scene_core::residency::SceneSourceFrame)>,
     blade_spans: BTreeMap<String, f32>,
     native: Option<(
         Arc<super::super::resources::DynamicVegetationBuild>,
         BTreeMap<u64, String>,
     )>,
 ) -> Result<Vec<Layer>, String> {
-    let clearance = clearances.map(clearance::Index::new).transpose()?;
+    #[cfg(feature = "test_panel")]
+    let mut counts = [0usize; 8]; // 总样本、非零样本、承托、投射失败、反向面、净空、输出、非零输出。
+    #[cfg(feature = "test_panel")]
+    let mut rejected: [Vec<serde_json::Value>; 3] = Default::default(); // 每类最多两个例子，不能把完整作者样本带回主线程。
+    #[cfg(feature = "test_panel")]
+    let clearance_input = clearances.as_ref().map(|(snapshot, frame)| serde_json::json!({
+        "revision":snapshot.revision,"regions":snapshot.regions.len(),"source_to_scene":frame.source_to_world.to_cols_array(),
+        "first_regions":snapshot.regions.iter().take(2).map(|region|region.corners.map(|point| point.to_array())).collect::<Vec<_>>() }));
+    let clearance = clearances.map(|(snapshot, frame)| clearance::Index::new(snapshot, frame)).transpose()?;
     let mut layers: BTreeMap<String, Vec<[f32; 4]>> = BTreeMap::new();
     let mut bounds: BTreeMap<String, (Vec3, Vec3)> = BTreeMap::new();
     let mut steps: BTreeMap<String, f32> = BTreeMap::new();
     let mut bytes = 0usize;
     for (fields, origin) in roots {
         let ids: BTreeSet<_> = fields
-            .samples
-            .values()
+            .iter_samples()
+            .inspect(|_sample| {
+                #[cfg(feature = "test_panel")]
+                { counts[0] += 1; counts[1] += usize::from(_sample.vegetation.iter().any(|(_, value)| *value > 0)); }
+            })
             .flat_map(|s| {
                 s.vegetation
                     .iter()
@@ -144,24 +160,34 @@ fn build_core(
             continue;
         }
         let support = support_cells(&fields, &blade_spans, ids.len(), bytes)?;
-        for (cell, sample) in &support {
+        #[cfg(feature = "test_panel")]
+        { counts[2] += support.len(); }
+        for ((cell, _), sample) in &support {
             let p = Vec3::from_array(sample.position) + origin;
             let n = Vec3::from_array(sample.normal);
             // 雕刻移走原表面时不让旧种植点悬空；保留作者值，填回后可自动恢复。
             let Some((p, normal)) = reproject_support(&ground, p, n, fields.cell_size) else {
+                #[cfg(feature = "test_panel")]
+                { counts[3] += 1; if rejected[0].len() < 2 { rejected[0].push(serde_json::json!({"point":p.to_array(),"normal":n.to_array(),"cell":fields.cell_size})); } }
                 continue;
             };
             if n.dot(normal) < 0.25 {
+                #[cfg(feature = "test_panel")]
+                { counts[4] += 1; if rejected[1].len() < 2 { rejected[1].push(serde_json::json!({"point":p.to_array(),"expected":n.to_array(),"actual":normal.to_array()})); } }
                 continue;
             }
             if clearance
                 .as_ref()
-                .is_some_and(|c| c.excludes(p, fields.cell_size, &ground))
+                .is_some_and(|c| c.excludes(p, normal, fields.cell_size, &ground))
             {
+                #[cfg(feature = "test_panel")]
+                { counts[5] += 1; if rejected[2].len() < 2 { rejected[2].push(serde_json::json!({"point":p.to_array(),"normal":normal.to_array()})); } }
                 continue;
             }
             // 采样点和显示法线会随LOD微调；作者格中心、投影主轴及随机身份必须保持稳定。
-            let center = Vec3::from_array(cell.map(|v| v as f32)) * fields.cell_size + origin;
+            let grid_center = Vec3::from_array(cell.map(|v| v as f32)) * fields.cell_size + origin;
+            // 同格多面拥有各自的法向位置，不能让薄楼板共享同一个GPU母格平面身份。
+            let center = grid_center + n * (p-grid_center).dot(n);
             let a = n.abs();
             let axis = if a.x > a.y && a.x > a.z {
                 0
@@ -214,6 +240,8 @@ fn build_core(
                     })
                     .unwrap_or(0);
                 let density = painted.unwrap_or(inherited); // 精细支持晕边沿用对象R8；不会把背景草误擦成零。
+                #[cfg(feature = "test_panel")]
+                { counts[6] += 1; counts[7] += usize::from(density > 0); }
                 let values = layers.entry(id.clone()).or_default();
                 values.push([p.x, p.y, p.z, f32::from(density) / 255.0]);
                 values.push([normal.x, normal.y, normal.z, fields.cell_size]);
@@ -232,14 +260,24 @@ fn build_core(
             }
         }
     }
+    #[cfg(feature = "test_panel")]
+    eprintln!("三维植被源过滤诊断：{}", serde_json::json!({"scene":ground.scene_id.as_str(),
+        "counts":{"input":counts[0],"painted":counts[1],"support":counts[2],"projection_miss":counts[3],
+            "normal_rejected":counts[4],"clearance_rejected":counts[5],"output":counts[6],"positive_output":counts[7]},
+        "clearance":clearance_input,"rejected_examples":rejected,"layers":layers.keys().take(8).collect::<Vec<_>>() }));
     let mut upload_remaining = 8 * 1024 * 1024;
     layers
         .into_iter()
         .map(|(id, values)| {
             let count = values.len() as u32 / 3;
+            let mut positive_count = 0;
             let cells: Arc<[[[f32; 4]; 3]]> = values
                 .chunks_exact(3)
-                .map(|v| [v[0], v[1], v[2]])
+                .map(|v| {
+                    // 在既有GPU源打包中统计实际密度，零概率承托仍保留在总数里。
+                    positive_count += u32::from(v[0][3] > 0.0);
+                    [v[0], v[1], v[2]]
+                })
                 .collect::<Vec<_>>()
                 .into();
             // 空间索引让各LOD在共同父格中心取密度，不在每根草或每个作者面各自抽签。
@@ -252,6 +290,7 @@ fn build_core(
                 image,
                 cells,
                 count,
+                positive_count,
                 step,
                 min,
                 max,
@@ -268,7 +307,12 @@ fn reproject_support(
     n: Vec3,
     step: f32,
 ) -> Option<(Vec3, Vec3)> {
-    let project = |p| ground.three_dimensional_hit(p + n * step * 2., -n, step * 4.);
+    let project = |p| {
+        let epsilon = (step*0.0001).max(0.00001);
+        ground.three_dimensional_hit(p+n*epsilon, -n, epsilon*2.)
+            .or_else(|| ground.three_dimensional_hit(p+n*step*2., -n, step*4.)
+                .filter(|(hit,_)| hit.distance(p) <= step*0.25))
+    };
     if let Some(hit) = project(p) {
         return Some(hit);
     }
@@ -306,19 +350,25 @@ fn support_cells(
     spans: &BTreeMap<String, f32>,
     layer_count: usize,
     existing_bytes: usize,
-) -> Result<BTreeMap<[i32; 3], feathrise_terrain::volume::sparse::paged::VolumeFieldSample>, String> {
+) -> Result<BTreeMap<([i32; 3], [u32; 6]), feathrise_terrain::volume::sparse::paged::VolumeFieldSample>, String> {
     // 只局部扩展有种植的区域；整洞的地表/积水作者格不能无关地占满植被上传窗口。
+    let surface_key = |sample: &feathrise_terrain::volume::sparse::paged::VolumeFieldSample| {
+        let p=sample.position.map(f32::to_bits); let n=sample.normal.map(f32::to_bits);
+        [p[0],p[1],p[2],n[0],n[1],n[2]]
+    };
     let mut cells: BTreeMap<_, _> = fields
-        .samples
-        .iter()
-        .filter(|(_, s)| s.vegetation.iter().any(|(_, p)| *p > 0))
-        .map(|(key, sample)| (*key, sample.clone()))
+        .iter_samples()
+        .filter(|s| s.vegetation.iter().any(|(_, p)| *p > 0))
+        .map(|sample| {
+            let key=(Vec3::from_array(sample.position)/fields.cell_size).round().as_ivec3().to_array();
+            ((key,surface_key(sample)), sample.clone())
+        })
         .collect();
     let limit = (8 * 1024 * 1024 - existing_bytes) / (48 * layer_count);
     if cells.len() > limit {
         return Err("当前三维植被承托窗口超过上传预算".into());
     }
-    for sample in fields.samples.values().filter(|s| !s.vegetation.is_empty()) {
+    for sample in fields.iter_samples().filter(|s| !s.vegetation.is_empty()) {
         let span = sample
             .vegetation
             .iter()
@@ -366,7 +416,11 @@ fn support_cells(
                         + n[uv[1]] * (p[uv[1]] - position[uv[1]]))
                         / n[axis];
                 key[axis] = (p[axis] / fields.cell_size).round() as i32;
-                if cells.contains_key(&key.to_array()) {
+                let cell = key.to_array();
+                if cells.range((cell,[0;6])..=(cell,[u32::MAX;6])).any(|(_,known)| {
+                    n.dot(Vec3::from_array(known.normal)) > 0.25
+                        && (Vec3::from_array(known.position)-p).dot(n).abs() <= (fields.cell_size*0.0001).max(0.00001)
+                }) {
                     continue;
                 }
                 if cells.len() >= limit {
@@ -377,13 +431,16 @@ fn support_cells(
                 support.vegetation.clear();
                 support.surface.clear();
                 support.puddles = 0;
-                if let Some(known) = fields.samples.get(&key.to_array()) {
+                if let Some(known) = fields.samples_at(&cell).filter(|known| {
+                    n.dot(Vec3::from_array(known.normal)) > 0.25
+                        && (Vec3::from_array(known.position)-p).dot(n).abs() <= (fields.cell_size*0.0001).max(0.00001)
+                }).min_by(|a,b| Vec3::from_array(a.position).distance_squared(p).total_cmp(&Vec3::from_array(b.position).distance_squared(p))) {
                     if n.dot(Vec3::from_array(known.normal)) < 0.25 {
                         continue;
                     }
                     support = known.clone(); // 已知空白承托面的实际位置优先于邻面外推。
                 }
-                cells.insert(key.to_array(), support);
+                cells.insert((cell,surface_key(&support)), support);
             }
         }
     }
@@ -559,6 +616,8 @@ mod tests {
         .unwrap();
         let cells = &layers[0].cells;
         assert!(cells.len() > 1);
+        assert_eq!(layers[0].count as usize, cells.len());
+        assert_eq!(layers[0].positive_count, 1, "采用回执须区分实际密度与零概率承托");
         assert_eq!(
             cells.iter().filter(|v| v[0][3] > 0.).count(),
             1,

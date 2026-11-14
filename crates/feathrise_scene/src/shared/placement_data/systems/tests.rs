@@ -118,6 +118,7 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
         terrain_roots: Vec::new(),
+        primitive_collision_roots: Vec::new(),
         root: staging_root,
         roots: vec![candidate],
         gate,
@@ -247,6 +248,7 @@ fn candidate_app(total: usize, ready: bool) -> (App, Vec<Entity>) {
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
         terrain_roots: Vec::new(),
+        primitive_collision_roots: Vec::new(),
         root: staging_root,
         roots: roots.clone(),
         gate,
@@ -311,6 +313,7 @@ fn spawn_and_finish_zero_candidate(
         state.staging = Some(PlacementStaging {
             reuse: Default::default(),
             terrain_roots: Vec::new(),
+            primitive_collision_roots: Vec::new(),
             root,
             roots: Vec::new(),
             gate: PlacementInstanceGate::new(false),

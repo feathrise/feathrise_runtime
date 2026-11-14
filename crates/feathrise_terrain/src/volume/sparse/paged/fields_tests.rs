@@ -15,6 +15,38 @@ fn brush(channel: VolumeFieldChannel, id: &str) -> VolumeFieldBrush {
         source_to_world: Mat3::IDENTITY,
     }
 }
+
+#[test]
+fn one_spatial_cell_keeps_independent_parallel_and_opposite_surfaces_after_reload() {
+    let temp=Temp::new(); let source=PagedVolume::new(0.5).unwrap();
+    let mut top=brush(VolumeFieldChannel::Vegetation,"top-grass"); top.radius=0.1;
+    let first=paint(&temp.0,&source,&top);
+    let mut underside=brush(VolumeFieldChannel::Vegetation,"underside-moss");
+    underside.radius=0.1; underside.from=[0.,-0.05,0.]; underside.to=underside.from; underside.normal=[0.,-1.,0.];
+    let window=load_field_window(&temp.0,&first,&underside).unwrap();
+    let delta=prepare_field_paint(window,&first,&underside,|p,d,maximum| {
+        let t=(-0.05-p.y)/d.y;
+        (t>=0. && t<=maximum).then_some((p+d*t,Vec3::NEG_Y))
+    }).unwrap();
+    let second=write_field_paint(&temp.0,&first,delta).unwrap();
+    let read=load_surface_fields(&temp.0,&second,&[[0.;3]]).unwrap();
+    assert_eq!(read.samples_at(&[0,0,0]).count(),2,"同格的反面不能覆盖原种植面");
+    assert_eq!(read.sample(Vec3::ZERO,Vec3::Y).unwrap().vegetation,vec![("top-grass".into(),255)]);
+    assert_eq!(read.sample(Vec3::new(0.,-0.05,0.),Vec3::NEG_Y).unwrap().vegetation,vec![("underside-moss".into(),255)]);
+    let mut parallel=brush(VolumeFieldChannel::Vegetation,"low-grass");
+    parallel.radius=0.1;parallel.from=[0.,0.05,0.];parallel.to=parallel.from;
+    let window=load_field_window(&temp.0,&second,&parallel).unwrap();
+    let delta=prepare_field_paint(window,&second,&parallel,|p,d,maximum| {
+        let t=(0.05-p.y)/d.y;
+        (t>=0. && t<=maximum).then_some((p+d*t,Vec3::Y))
+    }).unwrap();
+    let third=write_field_paint(&temp.0,&second,delta).unwrap();
+    let read=load_surface_fields(&temp.0,&third,&[[0.;3]]).unwrap();
+    assert_eq!(read.samples_at(&[0,0,0]).count(),3,"同向但不重合的楼板也拥有独立作者数据");
+    assert_eq!(read.sample(Vec3::new(0.,0.05,0.),Vec3::Y).unwrap().vegetation,vec![("low-grass".into(),255)]);
+    let restored=load_surface_fields(&temp.0,&first,&[[0.;3]]).unwrap();
+    assert_eq!(restored.iter_samples().count(),1,"撤销仍复用原持久根，不反写附加表面");
+}
 fn plane(p: Vec3, n: Vec3, max: f32) -> Option<(Vec3, Vec3)> {
     let t = -p.y / n.y;
     (t >= 0. && t <= max).then_some((p + n * t, Vec3::Y))
@@ -293,12 +325,14 @@ fn curved_cave_brush_follows_the_surface_beyond_the_click_tangent_band() {
 
 #[test]
 fn brush_does_not_cross_a_gap_to_a_second_same_facing_floor() {
+    // 包含远小于作者格的间隙：下层仍完整刷出圆形，不能只剩点击点或串到上层。
+    for gap in [0.05, 0.2, 0.5] {
     let temp = Temp::new();
     let source = PagedVolume::new(0.25).unwrap();
     let brush = brush(VolumeFieldChannel::Vegetation, "grass");
     let window = load_field_window(&temp.0, &source, &brush).unwrap();
     let delta = prepare_field_paint(window, &source, &brush, |p, d, max| {
-        [0., 0.5]
+        [0., gap]
             .into_iter()
             .filter_map(|y| {
                 let t = (y - p.y) / d.y;
@@ -312,9 +346,11 @@ fn brush_does_not_cross_a_gap_to_a_second_same_facing_floor() {
     let read = load_surface_fields(&temp.0, &next, &[[0.; 3]]).unwrap();
     assert!(read.sample(Vec3::ZERO, Vec3::Y).is_some());
     assert!(
-        !read.samples.values().any(|s| s.position[1] > 0.25),
+        !read.iter_samples().any(|s| s.position[1] > 0.00001),
         "拓宽曲面覆盖不能穿过空隙刷到另一层"
     );
+    assert!(read.iter_samples().count() > 12, "同格近邻层不能抢走已点击下层的完整笔刷覆盖");
+    }
 }
 
 #[test]

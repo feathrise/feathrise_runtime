@@ -60,6 +60,7 @@ pub(super) fn advance_placement_candidate(
         state.staging = Some(PlacementStaging {
             reuse: Default::default(),
             terrain_roots: Vec::new(),
+            primitive_collision_roots: Vec::new(),
             root,
             roots: Vec::with_capacity(pending.plans.len()), // 已受全图8192项硬门限制，采用后直接移动给活动批次。
             gate,
@@ -187,8 +188,8 @@ fn spawn_ready_placement(
             },
             ChildOf(staging_root),
         ));
-        let is_building =
-            plan.record.building_preset_id.is_some() || plan.record.terrain_patch.is_some();
+        let requires_collision = plan.record.building_preset_id.is_some()
+            || plan.record.terrain_patch.is_some() || plan.record.asset_target.has_primitive_collision();
         if let Some(collision) = building_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)
@@ -209,7 +210,7 @@ fn spawn_ready_placement(
             Transform::IDENTITY,         // 与单体预览一致，不继承源Scene0节点变换。
             Visibility::Inherited,       // 只跟随当前placement根，不越过隐藏候选原子门。
         ));
-        Ok((root_commands.id(), !is_building)) // 建筑primitive还必须等待Avian层级碰撞完成。
+        Ok((root_commands.id(), !requires_collision)) // 带碰撞的 GLB 网格必须与后台三角碰撞共同就绪。
     } else {
         let has_water_surfaces = !plan.record.water_surfaces.is_empty();
         let mut root_commands = commands.spawn((
@@ -292,6 +293,8 @@ fn spawn_placement_batch(
         staging.roots.push(entity); // 采用时不扫描世界，只解除本候选已知根的隔离标记。
         if plan.record.terrain_patch.is_some() {
             staging.terrain_roots.push(entity);
+        } else if plan.record.asset_target.has_primitive_collision() {
+            staging.primitive_collision_roots.push(entity);
         }
         next_plan += 1; // 根及其全部句柄/observer命令完整建立后才推进游标。
     }
@@ -411,7 +414,7 @@ pub(super) fn finish_placement_candidate(
         .as_ref()
         .is_some_and(|pending| pending.terrain_patch_count > 0);
     // 形状已在后台完成。洞口、查询和新容器在本帧共同发布，候选期间没有隐形地形碰撞。
-    for &root in &staging.terrain_roots {
+    for &root in staging.terrain_roots.iter().chain(&staging.primitive_collision_roots) {
         commands
             .entity(root)
             .insert(super::super::terrain_collision::InstallTerrainPatchCollider);
@@ -424,6 +427,7 @@ pub(super) fn finish_placement_candidate(
     if let Some(old) = state.active.take() {
         old.gate.retire(); // 先O(1)永久撤销旧批次作者与保存证据身份。
         super::super::terrain_collision::retire_formal_terrain(commands, &old.terrain_roots);
+        super::super::terrain_collision::retire_formal_terrain(commands, &old.primitive_collision_roots);
         if let Ok(mut visibility) = container_visibilities.get_mut(old.root) {
             *visibility = Visibility::Hidden; // 同一系统内直接隐藏旧容器，不让公开Ready领先延迟命令。
         }
@@ -437,6 +441,7 @@ pub(super) fn finish_placement_candidate(
     state.active = Some(PlacementActiveBatch {
         building_preset_revision: staging.building_preset_revision,
         terrain_roots: staging.terrain_roots,
+        primitive_collision_roots: staging.primitive_collision_roots,
         root: staging.root,
         roots: staging.roots, // Vec O(1)移动；物理标记由独立固定预算系统清理。
         gate: staging.gate,

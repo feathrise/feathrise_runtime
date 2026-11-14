@@ -48,6 +48,7 @@ fn check_retired_physics(replacement: bool) {
     state.active = Some(PlacementActiveBatch {
         building_preset_revision: 0,
         terrain_roots: vec![cave],
+        primitive_collision_roots: Vec::new(),
         root: old_container,
         roots: vec![ordinary, cave],
         gate: PlacementInstanceGate::new(true),

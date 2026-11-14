@@ -174,7 +174,25 @@ fn custom_lod_gpu_selects_one_existing_level_without_overlap() {
             }
         }
     }
-    eprintln!("{backend}: 1～8 档生产 LOD 选择与交接 GPU 读回通过");
+    // 正交缩放决定投影大小；相机因场景包围体后移到67m或更远，不能把近处种植强制降为最粗档。
+    let orthographic_config = GpuBladeViewLodConfig::new(
+        Vec2::new(12.0, 20.0), Vec2::new(40.0, 56.0), Vec2::new(0.2, 0.6),
+        0.7, 1.0, Vec3::splat(10_000.0), 0.0, Vec2::ZERO,
+    );
+    let orthographic_patch = GpuBladePatch::square(Vec3::ZERO, 64.0, 65, 1)
+        .with_view_lod_config(orthographic_config);
+    for (pixel_scale, expected_level) in [(100.0, 0u32), (40.0, 1), (10.0, 2)] {
+        for depth in [1.0, 67.0, 10_000.0] {
+            for result in query_view(&device, &queue, &pipeline, orthographic_patch,
+                orthographic_config, Vec4::new(0.0, -depth, 0.0, 3.0),
+                Vec4::new(0.0, 1.0, 0.0, pixel_scale))
+            {
+                assert_eq!(result & 0xFF, 1u32 << expected_level,
+                    "{backend}: 正交 pixel_scale={pixel_scale}, depth={depth} 应选择同一档");
+            }
+        }
+    }
+    eprintln!("{backend}: 1～8 档生产 LOD 交接及正交缩放/深度独立 GPU 读回通过");
 }
 
 fn query(
@@ -184,6 +202,20 @@ fn query(
     patch: GpuBladePatch,
     config: GpuBladeViewLodConfig,
     pixels: f32,
+) -> Vec<u32> {
+    query_view(device, queue, pipeline, patch, config,
+        Vec4::new(0.0, -100.0, 0.0, 2.0),
+        Vec4::new(0.0, 1.0, 0.0, pixels * 100.35 / 0.7))
+}
+
+fn query_view(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    pipeline: &wgpu::ComputePipeline,
+    patch: GpuBladePatch,
+    config: GpuBladeViewLodConfig,
+    camera_position_enabled: Vec4,
+    camera_forward_pixel_scale: Vec4,
 ) -> Vec<u32> {
     let mut encoded = encase::UniformBuffer::new(Vec::new());
     encoded.write(&patch).unwrap();
@@ -196,8 +228,8 @@ fn query(
     let view = GpuBladeView::screen_space_lod_with(config);
     let uniform = super::culling::GpuBladeViewCullingUniform {
         frustum_planes: [Vec4::ZERO; 6],
-        camera_position_enabled: Vec4::new(0.0, -100.0, 0.0, 2.0),
-        camera_forward_pixel_scale: Vec4::new(0.0, 1.0, 0.0, pixels * 100.35 / 0.7),
+        camera_position_enabled,
+        camera_forward_pixel_scale,
         lod_pixel_thresholds: view.lod_pixel_thresholds(),
         lod_ultra_pixel_thresholds: view.lod_ultra_pixel_thresholds(),
         camera_fade_lod_params: view.camera_fade_lod_params(),

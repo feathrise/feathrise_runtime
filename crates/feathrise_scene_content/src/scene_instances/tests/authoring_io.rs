@@ -13,7 +13,7 @@ fn saved_subscene_accepts_explicit_empty_container_and_rejects_legacy_manifest()
     fs::create_dir_all(root.join(folder)).unwrap();
     let child_entry = SceneCatalogEntry {
         id: id("SCENE-child"), display_name: "子场景".into(), folder: folder.into(),
-        published: false, surface_path: None, vegetation_path: None,
+        published: false, placements_glb: false, surface_path: None, vegetation_path: None,
         water_path: None, boundary_path: None, characters_path: None,
     };
     let path = root.join(child_entry.manifest_path());

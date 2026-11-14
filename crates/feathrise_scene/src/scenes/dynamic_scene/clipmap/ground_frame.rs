@@ -9,28 +9,36 @@ const MAX_FRAME_QUERY_CELLS: usize = 65_536;
 impl ClipmapGroundSnapshot {
     /// 世界向下射线必须整体逆变换；只换算长度再沿源Y投射会在倾斜地形上横向错位。
     pub(crate) fn support_below_in_frame(&self, origin: Vec3, maximum: f32, frame: SceneSourceFrame) -> ClipmapGroundHit {
-        if !origin.is_finite() || !maximum.is_finite() || maximum <= 0.0 {
-            return ClipmapGroundHit::Failed;
+        match self.support_surface_below_in_frame(origin, maximum, frame) {
+            Ok((point, _)) => ClipmapGroundHit::Hit(point),
+            Err(status) => status,
         }
-        if !self.ready { return ClipmapGroundHit::WaitingForHeight; }
+    }
+
+    /// 保留同一次真实承托命中的法线；净空需区别同格薄板正反面，不能仅凭位置接近认作同层。
+    pub(crate) fn support_surface_below_in_frame(&self, origin: Vec3, maximum: f32, frame: SceneSourceFrame) -> Result<(Vec3, Vec3), ClipmapGroundHit> {
+        if !origin.is_finite() || !maximum.is_finite() || maximum <= 0.0 {
+            return Err(ClipmapGroundHit::Failed);
+        }
+        if !self.ready { return Err(ClipmapGroundHit::WaitingForHeight); }
         let local_origin = frame.to_local(origin);
         let direction = frame.world_to_source.transform_vector3(Vec3::NEG_Y);
         let scale = direction.length();
-        if !scale.is_finite() || scale <= 0.0 { return ClipmapGroundHit::Failed; }
+        if !scale.is_finite() || scale <= 0.0 { return Err(ClipmapGroundHit::Failed); }
         let mesh_hit = self.three_dimensional_hit(local_origin, direction / scale, maximum * scale)
             .map(|(point, normal)| (point.distance(local_origin) / scale, point, normal));
         let limit = mesh_hit.map_or(maximum, |hit| hit.0);
         let base_hit = match self.authoritative_ray(local_origin, direction, limit) {
             Ok(hit) => hit,
-            Err(status) => return status,
+            Err(status) => return Err(status),
         };
         let hit = base_hit.or(mesh_hit.map(|(_, point, normal)| (point, normal)));
-        let Some((point, normal)) = hit else { return ClipmapGroundHit::Miss; };
+        let Some((point, normal)) = hit else { return Err(ClipmapGroundHit::Miss); };
         // 真实首个面若背向世界上方就拒绝承托，不能穿过倒扣地形寻找更低的另一层。
         let normal = frame.world_to_source.transpose().transform_vector3(normal).try_normalize();
-        if normal.is_some_and(|normal| normal.y > 0.05) {
-            ClipmapGroundHit::Hit(frame.to_world(point))
-        } else { ClipmapGroundHit::Miss }
+        if let Some(normal) = normal.filter(|normal| normal.y > 0.05) {
+            Ok((frame.to_world(point), normal))
+        } else { Err(ClipmapGroundHit::Miss) }
     }
 
     /// 保留原命中层，沿世界XZ线段收集相邻的真实作者三角，而非固定旧Y再反变换目标。

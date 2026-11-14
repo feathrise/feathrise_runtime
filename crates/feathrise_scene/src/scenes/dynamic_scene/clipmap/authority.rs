@@ -380,6 +380,29 @@ impl DynamicClipmapGroundSurface {
 }
 
 impl super::ground::ClipmapGroundSnapshot {
+    /// 下游CPU笔刷回归用真实需求队列冷启动，再从缓存正式采用同一来源的有限作者页。
+    #[cfg(feature = "runtime_test_support")]
+    pub(in crate::scenes::dynamic_scene) fn with_cold_test_authority(
+        mut self,
+    ) -> (Self, impl FnOnce() -> Self) {
+        let authority = self.authority.as_ref().expect("自有高度夹具须包含一个作者页");
+        let (&key, value) = authority.pages.first_key_value().expect("自有高度夹具须包含一个作者页");
+        let value = value.clone();
+        let identity = authority.identity.clone();
+        let mut runtime = AuthoritativeHeightRuntime::default();
+        runtime.reset(identity.clone(), authority.spec.clone(), authority.craters.clone());
+        self.authority_requests.retarget(identity.clone());
+        self.authority = runtime.snapshot_for(identity.content);
+        let cold = self.clone();
+        (cold, move || {
+            let requests = self.authority_requests.drain(&identity);
+            assert_eq!(requests, BTreeSet::from([key]), "首笔必须从真实命中请求该作者页");
+            runtime.insert(key, value);
+            self.authority = runtime.snapshot_for(identity.content);
+            self
+        })
+    }
+
     pub fn request_authoritative_rect(&self, minimum: Vec2, maximum: Vec2) -> Result<bool, String> {
         if !self.ready {
             return Ok(false);

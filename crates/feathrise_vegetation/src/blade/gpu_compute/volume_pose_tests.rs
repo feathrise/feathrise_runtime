@@ -4,6 +4,18 @@ use std::{borrow::Cow, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
 
 const DRAW: &str = include_str!("../shaders/gpu_grass_minimal.wesl");
+const MESH_DRAW: &str = include_str!("../../mesh_backend/batch/shaders/mesh_batch.wesl");
+const MESH_NORMAL_QUERY: &str = r#"
+struct NormalCase { frame:mat4x4<f32>, normal:vec4<f32>, }
+@group(0) @binding(0) var<storage,read> normal_cases:array<NormalCase>;
+@group(0) @binding(1) var<storage,read_write> transformed_normals:array<vec4<f32>>;
+@compute @workgroup_size(64)
+fn validate_mesh_normals(@builtin(global_invocation_id) id:vec3<u32>) {
+    if id.x>=arrayLength(&normal_cases) {return;}
+    let input=normal_cases[id.x];
+    transformed_normals[id.x]=vec4<f32>(vegetation_batch_normal_local_to_world(input.frame,input.normal.xyz),0.0);
+}
+"#;
 const QUERY: &str = r#"
 struct PoseResult {
     x:vec4<f32>, y:vec4<f32>, z:vec4<f32>,
@@ -31,6 +43,26 @@ fn source() -> String {
     let start = DRAW.find("fn volume_basis(").unwrap();
     let end = DRAW[start..].find("struct GrassVertex {").unwrap() + start;
     format!("{}\n{QUERY}", &DRAW[start..end])
+}
+
+fn mesh_normal_source() -> String {
+    // 只解析真实非公告板分支，保留生产法线函数原文；期望值由CPU线性代数库独立求逆。
+    let start = MESH_DRAW.find("fn vegetation_batch_normal_local_to_world(").unwrap();
+    let end = MESH_DRAW[start..].find("fn vegetation_batch_tangent_local_to_world(").unwrap() + start;
+    let helper = MESH_DRAW[start..end].lines()
+        .filter(|line| !line.contains("@if(VEGETATION_BATCH_BILLBOARD)"))
+        .map(|line| line.replace("@if(!VEGETATION_BATCH_BILLBOARD) ", ""))
+        .collect::<Vec<_>>().join("\n");
+    format!("{helper}\n{MESH_NORMAL_QUERY}")
+}
+
+#[test]
+fn model_mesh_normal_helper_is_valid_wgsl() {
+    let module = wgpu::naga::front::wgsl::parse_str(&mesh_normal_source()).unwrap();
+    wgpu::naga::valid::Validator::new(
+        wgpu::naga::valid::ValidationFlags::all(),
+        wgpu::naga::valid::Capabilities::all(),
+    ).validate(&module).unwrap();
 }
 
 #[test]
@@ -178,4 +210,78 @@ pub(super) fn validate(device: &wgpu::Device, queue: &wgpu::Queue) {
         read_basis(2).abs_diff_eq(read_basis(3), 0.04),
         "小幅坡度变化不能触发切轴翻转"
     );
+    drop(bytes);
+    readback.unmap();
+    validate_mesh_normals(device, queue);
+}
+
+/// 同一真实GPU验证模型父级非均匀/镜像缩放与逐株旋转组成的斜列矩阵。
+fn validate_mesh_normals(device: &wgpu::Device, queue: &wgpu::Queue) {
+    let child = Mat4::from_quat(Quat::from_euler(EulerRot::YXZ, 0.7, 0.3, -0.4));
+    let frames = [
+        Mat4::IDENTITY,
+        Mat4::from_scale_rotation_translation(Vec3::new(2., 3., 0.5),
+            Quat::from_rotation_z(0.6), Vec3::new(7., 2., -9.)) * child,
+        Mat4::from_scale_rotation_translation(Vec3::new(-2., 3., 0.5),
+            Quat::from_rotation_x(-0.2), Vec3::new(-3., 4., 1.)) * child,
+    ];
+    let normal = Vec3::new(0.3, 0.7, -0.4).normalize();
+    let cases: Vec<_> = frames.into_iter().flat_map(|frame|
+        [normal, -normal, Vec3::ZERO].into_iter().map(move |normal| (frame, normal))).collect();
+    let inputs: Vec<[[f32; 4]; 5]> = cases.iter().map(|(frame, normal)| {
+        let mut input = [[0.; 4]; 5];
+        input[..4].copy_from_slice(&frame.to_cols_array_2d());
+        input[4] = normal.extend(0.).to_array();
+        input
+    }).collect();
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("production_mesh_inverse_transpose"),
+        source: wgpu::ShaderSource::Wgsl(Cow::Owned(mesh_normal_source())),
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("validate_mesh_normals"), layout: None, module: &shader,
+        entry_point: Some("validate_mesh_normals"), compilation_options: Default::default(), cache: None,
+    });
+    let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("model_normal_cases"), contents: bytemuck::cast_slice(&inputs),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let size = (cases.len() * 16) as u64;
+    let output = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("model_normal_output"), size,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false,
+    });
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("model_normal_readback"), size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false,
+    });
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None, layout: &pipeline.get_bind_group_layout(0), entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: output.as_entire_binding() },
+        ],
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, size);
+    let submission = queue.submit([encoder.finish()]);
+    let (tx, rx) = mpsc::sync_channel(1);
+    readback.slice(..).map_async(wgpu::MapMode::Read, move |result| { let _ = tx.send(result); });
+    device.poll(wgpu::PollType::Wait { submission_index: Some(submission),
+        timeout: Some(Duration::from_secs(30)) }).unwrap();
+    rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
+    let bytes = readback.slice(..).get_mapped_range().unwrap();
+    let actual: &[[f32; 4]] = bytemuck::cast_slice(&bytes);
+    for ((frame, normal), actual) in cases.iter().zip(actual) {
+        let expected = (Mat3::from_mat4(*frame).inverse().transpose() * *normal).normalize_or_zero();
+        assert!(Vec3::from_slice(actual).abs_diff_eq(expected, 0.0001),
+            "模型缩放与逐株旋转组合后法线必须为完整逆转置：actual={actual:?}, expected={expected:?}");
+    }
+    drop(bytes);
+    readback.unmap();
 }

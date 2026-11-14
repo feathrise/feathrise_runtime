@@ -2,6 +2,10 @@
 
 #[path = "smoke_author_tools.rs"]
 mod author_tools;
+#[path = "smoke_model_surface.rs"]
+mod model_surface;
+#[path = "smoke_volume.rs"]
+mod volume;
 
 use crate::project::{ProjectContext, context, startup::SavedGameStartup};
 use bevy::{
@@ -10,7 +14,7 @@ use bevy::{
     tasks::{IoTaskPool, Task, futures::check_ready},
 };
 use feathrise_scene::{
-    DynamicSceneRuntimePhase, DynamicSceneRuntimeStatus, DynamicVegetationPhase,
+    DynamicModelVegetationStatus, DynamicSceneRuntimePhase, DynamicSceneRuntimeStatus, DynamicVegetationPhase,
     DynamicVegetationStatus, DynamicWaterPhase, DynamicWaterStatus, ScenePlacementRuntimePhase,
     ScenePlacementRuntimeStatus,
 };
@@ -36,6 +40,8 @@ struct GameSmoke {
     completed: bool,
     saved_play: bool,
     return_requested: Option<Instant>,
+    model_surface_validation: bool,
+    volume_requirements: std::sync::Arc<volume::Requirements>,
 }
 
 pub(super) fn install(
@@ -63,8 +69,14 @@ pub(super) fn install(
     }
     let startup = app.world().resource::<SavedGameStartup>();
     let source = source_evidence(project, &startup.entry)?;
+    let volume_requirements = volume::load(project, &startup.entry)?;
     if author_tools::enabled() {
         author_tools::install(app)?;
+    }
+    let model_surface_validation = std::env::var("FEATHRISE_MODEL_SURFACE_VALIDATION")
+        .is_ok_and(|value| value == "1");
+    if model_surface_validation {
+        model_surface::install(app);
     }
     // 有限验收不依赖窗口是否恰好获得前台；普通游戏仍使用自己的失焦更新策略。
     app.insert_resource(bevy::winit::WinitSettings::continuous());
@@ -86,6 +98,8 @@ pub(super) fn install(
         completed: false,
         saved_play,
         return_requested: None,
+        model_surface_validation,
+        volume_requirements,
     })
     .add_systems(Last, advance);
     Ok(())
@@ -113,8 +127,47 @@ fn ready(world: &mut World) -> bool {
         && world.get_resource::<DynamicSceneRuntimeStatus>().is_some_and(|state| state.scene_id.as_ref() == Some(&startup.scene_id) && state.phase == DynamicSceneRuntimePhase::Ready)
         && world.get_resource::<ScenePlacementRuntimeStatus>().is_some_and(|state| state.scene_id.as_ref() == Some(&startup.scene_id) && state.phase == ScenePlacementRuntimePhase::Ready)
         && world.get_resource::<DynamicVegetationStatus>().is_some_and(|state| state.scene_id.as_ref() == Some(&startup.scene_id) && state.phase == DynamicVegetationPhase::Ready)
+        && model_vegetation_ready(world, &startup.scene_id)
         && world.get_resource::<DynamicWaterStatus>().is_none_or(|state| state.phase == DynamicWaterPhase::Disabled || (state.scene_id.as_ref() == Some(&startup.scene_id) && state.phase == DynamicWaterPhase::Ready && state.applied_generation == state.desired_generation));
-    ready && (!author_tools::enabled() || author_tools::render_ready(world))
+    let volume_requirements = world.resource::<GameSmoke>().volume_requirements.clone();
+    ready && volume::ready(world, &volume_requirements)
+        && (!author_tools::enabled() || author_tools::render_ready(world))
+}
+
+/// 只在本轮模型夹具显式启用时补充生产回执门；未读到已登记文档不能被当成空画布。
+fn model_vegetation_ready(world: &World, scene: &feathrise_scene_content::SceneId) -> bool {
+    if !world.resource::<GameSmoke>().model_surface_validation {
+        return true;
+    }
+    let Some(handles) = world
+        .get_resource::<feathrise_scene_content::SceneContentRegistry>()
+        .and_then(|registry| registry.handles(scene))
+    else {
+        return false;
+    };
+    let Some(handle) = handles.vegetation.as_ref() else {
+        return true;
+    };
+    let Some(document) = world
+        .get_resource::<Assets<feathrise_scene_content::SceneVegetationAsset>>()
+        .and_then(|assets| assets.get(handle))
+    else {
+        return false;
+    };
+    if document.model_surfaces.is_empty() {
+        // B隔离工程允许没有模型密度；A目标的存在和完整保存另由父级独立核对。
+        return true;
+    }
+    world
+        .get_resource::<DynamicModelVegetationStatus>()
+        .is_some_and(|status| {
+            status.scene_id.as_ref() == Some(scene)
+                && status.instance_path.as_ref()
+                    == Some(&feathrise_scene_content::SceneInstancePath::root(scene.clone()))
+                && status.ready
+                && !status.failed
+        })
+        && model_surface::ready(world)
 }
 
 /// 显式验收才在完整就绪帧采一份有界状态；普通玩法帧不存在World全量证据收集。
@@ -133,6 +186,11 @@ fn snapshot(world: &mut World, passed: bool, reason: &str) -> serde_json::Value 
         "scene_id":state.scene_id.as_ref().map(|id|&id.0), "phase":format!("{:?}", state.phase), "revision":state.revision,
         "layer_count":state.layer_count, "blade_layers":state.blade_layer_count, "blade_windows":state.blade_window_count,
         "mesh_instances":state.mesh_instance_count, "mesh_batches":state.mesh_batch_count, "detail":state.detail,
+    }));
+    let model_vegetation = world.get_resource::<DynamicModelVegetationStatus>().map(|state| serde_json::json!({
+        "ready":state.ready,"failed":state.failed,"scene_id":state.scene_id.as_ref().map(|id|&id.0),
+        "blade_windows":state.blade_window_count,"mesh_batches":state.mesh_batch_count,
+        "surface_count":state.surface_count,"detail":state.detail,"runtime_revision":state.runtime_revision,
     }));
     let water = world.get_resource::<DynamicWaterStatus>().map(|state| serde_json::json!({
         "scene_id":state.scene_id.as_ref().map(|id|&id.0), "phase":format!("{:?}", state.phase), "revision":state.revision,
@@ -198,13 +256,15 @@ fn snapshot(world: &mut World, passed: bool, reason: &str) -> serde_json::Value 
         Err(error) => (Vec::new(), Some(error)),
     };
     let author_tools = author_tools::enabled().then(|| author_tools::snapshot(world));
+    let model_surface_gpu = world.resource::<GameSmoke>().model_surface_validation
+        .then(|| model_surface::snapshot(world));
     let passed = passed
         && terrain_evidence_error.is_none()
         && author_tools.as_ref().is_none_or(Result::is_ok);
     serde_json::json!({
         "schema":2,"entry":"production-SceneRuntimePlugin","passed":passed,"reason":reason,
         "scene_id":map,"name":name,"source":world.resource::<GameSmoke>().source,
-        "runtime":runtime,"placements":placements,"vegetation":vegetation,"water":water,"gate":gate,"loading":loading,
+        "runtime":runtime,"placements":placements,"vegetation":vegetation,"model_vegetation":model_vegetation,"water":water,"gate":gate,"loading":loading,
         "gate_lifecycle":"生产加载完成可移除SceneStartupGate与LoadingProgress；无门时仍验唯一中性视图、真实网格和场景各域Ready",
         "primary_scene_view_count":views.len(),"primary_scene_views":views,"mesh_entities":mesh_entities,"placement_instances":instances,
         "subscene_instances":subscenes,
@@ -213,6 +273,7 @@ fn snapshot(world: &mut World, passed: bool, reason: &str) -> serde_json::Value 
         "terrain_objects":terrain_objects,
         "terrain_evidence_error":terrain_evidence_error,
         "author_tools":author_tools,
+        "model_surface_gpu":model_surface_gpu,
         "elapsed_seconds":world.resource::<GameSmoke>().started.elapsed().as_secs_f64(),
         "present":{"ready":present.ready,"accepted_count":present.successful_present_count,"epoch":present.presentation_epoch},
         "screenshot":"game.png","world":"separate-game-process",
@@ -223,6 +284,7 @@ fn snapshot(world: &mut World, passed: bool, reason: &str) -> serde_json::Value 
 /// 容器场景的根植被状态不代表独立地形；使用原活动路径查询，不能借候选或同名兄弟的计数。
 fn terrain_evidence(world: &mut World) -> Result<Vec<serde_json::Value>, String> {
     let map = world.resource::<SavedGameStartup>().scene_id.clone();
+    let volume_requirements = world.resource::<GameSmoke>().volume_requirements.clone();
     let targets = world
         .query::<(
             Entity,
@@ -232,6 +294,7 @@ fn terrain_evidence(world: &mut World) -> Result<Vec<serde_json::Value>, String>
         .iter(world)
         .filter(|(_, instance, object)| {
             instance.source_scene_id == map
+                && world.get::<feathrise_scene::SubsceneActive>(instance.batch).is_some()
                 && instance.path
                     == feathrise_scene_content::SceneInstancePath::root(map.clone())
                         .terrain(object.definition.id.clone())
@@ -239,28 +302,46 @@ fn terrain_evidence(world: &mut World) -> Result<Vec<serde_json::Value>, String>
         .take(64)
         .map(|(entity, _, object)| (entity, object.definition.clone()))
         .collect::<Vec<_>>();
-    let mut access = bevy::ecs::system::SystemState::<
+    let mut access = bevy::ecs::system::SystemState::<(
         feathrise_scene::TerrainObjectResource<DynamicVegetationStatus>,
-    >::new(world);
-    let vegetation = access.get(world).map_err(|error| error.to_string())?;
+        feathrise_scene::TerrainObjectResource<feathrise_scene::DynamicClipmapGroundSurface>,
+    )>::new(world);
+    let collision_ready = {
+        let mut queries = bevy::ecs::system::SystemState::<feathrise_scene::TerrainObjectQueries>::new(world);
+        let queries = queries.get(world).map_err(|error| error.to_string())?;
+        targets.iter().map(|(_, object)| (object.id.clone(),queries.collision_is_ready(&map,&object.id)))
+            .collect::<std::collections::BTreeMap<_,_>>()
+    };
+    let (vegetation, grounds) = access.get(world).map_err(|error| error.to_string())?;
     Ok(targets
         .into_iter()
-        .filter_map(|(entity, object)| {
-            let (active, status) = vegetation.for_saved_object(&map, &object.id)?;
-            if active != entity { return None; }
-            Some(serde_json::json!({
+        .map(|(entity, object)| {
+            let (active, status) = vegetation.for_saved_object(&map, &object.id)
+                .ok_or("地形验收缺少当前活动实例的植被状态")?;
+            if active != entity { return Err("地形验收不能借用另一实例的植被状态".into()); }
+            let current_ground = grounds.for_saved_object(&map, &object.id)
+                .filter(|(instance, _)| *instance == active).and_then(|(_, surface)| surface.snapshot.as_ref())
+                .filter(|ground| ground.ready).map(|ground| ground.content_revision_words());
+            let volume = volume::snapshot(world, &volume_requirements, &object.id, active, status, current_ground)?;
+            Ok(serde_json::json!({
                 "terrain_id":object.id.as_str(),"source_scene_id":map.as_str(),
                 "active_instance":format!("{active:?}"),
-                "terrain_glb_path":object.terrain.glb_path,"surface_path":object.surface_path,
+                "instance":active.to_bits(),
+                "instance_path":feathrise_scene_content::SceneInstancePath::root(map.clone()).terrain(object.id.clone()).to_string(),
+                "terrain_glb_path":Some(object.terrain.glb_path.as_str()).filter(|path| !path.is_empty()),
+                "surface_path":object.surface_path,
+                "height_path":object.terrain.height_path,"voxel_source_path":object.voxel.as_ref().map(|voxel|&voxel.source_path),
+                "collision_ready":collision_ready.get(&object.id),
                 "vegetation_path":object.vegetation_path,"water_path":object.water_path,
                 "vegetation":{"scene_id":status.scene_id.as_ref().map(|id|id.as_str()),
                     "phase":format!("{:?}",status.phase),"layers":status.layer_count,
                     "blade_layers":status.blade_layer_count,"blade_windows":status.blade_window_count,
                     "mesh_instances":status.mesh_instance_count,"mesh_batches":status.mesh_batch_count,
-                    "mesh_render_nodes":status.mesh_render_node_count,"detail":status.detail},
+                    "mesh_render_nodes":status.mesh_render_node_count,"detail":status.detail,
+                    "volume":volume},
             }))
         })
-        .collect())
+        .collect::<Result<Vec<_>, String>>()?)
 }
 
 fn preset_catalog_evidence(world: &World) -> serde_json::Value {
@@ -329,6 +410,11 @@ fn advance(world: &mut World) {
     }
     if world.resource::<GameSmoke>().writer.is_some() {
         return;
+    }
+    // 观察不依赖其他加载门先通过；失败与超时也必须留下真实模型窗和GPU等待证据。
+    if world.resource::<GameSmoke>().model_surface_validation {
+        let scene = world.resource::<SavedGameStartup>().scene_id.clone();
+        model_surface::observe(world, &scene);
     }
     let failed = world
         .get_resource::<LoadingProgress>()
@@ -420,11 +506,17 @@ fn append_terrain_sources(
     for object in report["terrain_objects"].as_array().into_iter().flatten() {
         for field in [
             "terrain_glb_path",
+            "height_path",
+            "voxel_source_path",
             "surface_path",
             "vegetation_path",
             "water_path",
         ] {
             if let Some(path) = object[field].as_str() {
+                // 分页高度和体素源都可没有GLB；旧报告以空字符串表示这个可选项。
+                if field == "terrain_glb_path" && path.is_empty() {
+                    continue;
+                }
                 paths.insert(path.to_owned());
             }
         }

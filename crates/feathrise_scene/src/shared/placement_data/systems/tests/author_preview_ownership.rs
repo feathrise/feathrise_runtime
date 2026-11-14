@@ -24,6 +24,7 @@ fn install_followup_candidate(app: &mut App, map: &SceneId, record: &ScenePlacem
     state.staging = Some(PlacementStaging {
         reuse: Default::default(),
         terrain_roots: Vec::new(),
+        primitive_collision_roots: Vec::new(),
         root: container,
         roots: vec![root],
         gate,

@@ -147,6 +147,9 @@ impl ScenePlacementInstance {
         self.asset_target // 视口只读取不可变目标来区分Scene层级命中与直接子资产命中。
     }
 
+    /// 通用表面后台读取与显示根共用同一来源路径，避免碰撞关闭后丢失种植几何。
+    pub fn asset_path(&self) -> &str { &self.asset_path }
+
     /// 同Entity上的后来作者快照必须使旧保存失去回收权；克隆仍表示同一版本。
     pub fn authoring_version(&self) -> AuthoringVersion {
         self.authoring_version.clone().unwrap_or_else(||
@@ -191,9 +194,13 @@ impl ScenePlacementInstance {
         Some(carried)
     }
 
-    /// 返回该根是否来自具有建筑占地语义的预设实例。
+    /// 返回该根是否必须等待静态网格碰撞完成。
     pub(crate) fn is_building(&self) -> bool {
-        self.building_preset_id.is_some() || self.terrain_patch.is_some() // 三维地形同样必须等真实网格碰撞。
+        self.building_preset_id.is_some() || self.uses_async_mesh_collision()
+    }
+
+    pub(crate) fn uses_async_mesh_collision(&self) -> bool {
+        self.is_terrain_patch() || self.asset_target.has_primitive_collision()
     }
 
     pub fn is_terrain_patch(&self) -> bool {

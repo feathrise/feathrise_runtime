@@ -115,6 +115,25 @@ pub(in crate::scenes::dynamic_scene) struct VoxelObjectRuntime {
     pub(super) release: Option<Task<()>>,
 }
 impl VoxelObjectRuntime {
+    /// 实窗失败取证只冻结有限身份字段，不修改任务、几何或命中结果。
+    #[cfg(feature = "test_panel")]
+    pub(in crate::scenes::dynamic_scene) fn diagnostic_identity(&self) -> serde_json::Value {
+        let identity = |value: &Identity| serde_json::json!({
+            "root": value.root.to_bits(), "source": format!("{:?}", value.source),
+            "revision": value.revision, "descriptor": value.descriptor,
+            "display_center": value.display_center, "player_center": value.player_center,
+            "physics_centers": value.physics_centers.iter().take(8).collect::<Vec<_>>(),
+            "physics_center_count": value.physics_centers.len(),
+            "anchor_extent": value.anchor_extent, "scale": value.scale.to_array(),
+        });
+        serde_json::json!({
+            "generation": self.generation, "source_path": self.source_path,
+            "active": self.active.map(Entity::to_bits), "has_display_query": self.display_query.is_some(),
+            "applied": self.applied.as_ref().map(identity),
+            "desired": self.desired.as_ref().map(identity),
+            "started": self.started.as_ref().map(identity),
+        })
+    }
     pub(in crate::scenes::dynamic_scene) fn ground_snapshot(
         &self,
         root: Entity,

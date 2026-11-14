@@ -58,7 +58,7 @@ mod tests {
             "schema_version":2,"id":"MAP-footprint","display_name":"轮廓测试",
             "runtime_scene":"data_driven","world_min":[0,0],"world_max":[10,10],
             "default_spawn":[0,0,0],"asset_roots":[],
-            "terrain":{"kind":"heightfield","glb_path":"terrain.glb","height_path":"height.r16",
+            "terrain":{"kind":"gltf","glb_path":"terrain.glb","height_path":"height.r16",
                 "resolution":[2,2],"base_height":20,"height_scale":100}
         }"#,
         )

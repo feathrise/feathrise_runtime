@@ -226,10 +226,7 @@ pub(crate) fn prepare_dynamic_water(
     if manifest.id != scene_id
         || !manifest.is_data_driven()
         || manifest.world_bounds().is_none()
-        || !matches!(manifest.terrain.kind, SceneTerrainKind::Heightfield | SceneTerrainKind::Empty)
-        || (manifest.terrain.kind == SceneTerrainKind::Heightfield && (manifest.terrain.resolution[0] < 2
-            || manifest.terrain.resolution[1] < 2 || !manifest.terrain.base_height.is_finite()
-            || !manifest.terrain.height_scale.is_finite() || manifest.terrain.height_scale <= 0.0))
+        || !matches!(manifest.terrain.kind, SceneTerrainKind::Empty)
     {
         fail_preparation(
             &mut state,

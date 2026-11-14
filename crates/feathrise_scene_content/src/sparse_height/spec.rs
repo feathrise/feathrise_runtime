@@ -53,8 +53,10 @@ impl SparseHeightSpec {
         let mut actual_spacing_meters = [0.0_f64; 2]; // 矩形场景允许两轴末端间距不同。
         for axis in 0..2 {
             let extent = f64::from(world_max[axis]) - f64::from(world_min[axis]);
-            if !extent.is_finite() || !(64.0..=8192.0).contains(&extent) {
-                return Err(format!("稀疏地形第{axis}轴尺寸必须在 64 至 8192 米之间"));
+            // 【功能设计】高度地形统一采用 Clipmap，小模型大小的地形也使用同一分页源。
+            // 一格仍覆盖完整边长；不因不足一页而向外扩大作者范围。
+            if !extent.is_finite() || !(f64::from(0.01_f32)..=8192.0).contains(&extent) {
+                return Err(format!("稀疏地形第{axis}轴尺寸必须在 0.01 至 8192 米之间"));
             }
             let count = (extent / f64::from(requested_spacing_meters)).ceil(); // 不因总图增大而提高最细格距。
             if !(1.0..=u64::MAX as f64).contains(&count) {

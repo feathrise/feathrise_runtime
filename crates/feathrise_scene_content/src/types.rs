@@ -94,8 +94,6 @@ pub enum SceneTerrainKind {
     /// 现有Blender场景继续以GLB作为权威地形源。
     #[default]
     Gltf,
-    /// 编辑器新建场景以高度场和河流参数作为权威源，GLB仅为派生产物。
-    Heightfield,
     /// 新建场景的稀疏作者高度块由Clipmap显示；洞穴和碰撞使用独立世界空间数据。
     SparseClipmap,
     /// 独立三维密度地形；显示和碰撞由自己的体积源与LOD配置生成。
@@ -124,7 +122,7 @@ pub struct SceneCollisionLod {
 /// 一层Geometry Clipmap显示环带的累计方形半径与相对作者格距倍率。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)] // 清单保存作者列表，运行时按完整值比较换代身份。
 pub struct SceneTerrainDisplayLod {
-    // 仅SparseClipmap消费，GLB和旧Heightfield不得保存该字段。
+    // 仅SparseClipmap消费，GLB不得保存该字段。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     // 最后一层省略字段即表示延伸至场景边界。
     pub outer_half_extent_meters: Option<f32>, // Some是距显示焦点的累计方形半径，None只允许位于末项。
@@ -151,7 +149,7 @@ pub enum SceneTerrainDisplayLodPhase {
 impl SceneTerrainKind {
     /// 网格用途与几何能力分离：导入GLB仍能显示/碰撞，但没有可写的高度作者源。
     pub const fn supports_height_sculpt(self) -> bool {
-        matches!(self, Self::Heightfield | Self::SparseClipmap)
+        matches!(self, Self::SparseClipmap)
     }
 
     /// 只有密度作者或带三维挖掘层的Clipmap能够改变体积，不能把任意模型投成高度图。
@@ -161,18 +159,18 @@ impl SceneTerrainKind {
 
     /// 数据驱动湖泊和池塘是否能使用该场景的作者画布。
     ///
-    /// 【功能设计】Heightfield继续使用完整GLB派生高度；SparseClipmap改用已采用分页高度。
+    /// 【功能设计】高度地形统一从Clipmap已采用分页高度读取。
     /// Empty的独立R8平面不要求地形；专用Gltf场景仍保留各自既有水体实现。
     pub const fn supports_static_water(self) -> bool {
-        matches!(self, Self::Empty | Self::Heightfield | Self::SparseClipmap | Self::Voxel)
+        matches!(self, Self::Empty | Self::SparseClipmap | Self::Voxel)
     }
 
     /// 河流、急流和瀑布样条是否能使用世界坐标带状网格后端。
     ///
     /// 【功能设计】样条控制点已经保存完整世界XYZ，不需要从地形反推整图河床；
-    /// Heightfield与SparseClipmap因此共用同一固定预算Ribbon构建器。
+    /// 高度地形和体积地形共用同一固定预算Ribbon构建器。
     pub const fn supports_spline_water(self) -> bool {
-        matches!(self, Self::Heightfield | Self::SparseClipmap | Self::Voxel)
+        matches!(self, Self::SparseClipmap | Self::Voxel)
     }
 
     /// 旧数据水域后端是否能从该地形路线取得完整GLB河床。
@@ -181,7 +179,7 @@ impl SceneTerrainKind {
     /// 要求完整高度缓存与CPU地形网格的构建器。摆放GLB的整网格赋水只依赖对象
     /// 自身的网格、层级和UV，三类地形共用该入口，不受此地形河床能力门限制。
     pub const fn supports_glb_derived_water(self) -> bool {
-        matches!(self, Self::Heightfield)
+        false
     }
 }
 

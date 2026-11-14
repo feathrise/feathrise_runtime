@@ -31,7 +31,7 @@ fn set_pending(app: &mut App, density: u8, revision: u32) {
     let manifest: SceneManifestAsset = serde_json::from_value(serde_json::json!({
         "schema_version":2,"id":"MAP-profile-failure","display_name":"原型失败传播",
         "runtime_scene":"data_driven","world_min":[0,0],"world_max":[64,64],"default_spawn":[32,0,32],
-        "terrain":{"kind":"heightfield","glb_path":"scenes/test/terrain.glb","resolution":[2,2],"base_height":0,"height_scale":16}
+        "terrain":{"kind":"gltf","glb_path":"scenes/test/terrain.glb","resolution":[2,2],"base_height":0,"height_scale":16}
     })).unwrap();
     let mut layer = app.world().resource::<VegetationPresetRegistry>()
         .resolve("hn01_tree").unwrap().create_scene_layer("scenes/test");
@@ -44,7 +44,8 @@ fn set_pending(app: &mut App, density: u8, revision: u32) {
         sources: [(layer.id.clone(), Arc::from([density; 4]))].into(),
         densities: [(layer.id.clone(), handle.clone())].into(),
         nonzero_layers: if density == 0 { Default::default() } else { [layer.id.clone()].into() },
-        definition: SceneVegetationAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: manifest.id.clone(),
+        definition: SceneVegetationAsset {
+            model_surfaces: Vec::new().into(), schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: manifest.id.clone(),
             layers: vec![layer], authoring: None },
     };
     let pending = super::super::helpers::load_pending_assets(app.world().resource::<AssetServer>(),

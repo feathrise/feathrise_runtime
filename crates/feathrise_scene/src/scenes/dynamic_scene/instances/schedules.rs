@@ -50,6 +50,7 @@ pub(super) fn advance(hooks: Option<crate::SceneApplicationHooks>) -> Schedule {
             crate::shared::portal_data::follow_local_portal_arrivals).chain(),
     ).chain());
     crate::shared::placement_data::add_instance_systems(&mut schedule);
+    vegetation::add_model_instance_systems(&mut schedule);
     super::super::glb_objects::add_systems(&mut schedule);
     schedule.configure_sets(crate::shared::placement_data::InstancePlacementAdvance
         .after(systems::prepare_dynamic_scene_terrain).before(vegetation::start_dynamic_vegetation_build));

@@ -266,7 +266,7 @@ pub(super) fn on_placement_building_collision_ready(
     let Ok((pending, instance, mut collision_generation)) = roots.get_mut(ready.entity) else {
         return; // F12预览、已采用或已退役根不参与正式候选门。
     };
-    if instance.is_terrain_patch()
+    if instance.uses_async_mesh_collision()
         && !terrain_shapes
             .get(ready.entity)
             .is_ok_and(|(shape, request)| shape.matches(request))
@@ -278,7 +278,7 @@ pub(super) fn on_placement_building_collision_ready(
             staging.generation == pending.generation && staging.revision == pending.revision
         });
     if matches_current {
-        collision_generation.collision_ready = if instance.is_terrain_patch() {
+        collision_generation.collision_ready = if instance.uses_async_mesh_collision() {
             // 三维地形自行以网格请求票据拒绝旧完成；同一World代的Mesh热更可多次重烘焙。
             collision_generation.world_ready
         } else {

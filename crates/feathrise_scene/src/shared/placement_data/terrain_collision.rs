@@ -146,7 +146,7 @@ pub(super) fn sync_preview_physics_pose(
             continue;
         };
         if !instance.is_active()
-            || !instance.is_terrain_patch()
+            || !instance.uses_async_mesh_collision()
             || formal.is_some()
             || !ready.matches(request)
             || ready.scale != global.scale()
@@ -177,7 +177,9 @@ pub(super) fn retire_physics_proxy(
 pub fn terrain_placement_collision(
     record: &feathrise_scene_content::ScenePlacementRecord,
 ) -> Option<(RigidBody, TerrainPatchCollisionRequest)> {
-    record.terrain_patch.as_ref()?;
+    if record.terrain_patch.is_none() && !record.asset_target.has_primitive_collision() {
+        return None;
+    }
     Some((
         RigidBody::Static,
         TerrainPatchCollisionRequest { generation: 1 },
@@ -604,7 +606,7 @@ pub(super) fn drive_terrain_collision(
             && roots.get(result.root).is_ok_and(
                 |(_, request, instance, _, _, _, _, transform, _)| {
                     request.generation == result.generation
-                        && instance.is_terrain_patch()
+                        && instance.uses_async_mesh_collision()
                         && transform.to_matrix().inverse() == result.inverse_root
                 },
             );
@@ -684,7 +686,7 @@ pub(super) fn drive_terrain_collision(
             else {
                 continue;
             };
-            if !instance.is_terrain_patch()
+            if !instance.uses_async_mesh_collision()
                 || uploading.contains(root)
                 || (world.is_some() && world_ready.is_none())
                 || ready.is_some_and(|ready| {
@@ -772,7 +774,7 @@ fn root_is_pending(root: Entity, state: &ScenePlacementRuntimeState) -> bool {
     state
         .staging
         .as_ref()
-        .is_some_and(|staging| staging.terrain_roots.contains(&root))
+        .is_some_and(|staging| staging.terrain_roots.contains(&root) || staging.primitive_collision_roots.contains(&root))
 }
 
 fn invalidate_candidate(
@@ -783,7 +785,7 @@ fn invalidate_candidate(
     if let Some(staging) = state
         .staging
         .as_mut()
-        .filter(|staging| staging.terrain_roots.contains(&root))
+        .filter(|staging| staging.terrain_roots.contains(&root) || staging.primitive_collision_roots.contains(&root))
     {
         staging.ready_roots.remove(&root);
         staging.eligibility_epoch = staging.eligibility_epoch.wrapping_add(1);

@@ -80,6 +80,7 @@ pub(super) fn reuse_placement(
     let active = active?;
     // 地形根依赖本批次洞口/碰撞发布票据，仍由原完整地形候选处理；普通对象沿用运行状态。
     if plan.record.terrain_patch.is_some()
+        || plan.record.asset_target.has_primitive_collision() // GLB 热载可能复用索引，碰撞仍须对应新网格。
         || plan.record.terrain_binding.is_some()
         || (plan.record.building_preset_id.is_some()
             && active.building_preset_revision != staging.building_preset_revision)

@@ -30,12 +30,12 @@ fn dynamic_water_shader_is_valid_wgsl() {
 #[test] // 逐像素程序流场本体必须通过当前Bevy所用同版本Naga语法与语义校验。
 fn ribbon_fragment_flow_helper_is_valid_wgsl() {
     let helper_start = WATER_FRAGMENT_SHADER_SOURCE
-        .find("// 逐像素流动结果只保存标准PBR输入需要的有限标量")
+        .find("struct RibbonFlowSample {")
         .expect("片元Shader必须保留程序流场起始标记"); // 只截取不依赖Bevy导入的正式生产helper，不复制另一份算法。
     let helper_end = WATER_FRAGMENT_SHADER_SOURCE
-        .find("@fragment")
+        .find("@if(!PREPASS_PIPELINE) @fragment")
         .expect("片元Shader必须保留正式fragment入口"); // 标准PBR包装由源码契约测试继续锁定。
-    let helper_source = &WATER_FRAGMENT_SHADER_SOURCE[helper_start..helper_end]; // 截取结构、常量和完整程序流场函数。
+    let helper_source = &WATER_FRAGMENT_SHADER_SOURCE[helper_start..helper_end]; // 截取完整纯WGSL helper；WESL导入和入口条件仍由正式加载器处理。
     assert!(
         helper_source.contains("fn ribbon_flow_frame_from_derivatives("), // 确认本次Naga输入包含缺TANGENT时的正式UV0雅可比回退，而不只是颜色流场。
         "Naga校验片段必须覆盖缺TANGENT流向坐标架helper",
@@ -191,7 +191,7 @@ fn whole_mesh_water_safely_falls_back_without_vertex_tangents() {
         .find("let world_position_dx = dpdx(in.world_position.xyz);")
         .expect("片元Shader必须统一求取世界位置导数"); // 世界位置与UV0导数共同构成可反演雅可比。
     let ribbon_branch_position = WATER_FRAGMENT_SHADER_SOURCE
-        .find("    if ribbon_mode {")
+        .find("if ribbon_mode {")
         .expect("片元Shader必须保留动态水身份分支"); // 身份来自varying数据，导数不能放入这个非统一分支。
     assert!(
         derivative_position < ribbon_branch_position, // 四像素导数必须在任何动态水条件分支之前求值。
@@ -229,7 +229,7 @@ fn dynamic_water_fragment_keeps_standard_material_pbr_contract() {
         "动态水面片元Shader句柄必须完成注册",
     ); // 防止仅新增文件却没有进入Shader资产表。
     assert!(
-        WATER_SHADER_REGISTRY_SOURCE.contains("\"shaders/fragment.wgsl\""), // 注册入口必须指向正式生产文件。
+        WATER_SHADER_REGISTRY_SOURCE.contains("\"shaders/fragment.wesl\""), // 注册入口必须指向正式生产文件。
         "动态水面片元Shader文件必须由内置资产注册",
     ); // 防止路径漂移导致运行时ShaderNotLoaded。
     assert!(

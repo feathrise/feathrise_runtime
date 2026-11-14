@@ -16,7 +16,7 @@ fn glb() -> SceneTerrainObject {
         mesh_lod: None,
         id: TerrainId::parse("terrain-a").unwrap(), display_name: "地形A".into(), enabled: true,
         transform: Default::default(), world_min: [-8.0, -8.0], world_max: [8.0, 8.0],
-        terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(), kind: SceneTerrainKind::Heightfield,
+        terrain: SceneTerrainDescriptor {resolved_stitches: Default::default(), kind: SceneTerrainKind::Gltf,
             glb_path: "scenes/MAP-terrain-test/terrains/terrain-a/terrain.glb".into(),
             resolution: [17, 17], base_height: -8.0, height_scale: 16.0,
             ..SceneTerrainDescriptor::empty() },

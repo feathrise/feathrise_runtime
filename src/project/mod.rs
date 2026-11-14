@@ -10,6 +10,10 @@ pub mod embedded;
 // 运行验收需显式编译开启，普通工程不带截图/作者探测实现。
 #[cfg(feature = "validation")]
 mod smoke;
+#[cfg(feature = "validation")]
+mod validation_height_source;
+#[cfg(feature = "validation")]
+pub use validation_height_source::validation_height_fingerprint;
 mod startup;
 
 pub use app::run;

@@ -130,6 +130,10 @@ fn clipmap_gpu_matches_actual_topology_reference() {
             Vec3::new(10., 5., -8.),
         ),
     );
+    for frame in [Mat4::IDENTITY, Mat4::from_scale_rotation_translation(
+        Vec3::new(2., 3., 0.5), Quat::from_rotation_z(0.3), Vec3::new(7., 4., -8.))] {
+        validate_source_in_frame(&device, &queue, &shader, 1, 1.0, 0., frame, true);
+    } // 模型候选不能因父变换或GPU生成阶段重新投到薄壁另一面。
     }
     let (pixels, entries) = fixture_pages(); // 四个已采用页覆盖跨页、父级和非方形场景。
     let atlas = texture(&device, wgpu::TextureFormat::R16Unorm, 257, 257, 4); // 正式二维数组格式。
@@ -485,6 +489,9 @@ const VOLUME_QUERY: &str = r#"
         }
     } else {classify_volume_candidate(id.x);}
 }
+@compute @workgroup_size(1) fn validate_model_surface(@builtin(global_invocation_id) id:vec3<u32>){
+    classify_volume_candidate(id.x);
+}
 "#;
 // 测试只添加入口；位置、密度、LOD、法线打包全部运行正式生产函数。
 fn validate_volume_source(
@@ -514,7 +521,19 @@ fn validate_volume_source_in_frame(
     height_offset: f32,
     frame: Mat4,
 ) -> Vec<[u32; 5]> {
-    let compute = pipeline(device, shader, "validate_volume");
+    validate_source_in_frame(device, queue, shader, divisions, quality_density, height_offset, frame, false)
+}
+fn validate_source_in_frame(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    shader: &wgpu::ShaderModule,
+    divisions: u32,
+    quality_density: f32,
+    height_offset: f32,
+    frame: Mat4,
+    model_surface: bool,
+) -> Vec<[u32; 5]> {
+    let compute = pipeline(device, shader, if model_surface { "validate_model_surface" } else { "validate_volume" });
     let mut patch = [[0u32; 4]; 26]; // 416字节正式ABI必须包含两份对象矩阵。
     patch[18..22].copy_from_slice(
         &frame
@@ -529,6 +548,7 @@ fn validate_volume_source_in_frame(
     );
     let candidates = divisions + 2;
     patch[1] = [3 * candidates, 5 * candidates * candidates, 17, 1 << 30];
+    if model_surface { patch[1] = [3, 5, 17, (1 << 30) | (1 << 29)]; }
     patch[2] = [0, 0, 0, 32f32.to_bits()];
     patch[4][3] = 1f32.to_bits();
     patch[6][3] = 1f32.to_bits();
@@ -567,7 +587,13 @@ fn validate_volume_source_in_frame(
     let buckets = super::helpers::encode_volume_depth_bucket_draws(3, 0, 0, 128);
     let buckets = buffer("volume_buckets", &buckets, wgpu::BufferUsages::STORAGE);
     let source = texture(device, wgpu::TextureFormat::Rgba32Float, 15, 1, 1);
-    let cells: [[f32; 4]; 15] = [
+    let cells: [[f32; 4]; 15] = if model_surface { [
+        [0.01, 2., 0., 1.], [1., 0., 0., 0.25], [0.01, 2., 0., 0.],
+        [-0.01, 2., 0., 1.], [-1., 0., 0., 0.25], [-0.01, 2., 0., 0.],
+        [0., 0.05, 0., 1.], [0., 1., 0., 0.25], [0., 0.05, 0., 1.],
+        [0., 0., 0., 1.], [0., -1., 0., 0.25], [0., 0., 0., 1.],
+        [100., 0., 0., 1.], [0., 1., 0., 0.25], [100., 0., 0., 1.],
+    ] } else { [
         [height_offset, 2. + height_offset, height_offset, 1.],
         [0., 1., 0., 0.25],
         [0., 2., 0., 1.],
@@ -588,7 +614,7 @@ fn validate_volume_source_in_frame(
         ],
         [-0.6, 0.8, 0., 0.25],
         [0.25, 2.25, 0., 17.], // 相邻斜面和水平面必须共用完整世界草格，不留空带。
-    ];
+    ] };
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &source,
@@ -704,6 +730,23 @@ fn validate_volume_source_in_frame(
         })
         .filter(|v| v[4] != 0)
         .collect();
+    if model_surface {
+        assert_eq!(instances.len(), 4, "近处四个独立面样本都应保留，远处样本应正常剔除");
+        let normal_frame = Mat3::from_mat4(frame).inverse().transpose();
+        for sample in cells.chunks_exact(3).take(4) {
+            let point = frame.transform_point3(Vec3::from_slice(&sample[0]));
+            let normal = (normal_frame * Vec3::from_slice(&sample[1])).normalize();
+            let packed = normal.extend(1.).to_array()
+                .map(|v| (v.clamp(-1., 1.) * 127.).round() as i8 as u8);
+            assert!(instances.iter().any(|record| {
+                let actual = Vec3::new(f32::from_bits(record[0]), f32::from_bits(record[1]), f32::from_bits(record[2]));
+                actual.abs_diff_eq(point, 0.0001) && record[4] == u32::from_le_bytes(packed)
+            }), "GPU不能重投射根点或复用薄壁另一侧法线");
+        }
+        drop(data);
+        read.unmap();
+        return instances;
+    }
     if quality_density == 0.0 {
         assert!(instances.is_empty(), "全局密度为零时三维Blade仍生成了实例");
         return instances;

@@ -14,7 +14,7 @@ use feathrise_environment::terrain_surface::TerrainSurfaceCarrier; // 离屏预�
 use feathrise_environment::vegetation::{VegetationMeshBatchView, blade::GpuBladeView}; // 同一玩法相机同时驱动GPU叶片窗口和Mesh批次逐实例LOD。
 use feathrise_scene_content::{
     ActiveDynamicScene, CelestialLightingProfile, DynamicCelestialLightingPreview,
-    SceneManifestAsset, SceneSkyMode, SceneTerrainKind, SceneWeatherClimate,
+    SceneContentRegistry, SceneManifestAsset, SceneSkyMode, SceneTerrainKind, SceneWeatherClimate,
     SceneWeatherDescriptor, SceneWeatherRegion, WorldEnvironmentRegistry, resolve,
 }; // 动态场景读取编辑器共享的清单和当前SceneId。
 use feathrise_portal::PortalDestination; // 跨场景传送可在进入前携带动态SceneId。
@@ -337,7 +337,7 @@ pub(super) fn prepare_dynamic_scene_terrain(
     let valid_terrain_source = match manifest.terrain.kind {
         SceneTerrainKind::Empty => manifest.terrains.is_some(), // 空容器必须显式声明对象集合。
         SceneTerrainKind::Voxel => manifest.terrain.glb_path.is_empty(), // 独立体素的作者身份由其对象上下文校验。
-        SceneTerrainKind::Heightfield | SceneTerrainKind::Gltf => !manifest.terrain.glb_path.trim().is_empty(), // 原始GLB沿用完整Scene0。
+        SceneTerrainKind::Gltf => !manifest.terrain.glb_path.trim().is_empty(), // 原始GLB沿用完整Scene0。
         SceneTerrainKind::SparseClipmap => {
             manifest.terrain.glb_path.is_empty()
                 && sparse_path.is_some_and(|path| feathrise_scene_content::sparse_height_manifest_terrain_id(scene_id, path).is_ok())
@@ -373,7 +373,7 @@ pub(super) fn prepare_dynamic_scene_terrain(
         && ((matches!(manifest.terrain.kind, SceneTerrainKind::Empty | SceneTerrainKind::Voxel) && state.glb_path.is_none() && state.sparse_height_path.is_none())
             || (manifest.terrain.kind == SceneTerrainKind::SparseClipmap
             && state.sparse_height_path.as_deref() == sparse_path)
-            || (matches!(manifest.terrain.kind, SceneTerrainKind::Heightfield | SceneTerrainKind::Gltf)
+            || (matches!(manifest.terrain.kind, SceneTerrainKind::Gltf)
                 && state.glb_path.as_deref() == Some(manifest.terrain.glb_path.as_str())))
         && state.root.is_some()
     {
@@ -383,7 +383,7 @@ pub(super) fn prepare_dynamic_scene_terrain(
     if let Some(old_root) = state.root.take() {
         commands.entity(old_root).try_despawn();
     }
-    state.derive_glb_height = manifest.terrain.kind == SceneTerrainKind::Heightfield;
+    state.derive_glb_height = false; // 高度作者源只由Clipmap分页维护，模型不再派生整图高度。
     state.terrain_display = None;
     if matches!(manifest.terrain.kind, SceneTerrainKind::Empty | SceneTerrainKind::Voxel) {
         let root = commands.spawn((Name::new(format!("DynamicSceneContainer_{scene_id}")),
@@ -599,6 +599,8 @@ pub(super) fn finalize_dynamic_scene_ready(
     mut status: InstanceResMut<DynamicSceneRuntimeStatus>,
     subscenes: Option<Res<super::SubsceneRuntimeStatus>>,
     volumes: Option<Res<super::TerrainVolumeStreamStatus>>,
+    registry: Option<Res<SceneContentRegistry>>,
+    placements: Option<Res<crate::ScenePlacementRuntimeStatus>>,
 ) {
     if subscenes.as_deref().is_some_and(|subscenes| !subscenes.ready) { return; }
     if !dynamic_scene_startup_inputs_ready(&state) {
@@ -613,6 +615,28 @@ pub(super) fn finalize_dynamic_scene_ready(
         return;
     }
     if !state.ready_released {
+        // 空地形场景的可走地面可以全部来自 GLB 摆放，须先采用同一场景的网格与碰撞。
+        if let Some(scene_id) = state.active_scene_id.as_ref()
+            && registry.as_deref().and_then(|registry| registry.handles(scene_id))
+                .and_then(|handles| handles.placements.path())
+                .is_some_and(|path| path.path().extension().is_some_and(|ext| ext == "glb"))
+        {
+            use crate::ScenePlacementRuntimePhase;
+            let Some(placement) = placements.as_deref()
+                .filter(|placement| placement.scene_id.as_ref() == Some(scene_id))
+            else { return; };
+            if placement.phase == ScenePlacementRuntimePhase::Failed {
+                status.phase = DynamicSceneRuntimePhase::Failed;
+                status.detail.clone_from(&placement.detail); // 沿用动态场景首载失败页，保留实际资产诊断。
+                return;
+            }
+            if placement.phase != ScenePlacementRuntimePhase::Ready {
+                if status.detail != placement.detail {
+                    status.detail.clone_from(&placement.detail);
+                }
+                return;
+            }
+        }
         mark_scene_collision_ready(&mut commands, ScenePhase::Active);
         state.ready_released = true;
         status.revision = status.revision.wrapping_add(1);

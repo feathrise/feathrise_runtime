@@ -84,11 +84,14 @@ fn vegetation_batch_normal_local_to_world(
     @if(!VEGETATION_BATCH_BILLBOARD) let axis_x = world_from_local[0].xyz;
     @if(!VEGETATION_BATCH_BILLBOARD) let axis_y = world_from_local[1].xyz;
     @if(!VEGETATION_BATCH_BILLBOARD) let axis_z = world_from_local[2].xyz;
+    // 父模型非均匀缩放再乘逐株随机旋转会形成斜列；按列长相除不再等价于逆转置。
+    // 余子式矩阵只差共同的行列式，归一化前保留其符号，镜像缩放也保持原表面朝向。
     @if(!VEGETATION_BATCH_BILLBOARD) let transformed =
-        axis_x * (local_normal.x / max(dot(axis_x, axis_x), 0.000001)) +
-        axis_y * (local_normal.y / max(dot(axis_y, axis_y), 0.000001)) +
-        axis_z * (local_normal.z / max(dot(axis_z, axis_z), 0.000001));
-    @if(!VEGETATION_BATCH_BILLBOARD) return normalize(transformed);
+        cross(axis_y, axis_z) * local_normal.x +
+        cross(axis_z, axis_x) * local_normal.y +
+        cross(axis_x, axis_y) * local_normal.z;
+    @if(!VEGETATION_BATCH_BILLBOARD) let orientation_sign = select(-1.0, 1.0, dot(axis_x, cross(axis_y, axis_z)) >= 0.0);
+    @if(!VEGETATION_BATCH_BILLBOARD) return normalize(transformed * orientation_sign);
 }
 
 fn vegetation_batch_tangent_local_to_world(

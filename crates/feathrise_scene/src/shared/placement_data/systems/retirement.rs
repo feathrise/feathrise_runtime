@@ -481,6 +481,7 @@ pub(super) fn retire_active_batch(commands: &mut Commands, state: &mut ScenePlac
     if let Some(active) = state.active.take() {
         active.gate.retire(); // O(1)永久撤销整批正式身份，旧根即使尚未销毁也不再提供保存证据或接受作者写入。
         super::super::terrain_collision::retire_formal_terrain(commands, &active.terrain_roots);
+        super::super::terrain_collision::retire_formal_terrain(commands, &active.primitive_collision_roots);
         queue_retired_tree(commands, state, active.root, active.roots);
     }
 }

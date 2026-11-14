@@ -19,6 +19,7 @@ use bevy::render::render_resource::{
 }; // 完成GPU资源类型导入。
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderGraph}; // 分配三缓冲并从根调度命令编码器录入拷贝。
 use bevy::render::{ExtractSchedule, MainWorld, RenderStartup}; // 下一帧发起映射并将已完成样本发布回主世界。
+use bevy::render::sync_world::MainEntity;
 
 use crate::blade::VegetationRenderGraphSet; // 诊断拷贝固定排在Compute之后、所有相机之前。
 use crate::components::{GpuBladePatch, GpuBladePreparedBuffers}; // 只回读当前活动草窗已准备的八十字节状态。
@@ -40,12 +41,12 @@ use crate::constants::{
     GPU_GRASS_DRAW_STATE_VEGETATION_PROFILE_OFFSET, // 普通草、麦田等稳定内容编号字段偏移。
     GPU_GRASS_DRAW_STATE_VERTEX_COUNT_OFFSET, // 当前原型真实顶点数量字段偏移。
 };
-use crate::diagnostics::GpuBladeReadbackConfig; // 正式默认四帧一次，运动烟雾可逐帧尝试采样。
+use crate::diagnostics::{GpuBladeReadbackConfig, GPU_BLADE_READBACK_WINDOW_CAPACITY}; // 正式默认四帧一次，显式验收可筛选固定主世界窗口。
 use crate::resources::{GpuBladeGpuReadbackStats, GpuBladeVegetationReadbackStats}; // 向主世界F3发布聚合与分内容GPU样本。
 use crate::types::{GPU_GRASS_LOD_CAPACITY, GPU_GRASS_PROFILE_CAPACITY}; // draw state中的两位profile和两位LOD必须落在固定四乘四诊断范围。
 
 const READBACK_SLOT_COUNT: usize = 3; // 三缓冲允许GPU和CPU映射存在两帧以上重叠。
-const MAX_READBACK_WINDOWS: usize = 32; // 每槽可容纳常见多profile窗口及后续扩展，总大小仍只有2.5KiB。
+const MAX_READBACK_WINDOWS: usize = GPU_BLADE_READBACK_WINDOW_CAPACITY; // 筛选输入和三缓冲共用32窗上限，总GPU大小仍只有2.5KiB。
 const SLOT_FREE: u8 = 0; // 槽位可被当前RenderGraph帧选中。
 const SLOT_COPY_RECORDED: u8 = 1; // 拷贝命令已经录入上一帧命令缓冲。
 const SLOT_MAPPING: u8 = 2; // `map_async`已发起，GPU完成前不得复用该槽位。
@@ -60,6 +61,10 @@ struct GpuBladeReadbackSlot {
     truncated_windows: AtomicU32, // 超过固定槽容量的草窗显式暴露，不让F3误以为是零存活。
     sequence: AtomicU64,          // 并发回调用序号拒绝较旧槽位覆盖较新统计。
     source_revision: AtomicU64, // 与本槽GPU copy一起冻结的作者输入身份。
+    selection_ticket: AtomicU64,
+    sampled_main_entities: [AtomicU64; MAX_READBACK_WINDOWS],
+    sampled_source_revisions: [AtomicU64; MAX_READBACK_WINDOWS],
+    sampled_output_valid_mask: AtomicU32,
 }
 
 /// 渲染世界持有的固定三缓冲环。
@@ -133,7 +138,7 @@ impl GpuBladeReadbackShared {
 /// Compute收尾后把活动草窗状态拷贝到一个可用staging槽。
 fn copy_gpu_grass_readback(
     mut render_context: RenderContext, // 复用当前帧根命令编码器录入小块拷贝。
-    grass_windows: Query<(&GpuBladePatch, &GpuBladePreparedBuffers)>, // 票据取实际完成输出，不能借新ECS输入冒充旧驻留缓冲。
+    grass_windows: Query<(&MainEntity, &GpuBladePatch, &GpuBladePreparedBuffers)>, // 身份取实际完成输出，主世界实体用于只读筛选。
     ring: Option<Res<GpuBladeReadbackRing>>, // RenderStartup尚未创建三缓冲时允许安全快返。
     shared: Res<GpuBladeReadbackShared>,     // 读取序号、采样节流和丢样计数。
     config: Option<Res<GpuBladeReadbackConfig>>, // 首帧尚未提取配置时使用正式默认采样间隔。
@@ -142,11 +147,11 @@ fn copy_gpu_grass_readback(
         return; // RenderStartup尚未创建staging缓冲时安全跳过。
     };
     let render_frame = shared.render_frames.fetch_add(1, Ordering::Relaxed); // 每次根图运行只执行一次无锁帧计数。
-    let frame_interval = config
+    let config = config
         .as_deref()
         .copied()
-        .unwrap_or_default()
-        .frame_interval(); // 无提取配置的首帧仍使用正式四帧默认值。
+        .unwrap_or_default(); // 无提取配置的首帧仍使用正式四帧全场聚合。
+    let frame_interval = config.frame_interval();
     if !render_frame.is_multiple_of(frame_interval) {
         return; // 非采样帧完全不录入COPY命令，也不占用三缓冲槽位。
     }
@@ -158,8 +163,10 @@ fn copy_gpu_grass_readback(
     let mut copied_windows = 0_u32; // 记录已紧密排列在staging前缀的状态数。
     let mut truncated_windows = 0_u32; // 记录超过固定诊断容量的活动草窗数。
     let mut source_revision = None;
-    for (patch, prepared) in &grass_windows {
+    let mut output_valid_mask = 0u32;
+    for (main_entity, patch, prepared) in &grass_windows {
         // Bevy调度负责更新查询原型；系统不分配Vec，直接从渲染ECS录入拷贝。
+        if !config.accepts_main_entity(**main_entity) { continue; }
         if patch.instance_count() == 0 {
             continue; // 植被高度或密度输入未就绪而被钳制的草窗不能回读上一帧旧状态。
         }
@@ -168,6 +175,10 @@ fn copy_gpu_grass_readback(
             continue; // 防止写越staging槽位尾部。
         }
         source_revision = merge_source_revision(source_revision, Some(prepared.source_revision), prepared.output_valid);
+        let index = copied_windows as usize;
+        slot.sampled_main_entities[index].store(main_entity.to_bits(), Ordering::Relaxed);
+        slot.sampled_source_revisions[index].store(prepared.source_revision, Ordering::Relaxed);
+        if prepared.output_valid { output_valid_mask |= 1u32 << copied_windows; }
         let destination_offset = u64::from(copied_windows) * GPU_GRASS_DRAW_STATE_BYTES; // 每个状态按严格80字节连续排列。
         render_context.command_encoder().copy_buffer_to_buffer(
             // 只录入GPU端小块拷贝，不发起CPU映射。
@@ -184,6 +195,8 @@ fn copy_gpu_grass_readback(
         .store(truncated_windows, Ordering::Relaxed); // 保留本次诊断截断数。
     slot.sequence.store(sequence, Ordering::Relaxed); // 发布与当前拷贝对应的序号。
     slot.source_revision.store(source_revision.unwrap_or(0), Ordering::Relaxed);
+    slot.selection_ticket.store(config.selection_ticket(), Ordering::Relaxed);
+    slot.sampled_output_valid_mask.store(output_valid_mask, Ordering::Relaxed);
     slot.state.store(SLOT_COPY_RECORDED, Ordering::Release); // 下一帧ExtractSchedule看到该状态后才发起map_async。
     // 诊断拷贝录入完成，相机驱动可继续消费同一间接状态。
 }
@@ -224,6 +237,10 @@ fn init_gpu_grass_readback_ring(mut commands: Commands, render_device: Res<Rende
                 truncated_windows: AtomicU32::new(0), // 启动时不存在诊断截断。
                 sequence: AtomicU64::new(0),     // 零序号不会覆盖任何有效样本。
                 source_revision: AtomicU64::new(0),
+                selection_ticket: AtomicU64::new(0),
+                sampled_main_entities: std::array::from_fn(|_| AtomicU64::new(0)),
+                sampled_source_revisions: std::array::from_fn(|_| AtomicU64::new(0)),
+                sampled_output_valid_mask: AtomicU32::new(0),
             }) // 完成单个回读槽位创建。
         }) // 为三个槽位执行相同一次性分配。
         .collect::<Vec<_>>(); // 将固定小集合保存为环形索引集。
@@ -259,6 +276,11 @@ fn begin_scenes_and_publish_gpu_grass_stats(
         let truncated_windows = slot.truncated_windows.load(Ordering::Relaxed); // 读取本样本诊断截断数。
         let sequence = slot.sequence.load(Ordering::Relaxed); // 读取用于拒绝过时回调的序号。
         let source_revision = slot.source_revision.load(Ordering::Relaxed);
+        // 元数据在COPY_RECORDED的Release/Acquire边界冻结；异步回调只借这份定长副本。
+        let selection_ticket = slot.selection_ticket.load(Ordering::Relaxed);
+        let sampled_main_entities = std::array::from_fn(|index| slot.sampled_main_entities[index].load(Ordering::Relaxed));
+        let sampled_source_revisions = std::array::from_fn(|index| slot.sampled_source_revisions[index].load(Ordering::Relaxed));
+        let sampled_output_valid_mask = slot.sampled_output_valid_mask.load(Ordering::Relaxed);
         let callback_slot = Arc::clone(slot); // 回调完成unmap后需将该槽设回FREE。
         let callback_buffer = slot.buffer.clone(); // 强句柄保证异步映射期间缓冲存活。
         let map_request_buffer = callback_buffer.clone(); // 单独句柄发起map，原句柄移入`'static`回调。
@@ -283,6 +305,10 @@ fn begin_scenes_and_publish_gpu_grass_stats(
                         sequence,          // 保留GPU拷贝提交顺序。
                     ); // 完成当前槽位GPU计数解析。
                     stats.source_revision = source_revision;
+                    stats.selection_ticket = selection_ticket;
+                    stats.sampled_main_entities = sampled_main_entities;
+                    stats.sampled_source_revisions = sampled_source_revisions;
+                    stats.sampled_output_valid_mask = sampled_output_valid_mask;
                     drop(mapped); // WebGPU要求在unmap前释放所有映射视图。
                     callback_buffer.unmap(); // 解除CPU映射后该缓冲才能再次作为COPY_DST。
                     callback_shared.publish(stats); // 序号较新时原子替换F3最新样本。

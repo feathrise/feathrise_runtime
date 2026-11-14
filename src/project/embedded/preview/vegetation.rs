@@ -4,7 +4,7 @@ use bevy::{asset::RenderAssetUsages, ecs::system::SystemState, image::ImageSampl
     render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 use feathrise_scene_content::{SceneId, SceneVegetationKind, TerrainId,
     embedded_preview::{VEGETATION_PREVIEW_FORMAT, VegetationPreviewCanvas, decode_vegetation_preview}};
-use feathrise_scene::{DynamicBladeDraft, DynamicBladeDraftSnapshot, TerrainVegetationDrafts};
+use feathrise_scene::{DynamicBladeDraft, DynamicBladeDraftSnapshot, DynamicModelVegetationDraft, TerrainVegetationDrafts};
 use std::{collections::{BTreeMap, VecDeque}, sync::Arc};
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
 
@@ -58,11 +58,13 @@ pub(super) fn prepare(format: &str, bytes: &[u8], map: &SceneId) -> Result<Prepa
             let densities = source.densities.iter().map(|(id, values)| serde_json::json!({"id":id,
                 "bytes":values.len(), "nonzero":values.iter().filter(|value| **value != 0).count(),
                 "sha256":Sha256::digest(values).iter().map(|byte|format!("{byte:02x}")).collect::<String>()})).collect::<Vec<_>>();
-            serde_json::json!({"terrain_id":source.terrain_id.as_ref().map(TerrainId::as_str),
+            serde_json::json!({"terrain_id":source.terrain_id.as_ref().map(TerrainId::as_str), "models_only":source.models_only,
+                "model_targets":source.definition.model_surfaces.len(),
+                "model_samples":source.definition.model_surfaces.iter().map(|s|s.samples.len()).sum::<usize>(),
                 "source_revision":source.source_revision, "layout_revision":source.layout_revision, "densities":densities})
         };
         let mut images = VecDeque::new();
-        for layer in &source.definition.layers {
+        for layer in source.definition.layers.iter().filter(|_| !source.models_only) {
             let mut image = Image::new(Extent3d { width: layer.resolution[0], height: layer.resolution[1],
                 depth_or_array_layers: 1 }, TextureDimension::D2, source.densities[&layer.id].to_vec(),
                 TextureFormat::R8Unorm, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
@@ -81,6 +83,8 @@ pub(super) struct State {
     complete: Vec<(Option<TerrainId>, DynamicBladeDraftSnapshot)>,
     publisher: Option<SystemState<TerrainVegetationDrafts<'static>>>,
     published: BTreeMap<(SceneId, Option<TerrainId>), Arc<DynamicBladeDraftSnapshot>>,
+    model_complete: Option<(u64, Arc<feathrise_scene_content::SceneVegetationAsset>)>,
+    published_models: BTreeMap<SceneId, Arc<feathrise_scene_content::SceneVegetationAsset>>,
     retired: Option<Task<()>>,
     #[cfg(feature = "validation")]
     evidence: Vec<serde_json::Value>,
@@ -95,8 +99,9 @@ impl State {
         // 退役大图交后台；旧任务不再拥有发布权，但也不在帧线程析构完整像素。
         let pending = self.pending.take();
         let complete = std::mem::take(&mut self.complete);
-        if pending.is_some() || !complete.is_empty() {
-            bevy::tasks::AsyncComputeTaskPool::get().spawn(async move { drop((pending, complete)); }).detach();
+        let models = self.model_complete.take();
+        if pending.is_some() || !complete.is_empty() || models.is_some() {
+            bevy::tasks::AsyncComputeTaskPool::get().spawn(async move { drop((pending, complete, models)); }).detach();
         }
     }
     pub(super) fn clear_published(&mut self, world: &mut World) -> Result<bool, String> {
@@ -104,7 +109,20 @@ impl State {
             if check_ready(task).is_none() { return Ok(false); }
             self.retired = None;
         }
-        if self.published.is_empty() { return Ok(true); }
+        let model_retired = self.published_models.pop_first().map(|(map, owned)| {
+            let current = world.get_resource::<DynamicModelVegetationDraft>().and_then(|output|output.frozen_for_scene(&map));
+            if current.as_ref().is_some_and(|(_, value)|Arc::ptr_eq(value, &owned)) {
+                world.resource_mut::<DynamicModelVegetationDraft>().clear();
+            }
+            (owned, current)
+        });
+        if self.published.is_empty() {
+            if model_retired.is_some() {
+                self.retired = Some(AsyncComputeTaskPool::get().spawn(async move { drop(model_retired); }));
+                return Ok(false);
+            }
+            return Ok(true);
+        }
         let publisher = self.publisher.get_or_insert_with(|| SystemState::new(world));
         let mut retired = Vec::new();
         for _ in 0..4 {
@@ -121,7 +139,7 @@ impl State {
             retired.push((owned, current));
         }
         publisher.apply(world);
-        self.retired = Some(AsyncComputeTaskPool::get().spawn(async move { drop(retired); }));
+        self.retired = Some(AsyncComputeTaskPool::get().spawn(async move { drop((retired, model_retired)); }));
         Ok(false)
     }
     pub(super) fn advance(&mut self, world: &mut World) -> Result<bool, String> {
@@ -138,19 +156,29 @@ impl State {
             let canvas = pending.canvases.pop_front().unwrap();
             #[cfg(feature = "validation")]
             self.evidence.push(canvas.evidence);
-            self.complete.push((canvas.source.terrain_id, DynamicBladeDraftSnapshot {
+            if canvas.source.models_only {
+                self.model_complete = Some((canvas.source.source_revision, Arc::new(canvas.source.definition)));
+            } else { self.complete.push((canvas.source.terrain_id, DynamicBladeDraftSnapshot {
                 source_revision: canvas.source.source_revision,
                 definition: canvas.source.definition,
                 sources: canvas.source.densities,
                 densities: canvas.handles,
                 nonzero_layers: canvas.source.nonzero_layers,
-            }));
+            })); }
             return Ok(false);
         }
         let publisher = self.publisher.get_or_insert_with(|| SystemState::new(world));
         let ready = publisher.get_mut(world).map_err(|error|format!("植被预览目标上下文不可用：{error}"))?.ready(&pending.scene_id,
             self.complete.iter().filter_map(|(id, _)| id.clone()));
         if !ready { return Ok(false); }
+        // 模型根与全部二维画布在同一次完整采用中提交；空样本也发布以清除上一次预览。
+        let mut model_retired = Vec::new();
+        if let Some((revision, definition)) = self.model_complete.take() {
+            let mut output = world.get_resource_mut::<DynamicModelVegetationDraft>().ok_or("模型植被预览资源未安装")?;
+            if let Some((_, previous)) = output.frozen_for_scene(&pending.scene_id) { model_retired.push(previous); }
+            output.publish(pending.scene_id.clone(), revision, definition.clone());
+            if let Some(previous) = self.published_models.insert(pending.scene_id.clone(), definition) { model_retired.push(previous); }
+        }
         // 全批资源存在才发布；根兼容来源与独立terrain来源在同一帧完成。
         let mut retired = Vec::new();
         let ids = self.complete.iter().map(|(id,_)|id.clone()).collect::<Vec<_>>();
@@ -184,8 +212,8 @@ impl State {
             if let Some(old) = self.published.insert((pending.scene_id.clone(),id),adopted) { retired.push(old); }
         }
         self.pending = None;
-        if retired.is_empty() { Ok(true) } else {
-            self.retired = Some(AsyncComputeTaskPool::get().spawn(async move { drop(retired); }));
+        if retired.is_empty() && model_retired.is_empty() { Ok(true) } else {
+            self.retired = Some(AsyncComputeTaskPool::get().spawn(async move { drop((retired, model_retired)); }));
             Ok(false)
         }
     }
@@ -194,11 +222,17 @@ impl State {
         use feathrise_scene::{SubsceneInstance, TerrainObjectInstance, TerrainObjectAuthoringTarget};
         use feathrise_scene_core::residency::InstanceResourceTable;
         let root = world.get_resource::<DynamicBladeDraft>();
-        let map = self.published.keys().next().map(|(map,_)|map);
+        let map = self.published.keys().next().map(|(map,_)|map).or_else(|| self.published_models.keys().next());
         let root_revision = map.and_then(|map|root.as_ref()?.revision_for_scene(map));
         let canvases = self.evidence.iter().cloned().map(|mut evidence| {
             let terrain = evidence["terrain_id"].as_str();
             let Some(map) = map else { return evidence; };
+            if evidence["models_only"].as_bool() == Some(true) {
+                let revision = world.get_resource::<DynamicModelVegetationDraft>().and_then(|draft|draft.frozen_for_scene(map)).map(|(revision,_)| revision);
+                evidence["draft_revision"] = serde_json::json!(revision);
+                evidence["adopted_source_revision"] = serde_json::json!(revision);
+                return evidence;
+            }
             let is_root = terrain.is_none() || world.get_resource::<TerrainObjectAuthoringTarget>().is_some_and(|target|
                 terrain.and_then(|terrain|TerrainId::parse(terrain).ok()).is_some_and(|id|target.applied_to(map, &id)));
             let draft = if is_root { root } else {

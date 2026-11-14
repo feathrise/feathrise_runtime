@@ -356,6 +356,7 @@ pub(crate) struct PlacementReuseState {
 pub(crate) struct PlacementStaging {
     pub(crate) reuse: PlacementReuseState,
     pub(crate) terrain_roots: Vec<Entity>, // 至多32个三维地形根，采用帧不扫描全图实例。
+    pub(crate) primitive_collision_roots: Vec<Entity>, // 普通 GLB 网格共用后台碰撞，但无需参与地形洞口派生。
     pub(crate) root: Entity,
     /// 候选根列表按固定预算复验；采用后原样移动给活动批次，不在采用帧复制。
     pub(crate) roots: Vec<Entity>,
@@ -384,6 +385,7 @@ pub(crate) struct PlacementStaging {
 pub(crate) struct PlacementActiveBatch {
     pub(crate) building_preset_revision: u64,
     pub(crate) terrain_roots: Vec<Entity>, // 至多32项，旧物理在采用或离图边界立即撤销。
+    pub(crate) primitive_collision_roots: Vec<Entity>,
     pub(crate) root: Entity,
     pub(crate) roots: Vec<Entity>,
     pub(crate) gate: PlacementInstanceGate,

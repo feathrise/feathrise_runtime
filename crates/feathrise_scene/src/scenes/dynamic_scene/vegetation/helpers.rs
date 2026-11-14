@@ -46,13 +46,13 @@ pub(super) fn event_requests_rebuild<A: Asset>(event: &AssetEvent<A>, failed: bo
 
 /// Blade 网格顶点布局检查后的 UV 准备状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DynamicBladeUvState {
+pub(super) enum DynamicBladeUvState {
     Ready,   // UV0 已是与顶点数一致的 Float32x2，可直接专用化 GPU 管线。
     Missing, // 其他必需属性合法，只需按纵向范围补齐缺失的 UV0。
 }
 
 /// 在 RenderApp 看到窗口之前验证 GPU Blade 顶点 ABI，防止错误布局下沉为 wgpu 致命校验错误。
-fn inspect_dynamic_blade_mesh(mesh: &Mesh) -> Result<DynamicBladeUvState, String> {
+pub(super) fn inspect_dynamic_blade_mesh(mesh: &Mesh) -> Result<DynamicBladeUvState, String> {
     let vertex_count = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
         Some(VertexAttributeValues::Float32x3(values)) => values.len(), // WGSL location 0 固定读取三维局部位置。
         Some(_) => return Err("POSITION不是Float32x3".to_owned()), // 格式不同时顶点管线无法匹配。
@@ -226,7 +226,7 @@ pub(super) fn validate_vegetation_definition(
 }
 
 /// 只通过场景保存的稳定 ID 或历史别名解析当前规范预设。
-fn resolve_layer_preset<'a>(
+pub(super) fn resolve_layer_preset<'a>(
     layer: &feathrise_scene_content::SceneVegetationLayer, // 当前场景保存的层描述。
     presets: &'a VegetationPresetRegistry,               // 最近一次完整校验通过的开发者目录。
 ) -> Option<&'a VegetationPresetDescriptor> {
@@ -364,7 +364,7 @@ pub(super) fn load_pending_assets(
 }
 
 /// 把当前场景实际引用的 Blade 预设按纹理页、每批最多四项确定性打包。
-fn pack_blade_profile_banks(
+pub(super) fn pack_blade_profile_banks(
     presets: &BTreeMap<String, RuntimeBladeProfileAssets>, // 规范 ID 已排序且每项唯一。
 ) -> Result<
     (
@@ -473,21 +473,28 @@ pub(super) fn prepare_pending_blade_meshes(
     meshes: &mut Assets<Mesh>, // 只在强资产已加载后读取，且仅对真正缺 UV0 的网格取可写引用。
     pending: &DynamicVegetationPending, // 资产范围仅限当前场景实际引用的预设与 LOD。
 ) -> Result<Option<usize>, String> {
-    let mut seen = HashSet::new(); // 第四档复用低模、多层复用同预设时只检查一次真实资产。
-    let mut unique_meshes = Vec::new(); // 一次加载路径按实际使用量保留句柄与可读诊断标签。
+    let mut handles = Vec::new();
     for layer in &pending.layers {
-        let Some(handles) = layer.blade_meshes.as_ref() else {
+        let Some(mesh_handles) = layer.blade_meshes.as_ref() else {
             continue; // Mesh 后端没有 GPU Blade 顶点 ABI。
         };
-        for (lod_index, handle) in handles.iter().enumerate() {
-            if seen.insert(handle.id()) {
-                unique_meshes.push((
-                    handle.clone(),
-                    format!("植被层{} LOD{lod_index}", layer.definition.id),
-                )); // 首个引用者作为稳定资产错误上下文。
-            }
+        for (lod_index, handle) in mesh_handles.iter().enumerate() {
+            handles.push((
+                handle.clone(),
+                format!("植被层{} LOD{lod_index}", layer.definition.id),
+            )); // 首个引用者作为稳定资产错误上下文。
         }
     }
+    prepare_blade_mesh_handles(meshes, handles)
+}
+
+/// 模型、二维与体积植被在发布前使用同一顶点ABI门；不再为新表面维护另一种UV规则。
+pub(super) fn prepare_blade_mesh_handles(
+    meshes: &mut Assets<Mesh>,
+    handles: impl IntoIterator<Item = (Handle<Mesh>, String)>,
+) -> Result<Option<usize>, String> {
+    let mut seen = HashSet::new();
+    let unique_meshes: Vec<_> = handles.into_iter().filter(|(handle, _)| seen.insert(handle.id())).collect();
     if unique_meshes
         .iter()
         .any(|(handle, _)| meshes.get(handle).is_none())
@@ -573,10 +580,11 @@ mod tests {
                 "schema_version": 2, "id": "MAP-large-clipmap-grass", "display_name": "最大分页草地", // 独立测试图。
                 "runtime_scene": "data_driven", "world_min": [0,0], "world_max": [8192,8192], // 最大世界范围。
                 "default_spawn": [1,0,1], // 有效出生点。
-                "terrain": {"kind":"heightfield", "glb_path":"scenes/test/terrain.glb", "resolution":[65537,65537], "base_height":-1024, "height_scale":2048} // 解析后切换后端。
+                "terrain": {"kind":"gltf", "glb_path":"scenes/test/terrain.glb", "resolution":[65537,65537], "base_height":-1024, "height_scale":2048} // 解析后切换后端。
             }))
             .unwrap(); // 只反序列化，不分配高度。
         let vegetation = SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: SCENE_SCHEMA_VERSION,
             scene_id: manifest.id.clone(),
             layers: Vec::new(),
@@ -592,7 +600,7 @@ mod tests {
 
         manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::SparseClipmap; // 正式分页路线。
         assert!(validate_vegetation_definition(&vegetation, &manifest, &presets).is_ok()); // 最大图仍能创建草地事务。
-        manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::Heightfield; // 切回旧后端。
+        manifest.terrain.kind = feathrise_scene_content::SceneTerrainKind::Gltf; // 切回旧后端。
         assert!(validate_vegetation_definition(&vegetation, &manifest, &presets).is_err()); // 旧全图内存保护不放宽。
     } // 地形后端决定高度预算，而非植被场景尺寸。
 
@@ -605,7 +613,7 @@ mod tests {
             "schema_version": 2, "id": "MAP-blade-test", "display_name": "草稿测试", // 独立夹具不依赖用户场景。
             "runtime_scene": "data_driven", "world_min": [0,0], "world_max": [10,10], // 有效小场景。
             "default_spawn": [5,0,5], // 安全出生点。
-            "terrain": {"kind":"heightfield", "glb_path":"scenes/test/terrain.glb", "resolution":[2,2], "base_height":0, "height_scale":10} // 只验证加载门，不请求模型。
+            "terrain": {"kind":"gltf", "glb_path":"scenes/test/terrain.glb", "resolution":[2,2], "base_height":0, "height_scale":10} // 只验证加载门，不请求模型。
         }))
         .expect("测试清单合法");
         let layer = serde_json::from_value(serde_json::json!({

@@ -35,6 +35,7 @@ pub(super) fn check(world: &World, entity: Entity) -> Result<bool, String> {
     let placements = get::<ScenePlacementRuntimeStatus>(world, entity);
     let portals = get::<ScenePortalRuntimeStatus>(world, entity);
     let vegetation = get::<DynamicVegetationStatus>(world, entity);
+    let models = get::<super::super::vegetation::DynamicModelVegetationStatus>(world, entity);
     let water = get::<DynamicWaterStatus>(world, entity);
     let height = get::<super::super::terrain_derived::DynamicTerrainHeightStatus>(world, entity);
     for (failed, detail) in [
@@ -44,6 +45,7 @@ pub(super) fn check(world: &World, entity: Entity) -> Result<bool, String> {
         (placements.phase == ScenePlacementRuntimePhase::Failed, placements.detail.as_str()),
         (portals.phase == ScenePortalRuntimePhase::Failed, portals.detail.as_str()),
         (vegetation.phase == DynamicVegetationPhase::Failed, vegetation.detail.as_str()),
+        (models.failed, models.detail.as_str()),
         (water.phase == DynamicWaterPhase::Failed, water.detail.as_str()),
     ] { if failed { return Err(detail.to_owned()); } }
     // 某域仍在等待时也须优先报告其他域的失败，不能让“加载0/1”掩盖真实错误。
@@ -52,6 +54,7 @@ pub(super) fn check(world: &World, entity: Entity) -> Result<bool, String> {
         && placements.phase == ScenePlacementRuntimePhase::Ready
         && portals.phase == ScenePortalRuntimePhase::Ready
         && vegetation.phase == DynamicVegetationPhase::Ready
+        && models.ready
         && matches!(water.phase, DynamicWaterPhase::Ready | DynamicWaterPhase::Disabled))
 }
 
@@ -100,6 +103,8 @@ pub(super) fn waiting_detail(world: &World, entity: Entity) -> String {
     if portals.phase != ScenePortalRuntimePhase::Ready { return portals.detail.clone(); }
     let vegetation = get::<DynamicVegetationStatus>(world, entity);
     if vegetation.phase != DynamicVegetationPhase::Ready { return vegetation.detail.clone(); }
+    let models = get::<super::super::vegetation::DynamicModelVegetationStatus>(world, entity);
+    if !models.ready { return models.detail.clone(); }
     let water = get::<DynamicWaterStatus>(world, entity);
     if !matches!(water.phase, DynamicWaterPhase::Ready | DynamicWaterPhase::Disabled) { return water.detail.clone(); }
     if !get::<crate::shared::surface_weather::PuddleRuntimeState>(world, entity).ready().unwrap_or(false) { return "正在准备子场景积水纹理".into(); }
@@ -131,6 +136,7 @@ pub(super) fn busy(world: &World, entity: Entity) -> bool {
         || get::<LayeredCollisionRuntime>(world, entity).background_busy(world.resource::<AssetServer>())
         || get::<DynamicTerrainDerivationState>(world, entity).background_busy()
         || get::<DynamicVegetationState>(world, entity).background_busy()
+        || get::<super::super::vegetation::ModelVegetationState>(world, entity).busy()
         || get::<DynamicWaterState>(world, entity).background_busy()
         || get::<ClipmapWaterRuntime>(world, entity).background_busy()
 }
@@ -148,6 +154,7 @@ pub(super) fn finished(world: &World, entity: Entity) -> bool {
         && get::<LayeredCollisionRuntime>(world, entity).background_finished(server)
         && get::<DynamicTerrainDerivationState>(world, entity).background_finished()
         && get::<DynamicVegetationState>(world, entity).background_finished()
+        && get::<super::super::vegetation::ModelVegetationState>(world, entity).finished()
         && get::<DynamicWaterState>(world, entity).background_finished()
         && get::<ClipmapWaterRuntime>(world, entity).background_finished()
 }

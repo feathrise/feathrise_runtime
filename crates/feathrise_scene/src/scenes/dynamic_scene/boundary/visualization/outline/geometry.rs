@@ -57,7 +57,7 @@ mod tests {
         let manifest: SceneManifestAsset = serde_json::from_str(r#"{
             "schema_version":2,"id":"MAP-outline","display_name":"轮廓","runtime_scene":"data_driven",
             "world_min":[0,0],"world_max":[1000,1000],"default_spawn":[0,0,0],
-            "terrain":{"kind":"heightfield","glb_path":"scenes/MAP-outline/terrain/terrain.glb","height_path":"scenes/MAP-outline/terrain/height.r16","resolution":[2,2],"base_height":0,"height_scale":10},"asset_roots":[]
+            "terrain":{"kind":"gltf","glb_path":"scenes/MAP-outline/terrain/terrain.glb","height_path":"scenes/MAP-outline/terrain/height.r16","resolution":[2,2],"base_height":0,"height_scale":10},"asset_roots":[]
         }"#).unwrap();
         let mut document = SceneBoundariesAsset::rectangular_default(
             &manifest.id,

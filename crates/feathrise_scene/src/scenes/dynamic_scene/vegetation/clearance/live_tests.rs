@@ -29,6 +29,7 @@ fn snapshot(value: u8) -> super::super::DynamicBladeDraftSnapshot {
             default()
         },
         definition: SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
             scene_id: map,
             layers: vec![layer],

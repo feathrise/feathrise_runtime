@@ -23,6 +23,21 @@ fn cell_hash(cell: &[[f32; 4]; 3], salt: u32) -> u32 {
 }
 
 impl GpuBladeVolumeSource {
+    /// 模型三角面样本不构建规则格索引；三个RGBA记录仍进入同一GPU候选/LOD/紧凑输出路径。
+    pub fn image_from_surface_samples(cells: &[[[f32;4];3]], max_bytes: usize) -> Result<Image,String> {
+        if cells.iter().any(|c| c.iter().flatten().any(|v|!v.is_finite())
+            || c[0][3] < 0. || c[0][3] > 1. || c[1][3] <= 0.
+            || Vec3::from_slice(&c[1][..3]).length_squared() < 0.5) {
+            return Err("模型植被样本包含无效位置、法线或密度".into());
+        }
+        let height = cells.len().checked_mul(3).ok_or("模型样本大小溢出")?.max(1).div_ceil(256);
+        let bytes = height.checked_mul(256*16).ok_or("模型样本大小溢出")?;
+        if bytes > max_bytes || cells.len() >= 1 << 24 { return Err("模型植被源超过8MiB上传预算".into()); }
+        let mut pixels = vec![[0f32;4];height*256];
+        for (i,cell) in cells.iter().enumerate() { pixels[i*3..i*3+3].copy_from_slice(cell); }
+        Ok(Image::new(Extent3d {width:256,height:height as u32,depth_or_array_layers:1},TextureDimension::D2,
+            bytemuck::cast_slice(&pixels).to_vec(),TextureFormat::Rgba32Float,RenderAssetUsages::RENDER_WORLD))
+    }
     /// 冻结每格三个RGBA32作者记录，并建立固定最多16探测的空间索引。
     /// 调用方应在已有后台任务中使用；预算包含行对齐、索引与作者记录，失败不截断原数据。
     pub fn image_from_cells(cells: &[[[f32; 4]; 3]], max_bytes: usize) -> Result<Image, String> {

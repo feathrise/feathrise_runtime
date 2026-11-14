@@ -7,6 +7,13 @@ mod clipmap; // 已采用分页高度轻量同步。
 pub(super) use clipmap::sync_dynamic_blade_clipmap; // 场景调度在建根后发布同代高度。
 mod build; // 当前修订CPU源冻结与单空间块精确后台散布。
 mod draft; // F12未保存Blade定义与内存密度的完整快照。
+mod model_draft; // 场景级模型植被不借当前选中地形的作者槽。
+mod models; // 静态模型共用正式GPU草和树灌木批次。
+pub use models::DynamicModelVegetationStatus;
+pub(in crate::scenes::dynamic_scene) use models::ModelVegetationState;
+pub(super) fn install_models(app:&mut bevy::prelude::App) {models::install(app);}
+pub(in crate::scenes::dynamic_scene) fn add_model_instance_systems(schedule:&mut bevy::prelude::Schedule) {models::add_instance_systems(schedule);}
+pub use model_draft::DynamicModelVegetationDraft;
 pub use draft::{DynamicBladeDraft, DynamicBladeDraftSnapshot}; // 编辑器只发布完整输入，不操作运行时窗口。
 mod clearance; // Blade建筑净空从原始R8后台派生临时单Mip图片。
 mod collision; // 玩家近场按预设创建圆柱或盒体代理，远景共享批次不承担物理实体。
@@ -23,6 +30,8 @@ mod spawn; // 建立Blade修订根，并把Mesh块分帧排入隐藏父根后一
 mod systems; // 事件驱动加载、非阻塞轮询、热更与窗口跟随。
 mod transactions; // 首载与热更共用失败收口，避免状态分叉。
 mod volume;
+#[cfg(test)]
+pub(in crate::scenes::dynamic_scene) use volume::native_fields_source_for_test;
 pub(super) fn install_volume(app:&mut bevy::prelude::App) {volume::install(app);}
 pub(in crate::scenes::dynamic_scene) fn add_volume_instance_systems(schedule:&mut bevy::prelude::Schedule) {volume::add_instance_systems(schedule);}
 

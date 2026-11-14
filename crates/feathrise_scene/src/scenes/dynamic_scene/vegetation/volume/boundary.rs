@@ -18,7 +18,7 @@ pub(super) fn sync_inputs(
             &VolumeVegetationLayer,
             &ChildOf,
             &GpuBladeDensityMap,
-            &GpuBladeClipmapHeight,
+            Option<&GpuBladeClipmapHeight>,
             Option<&GpuBladeVolumeSource>,
         ),
         Without<VolumeWindow>,
@@ -45,10 +45,12 @@ pub(super) fn sync_inputs(
         ),
     >,
     added_windows: InstanceQuery<(), Added<VolumeWindow>>,
+    mut removed_heights: RemovedComponents<GpuBladeClipmapHeight>,
     mut applied: Local<Option<(u64, bool, Option<Entity>)>>,
 ) {
     let identity = (state.boundary_revision, state.valid, vegetation.active_root);
-    if *applied == Some(identity) && changed_inputs.is_empty() && added_windows.is_empty() {
+    let height_removed = removed_heights.read().count() != 0;
+    if *applied == Some(identity) && changed_inputs.is_empty() && added_windows.is_empty() && !height_removed {
         return;
     }
     *applied = Some(identity);
@@ -67,6 +69,7 @@ pub(super) fn sync_inputs(
         }
     }
     for (entity, layer, density, height) in &volume {
+        // 原生体素的隐藏模板只有密度，没有二维高度；高度不能成为三维草窗取输入的资格门。
         let Some((_, _, _, next_density, next_height, _)) =
             exterior.iter().find(|(_, id, parent, _, _, _)| {
                 id.0 == layer.0 && Some(parent.parent()) == vegetation.active_root
@@ -77,8 +80,12 @@ pub(super) fn sync_inputs(
         if density != Some(next_density) {
             commands.entity(entity).insert(next_density.clone());
         }
-        if height != Some(next_height) {
-            commands.entity(entity).insert(next_height.clone());
+        if height != next_height {
+            if let Some(next_height) = next_height {
+                commands.entity(entity).insert(next_height.clone());
+            } else {
+                commands.entity(entity).remove::<GpuBladeClipmapHeight>();
+            }
         }
     }
 }
@@ -193,6 +200,14 @@ mod tests {
                 Some(&height)
             );
         }
+        // 从Clipmap切为原生模板时不能留下旧二维高度，让三维源意外等待已退役的页图。
+        app.world_mut().entity_mut(exterior).remove::<GpuBladeClipmapHeight>();
+        app.update();
+        for window in windows {
+            assert!(app.world().get::<GpuBladeClipmapHeight>(window).is_none());
+            assert_eq!(app.world().get::<GpuBladeDensityMap>(window),
+                Some(&GpuBladeDensityMap::new(new_density.clone())));
+        }
         app.world_mut().resource_mut::<State>().valid = false;
         app.update();
         assert!(app.world().get::<GpuBladeVolumeSource>(exterior).is_none());
@@ -203,5 +218,44 @@ mod tests {
             source,
             "恢复仍应复用完整源"
         );
+    }
+
+    #[test]
+    fn native_voxel_templates_without_height_publish_real_density_to_volume_windows() {
+        use feathrise_environment::vegetation::blade::{GpuBladePatch, GpuBladeSourceRevision};
+        let mut app = App::new();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<super::super::super::DynamicVegetationState>()
+            .add_systems(Update, sync_inputs);
+        let outdoor_root = app.world_mut().spawn_empty().id();
+        app.world_mut().resource_mut::<super::super::super::DynamicVegetationState>()
+            .active_root = Some(outdoor_root);
+        let density = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        let source = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        app.insert_resource(State { valid: true,
+            blade_sources: std::collections::BTreeMap::from([("grass".into(), source.clone())]),
+            ..default() });
+        let template = app.world_mut().spawn((
+            VolumeVegetationLayer("grass".into()), ChildOf(outdoor_root), Visibility::Hidden,
+            GpuBladeDensityMap::new(density.clone()), GpuBladeSourceRevision(19),
+        )).id();
+        let patch = GpuBladePatch::square(Vec3::ZERO, 8., 33, 7)
+            .with_density_field(Vec2::ZERO, Vec2::splat(8.))
+            .with_volume_cell_source(25, 0.25);
+        assert!(patch.uses_density_field(), "三维候选仍必须等待真实密度纹理");
+        let window = app.world_mut().spawn((VolumeWindow, VolumeVegetationLayer("grass".into()),
+            patch, GpuBladeSourceRevision(3))).id();
+        app.update();
+        assert_eq!(app.world().get::<GpuBladeDensityMap>(window),
+            Some(&GpuBladeDensityMap::new(density.clone())), "没有二维高度也要绑定真实R8，否则RenderApp永久清零候选");
+        assert!(app.world().get::<GpuBladeClipmapHeight>(window).is_none());
+        assert_eq!(app.world().get::<GpuBladeVolumeSource>(template).unwrap().0, source);
+        assert_eq!(app.world().get::<GpuBladeSourceRevision>(window).unwrap().0, 3,
+            "模板新R8修订不能冒充三维worker完整采用代");
+        let next_density = app.world_mut().resource_mut::<Assets<Image>>().add(Image::default());
+        app.world_mut().entity_mut(template).insert(GpuBladeDensityMap::new(next_density.clone()));
+        app.update();
+        assert_eq!(app.world().get::<GpuBladeDensityMap>(window),
+            Some(&GpuBladeDensityMap::new(next_density)), "原生模板换代继续同步真实密度");
     }
 }

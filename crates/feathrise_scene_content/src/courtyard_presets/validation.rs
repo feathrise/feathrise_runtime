@@ -141,6 +141,7 @@ fn valid_asset_target(target: ScenePlacementAssetTarget) -> bool {
             mesh,
             primitive,
             material,
+            ..
         } => {
             mesh <= MAX_COURTYARD_PRIMITIVE_INDEX // 非现实编号通常来自损坏或手写错误。
                 && primitive <= MAX_COURTYARD_PRIMITIVE_INDEX // 子网格编号也必须有界。

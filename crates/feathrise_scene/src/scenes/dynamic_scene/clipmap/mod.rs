@@ -20,8 +20,12 @@ pub(super) mod stitches;
 pub(crate) use authority::{
     AuthoritativeHeightRuntime, clear_authoritative_height_pages, drive_authoritative_height_pages,
 };
+#[cfg(any(test, feature = "runtime_test_support"))]
+pub(crate) use ground::test_authoring_ground_snapshot;
+#[cfg(feature = "runtime_test_support")]
+pub(super) use ground::test_ground_with_surface_sheet;
 #[cfg(test)]
-pub(crate) use ground::{test_authoring_ground_snapshot, test_ground_snapshot};
+pub(crate) use ground::test_ground_snapshot;
 pub(crate) use ground::{
     ClipmapGroundContentRevision, ClipmapGroundQueryRevision, clear_clipmap_ground_surface,
     sync_clipmap_ground_surface,

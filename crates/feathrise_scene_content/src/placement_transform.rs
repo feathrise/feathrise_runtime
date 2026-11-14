@@ -262,6 +262,7 @@ mod tests {
             mesh: 6,
             primitive: 2,
             material: Some(4),
+            collision: false,
         }; // 预览中选中的精确primitive及原关联材质共同进入作者记录。
         let json = serde_json::to_string(&value).expect("子资产记录应可序列化");
         let decoded: ScenePlacementRecord =
@@ -340,6 +341,7 @@ mod tests {
             mesh: 1,
             primitive: 0,
             material: None,
+            collision: false,
         };
         value.water_surfaces.push(crate::ScenePlacementWaterSurface {
             mesh_index: 1,

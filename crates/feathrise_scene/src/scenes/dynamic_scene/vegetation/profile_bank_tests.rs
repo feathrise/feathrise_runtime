@@ -62,7 +62,7 @@ fn grass_pending(app: &mut App) -> super::super::resources::DynamicVegetationPen
     let manifest: SceneManifestAsset = serde_json::from_value(serde_json::json!({
         "schema_version":2,"id":"MAP-two-grass-meshes","display_name":"双网格草地回归",
         "runtime_scene":"data_driven","world_min":[0,0],"world_max":[10,10],"default_spawn":[5,0,5],
-        "terrain":{"kind":"heightfield","glb_path":"scenes/test/terrain.glb","resolution":[2,2],"base_height":0,"height_scale":10}
+        "terrain":{"kind":"gltf","glb_path":"scenes/test/terrain.glb","resolution":[2,2],"base_height":0,"height_scale":10}
     })).unwrap();
     let catalog: VegetationPresetCatalogAsset = serde_json::from_str(
         crate::test_fixtures::VEGETATION_CATALOG_JSON,
@@ -89,6 +89,7 @@ fn grass_pending(app: &mut App) -> super::super::resources::DynamicVegetationPen
         densities: [(layer.id.clone(), image.clone())].into(),
         nonzero_layers: [layer.id.clone()].into(),
         definition: SceneVegetationAsset {
+            model_surfaces: Vec::new().into(),
             schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
             scene_id: manifest.id.clone(),
             layers: vec![layer],

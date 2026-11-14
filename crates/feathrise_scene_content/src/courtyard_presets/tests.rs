@@ -50,6 +50,7 @@ fn members_round_trip_scene_target_and_terrain_semantics() {
         mesh: 2,
         primitive: 1,
         material: Some(3),
+        collision: false,
     }; // 保留精确原关联材质。
     member.height_mode = ScenePlacementHeightMode::FollowTerrain; // 按成员保存贴地策略。
     member.terrain_offset = 0.6; // 贴地时保留离地偏移。
@@ -81,6 +82,7 @@ fn invalid_ids_paths_targets_and_nonfinite_transforms_reject_whole_catalog() {
         mesh: u32::MAX,
         primitive: 0,
         material: None,
+        collision: false,
     }; // 离谱编号不是可接受静态目标。
     assert!(invalid.validate().is_err()); // 非法目标不能进入可查询快照。
     invalid.presets[0].members[0].asset_target = ScenePlacementAssetTarget::Scene0; // 恢复合法整场景目标。

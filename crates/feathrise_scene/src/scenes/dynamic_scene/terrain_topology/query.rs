@@ -24,11 +24,10 @@ impl TerrainMeshQuery {
         })
     }
     pub(crate) fn ray(&self, origin: Vec3, direction: Vec3, max: f32) -> Option<f32> {
-        let ray = avian3d::parry::query::Ray::new(
-            self.inverse.transform_point3(origin),
-            self.inverse.transform_vector3(direction),
-        );
-        self.shape.shape().cast_local_ray(&ray, max, false) // 不规范化局部方向，t始终是原世界射线的参数。
+        // 原生体素也经from_density_mesh进入Clipmap包装；统一在此复用真实面命中。
+        // 薄板实测中Parry仅距离查询会漏掉同一射线的合法面，不能只修外层Mesh分支。
+        // ray_normal仍保留未归一化局部方向，因此t继续是原世界射线参数。
+        self.ray_normal(origin, direction, max).map(|(distance, _)| distance)
     }
     pub(crate) fn bounds(&self) -> (Vec3, Vec3) {
         let bounds = self.shape.shape().compute_local_aabb();

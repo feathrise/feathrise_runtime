@@ -6,7 +6,7 @@ use bevy::{
 };
 use feathrise_environment::vegetation::{
     VegetationBladeLayer,
-    blade::{GpuBladePatch, GpuBladeProfileBankId, GpuBladeVolumeSource, GpuBladeProfileBanks, GpuBladeProfileBankAllocation},
+    blade::{GpuBladePatch, GpuBladeProfileBankId, GpuBladeSourceRevision, GpuBladeVolumeSource, GpuBladeProfileBanks, GpuBladeProfileBankAllocation},
 };
 use feathrise_scene_core::residency::{InstanceQuery, InstanceRes, InstanceResMut, SceneInstanceContextAppExt};
 use std::sync::Arc;
@@ -16,6 +16,18 @@ mod collision;
 mod source;
 use super::super::{DynamicClipmapGroundSurface, VolumeSurfaceFields};
 use source::Layer;
+
+/// 跨域回归仍调用正式源构建；只返回固定大小的层摘要，不向外暴露worker内部载体。
+#[cfg(test)]
+pub(in crate::scenes::dynamic_scene) fn native_fields_source_for_test(
+    fields: Arc<feathrise_terrain::volume::sparse::paged::VolumeFieldSnapshot>,
+    ground: crate::ClipmapGroundSnapshot,
+    clearances: Option<(crate::BuildingVegetationClearanceSnapshot, feathrise_scene_core::residency::SceneSourceFrame)>,
+) -> Result<Vec<(String, u32, usize)>, String> {
+    let layers = source::build(vec![(fields, Vec3::ZERO)], ground, clearances, Default::default())?;
+    Ok(layers.into_iter().map(|layer| (layer.id, layer.count,
+        layer.cells.iter().filter(|cell| cell[0][3] > 0.).count())).collect())
+}
 
 #[derive(Component)]
 pub(super) struct VolumeVegetationLayer(pub String);
@@ -31,13 +43,40 @@ struct Identity {
     vegetation: Option<Entity>,
     prototypes: u64,
     presets: u64,
-    clearances: u64,
+    clearances: (Option<Entity>, u64, [u32; 16]), // 所属实例及相对姿态与净空修订共同拒绝迟到结果。
     blade_spans: Vec<(String, u32)>, // 承托晕边随正式LOD母格宽度换代，不能复用过小的旧窗口。
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_clearance_owner_or_relative_frame_rejects_late_complete_sources() {
+        let (mut app, _, _) = active_volume(Visibility::Inherited, true);
+        let owner = app.world_mut().spawn_empty().id();
+        let sibling = app.world_mut().spawn_empty().id();
+        let mut identity = app.world().resource::<State>().active.clone().unwrap();
+        identity.clearances.0 = Some(owner);
+        assert!(identity.same_source(&identity.clone()));
+        assert!(identity.same_support(&identity.clone()));
+        let mut changed = identity.clone();
+        changed.clearances.0 = Some(sibling);
+        assert!(!identity.same_source(&changed), "同源兄弟实例不能接住另一所属场景的迟到结果");
+        assert!(!identity.same_support(&changed));
+        changed = identity.clone();
+        changed.clearances.1 += 1;
+        assert!(!identity.same_source(&changed));
+        assert!(!identity.same_support(&changed));
+        for relative in [Transform::from_xyz(48., 0., -48.),
+            Transform::from_rotation(Quat::from_rotation_z(0.3)),
+            Transform::from_scale(Vec3::new(2., 0.2, 0.5))] {
+            changed = identity.clone();
+            changed.clearances.2 = relative.to_matrix().to_cols_array().map(f32::to_bits);
+            assert!(!identity.same_source(&changed), "相对位姿改变必须拒绝旧后台净空源");
+            assert!(!identity.same_support(&changed));
+        }
+    }
 
     /// 运行真实采用系统；不创建渲染器或后台任务，验证完整旧集合的暂停与恢复。
     fn active_volume(
@@ -46,6 +85,8 @@ mod tests {
     ) -> (App, Entity, crate::ClipmapGroundSnapshot) {
         let mut app = App::new();
         app.init_resource::<super::super::DynamicVegetationState>()
+            .init_resource::<super::super::DynamicVegetationStatus>()
+            .init_resource::<crate::BuildingVegetationClearanceState>()
             .init_resource::<Assets<Image>>()
             .init_resource::<feathrise_environment::vegetation::VegetationMeshPrototypeRegistry>()
             .init_resource::<super::super::super::mesh_profiles::DynamicMeshProfileRequests>()
@@ -68,7 +109,7 @@ mod tests {
                 vegetation: None,
                 prototypes,
                 presets: 0,
-                clearances: 0,
+                clearances: (None, 0, Mat4::IDENTITY.to_cols_array().map(f32::to_bits)),
                 blade_spans: Vec::new(),
             }),
             root: Some(root),
@@ -248,6 +289,7 @@ mod tests {
                     image: Image::default(),
                     cells,
                     count: 2,
+                    positive_count: 2,
                     step: 0.25,
                     min: Vec3::ZERO,
                     max: Vec3::splat(2.),
@@ -255,6 +297,9 @@ mod tests {
             ));
         }
         app.update();
+        let status = app.world().resource::<super::super::DynamicVegetationStatus>();
+        assert_eq!(status.volume_source_counts.get("grass"), Some(&2));
+        assert_eq!(status.volume_source_positive_counts.get("grass"), Some(&2));
         assert_eq!(app.world().resource::<State>().root, Some(root));
         assert_eq!(
             app.world()
@@ -361,6 +406,7 @@ fn mesh_ready(
 fn drive(
     mut commands: Commands,
     mut state: InstanceResMut<State>,
+    mut status: InstanceResMut<super::DynamicVegetationStatus>,
     vegetation: InstanceRes<super::DynamicVegetationState>,
     ground: InstanceRes<DynamicClipmapGroundSurface>,
     fields: InstanceQuery<(Entity, &VolumeSurfaceFields, &Transform, &Visibility)>,
@@ -381,7 +427,7 @@ fn drive(
     mut images: ResMut<Assets<Image>>,
     registry: Res<feathrise_environment::vegetation::VegetationMeshPrototypeRegistry>,
     presets: Option<Res<feathrise_scene_content::VegetationPresetRegistry>>,
-    clearances: Option<Res<crate::BuildingVegetationClearanceState>>,
+    clearances: clearance::Inputs,
     mut profile_requests: InstanceResMut<super::super::mesh_profiles::DynamicMeshProfileRequests>,
     profile_state: InstanceRes<super::super::mesh_profiles::DynamicMeshProfileState>,
     work: Option<Res<super::super::voxel_objects::VoxelWorkBudget>>,
@@ -389,6 +435,7 @@ fn drive(
 ) {
     let Some(ground) = ground.snapshot.as_ref().filter(|g| g.ready) else {
         state.valid = false; // 同时撤销近场碰撞的授权，不能只暂停源派生。
+        status.volume_ready = false;
         if let Some(root) = state.root {
             commands.entity(root).insert(Visibility::Hidden);
         }
@@ -399,9 +446,12 @@ fn drive(
         .filter(|(_, _, _, v)| **v != Visibility::Hidden)
         .take(32)
         .collect();
-    let clearances = clearances
-        .as_deref()
-        .and_then(|c| c.snapshot_for(&ground.scene_id));
+    let Some((clearances, clearance_frame, clearance_owner)) = clearances.freeze(&ground.scene_id) else {
+        state.valid = false;
+        status.volume_ready = false;
+        if let Some(root) = state.root { commands.entity(root).insert(Visibility::Hidden); }
+        return; // 所属场景上下文退役后不能回退到父图或兄弟实例的净空。
+    };
     let mut blade_spans = std::collections::BTreeMap::<String, f32>::new();
     for (id, _, patch, _, _) in &prototypes {
         let span = patch
@@ -431,7 +481,8 @@ fn drive(
         vegetation: vegetation.active_root,
         prototypes: registry.generation(),
         presets: presets.as_ref().map_or(0, |p| p.revision),
-        clearances: clearances.as_ref().map_or(0, |c| c.revision),
+        clearances: (clearance_owner, clearances.as_ref().map_or(0, |c| c.revision),
+            clearance_frame.source_to_world.to_cols_array().map(f32::to_bits)),
         blade_spans: blade_spans
             .iter()
             .map(|(id, span)| (id.clone(), span.to_bits()))
@@ -444,6 +495,7 @@ fn drive(
         .active
         .as_ref()
         .is_some_and(|active| active.same_support(&identity));
+    status.volume_ready = state.valid;
     if was_valid != state.valid
         && let Some(root) = state.root
     {
@@ -554,6 +606,13 @@ fn drive(
                     let mut retained = std::collections::HashSet::new();
                     let mut collision_sources = Vec::new();
                     let mut blade_sources = std::collections::BTreeMap::new();
+                    let generation = state.boundary_revision.wrapping_add(1).max(1);
+                    // 只在完整worker采用边界登记轻量回执，稳定帧不重扫字段或重建诊断集合。
+                    (status.volume_source_counts, status.volume_source_positive_counts) = layers.iter()
+                        .map(|layer| ((layer.id.clone(), layer.count), (layer.id.clone(), layer.positive_count)))
+                        .unzip();
+                    status.volume_window_counts = layers.iter().map(|layer| (layer.id.clone(),
+                        prototypes.iter().filter(|(id, _, _, _, _)| id.0 == layer.id).count())).collect();
                     for layer in layers {
                         let seed = layer.id.bytes().fold(2166136261u32, |h, b| {
                             (h ^ u32::from(b)).wrapping_mul(16777619)
@@ -619,6 +678,7 @@ fn drive(
                                 *bank,
                                 *binding,
                                 GpuBladeVolumeSource(source.clone()),
+                                GpuBladeSourceRevision(generation), // GPU回读必须属于本次实际三维源，不能借模板的新R8修订。
                                 Transform::from_translation(center),
                                 Visibility::Inherited,
                                 Aabb {
@@ -650,7 +710,7 @@ fn drive(
                     }
                     state.collision_sources = Arc::new(collision_sources);
                     state.blade_sources = blade_sources;
-                    state.boundary_revision = state.boundary_revision.wrapping_add(1);
+                    state.boundary_revision = generation;
                     if reuse {
                         for (entity, _, _) in &windows {
                             if !retained.contains(&entity) {
@@ -663,6 +723,12 @@ fn drive(
                     state.blade_only = blade_only;
                     state.active = Some(identity.clone());
                     state.valid = true;
+                    status.volume_ready = true;
+                    status.volume_generation = generation;
+                    status.volume_root = Some(root);
+                    status.volume_fields = identity.roots.clone();
+                    status.volume_ground_revision = Some(identity.ground);
+                    status.volume_sources = state.blade_sources.clone();
                 }
                 Err(error) => {
                     warn!("三维植被未采用：{error}");
@@ -693,6 +759,7 @@ fn drive(
             .map(|(_, f, t, _)| (f.0.clone(), t.translation))
             .collect();
         let snapshot = ground.clone();
+        let clearances = clearances.map(|snapshot| (snapshot, clearance_frame));
         let native = snapshot
             .is_density_surface()
             .then(|| vegetation.mesh_source.clone())

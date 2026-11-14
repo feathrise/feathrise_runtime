@@ -61,6 +61,7 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
         active: Some(PlacementActiveBatch {
             building_preset_revision: 0,
             terrain_roots: Vec::new(),
+            primitive_collision_roots: Vec::new(),
             root: container,
             roots: roots.clone(),
             gate,

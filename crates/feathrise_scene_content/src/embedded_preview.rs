@@ -4,11 +4,11 @@ use crate::{SceneId, SceneVegetationAsset, TerrainId};
 use serde::{Deserialize, Serialize};
 use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 
-pub const VEGETATION_PREVIEW_FORMAT: &str = "feathrise-vegetation-preview-v1";
+pub const VEGETATION_PREVIEW_FORMAT: &str = "feathrise-vegetation-preview-v2";
 pub const MAX_VEGETATION_PREVIEW_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_VEGETATION_PREVIEW_CANVASES: usize = 4;
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
-const MAGIC: &[u8; 8] = b"FRVEG001";
+const MAGIC: &[u8; 8] = b"FRVEG002";
 
 pub struct VegetationPreviewBatch {
     pub scene_id: SceneId,
@@ -19,6 +19,8 @@ pub struct VegetationPreviewBatch {
 
 pub struct VegetationPreviewCanvas {
     pub terrain_id: Option<TerrainId>,
+    /// 模型根画布只携带稀疏表面样本；二维正式层在这里仅提供种类和生成参数。
+    pub models_only: bool,
     pub source_revision: u64,
     pub layout_revision: u64,
     pub definition: SceneVegetationAsset,
@@ -35,9 +37,12 @@ struct Header {
 #[derive(Serialize, Deserialize)]
 struct CanvasHeader {
     terrain_id: Option<TerrainId>,
+    models_only: bool,
     source_revision: u64,
     layout_revision: u64,
     definition: SceneVegetationAsset,
+    /// 稀疏样本也放在有总预算的raw区，避免一张模型画布撑破小型JSON描述头。
+    models: [usize; 2],
     /// raw区偏移和长度只由本模块顺序生成；解码拒绝重叠、间隙、尾随字节。
     densities: BTreeMap<String, [usize; 2]>,
     nonzero_layers: BTreeSet<String>,
@@ -50,18 +55,41 @@ fn validate(batch: &VegetationPreviewBatch) -> Result<(), String> {
     let mut terrains = BTreeSet::new();
     let mut total = 0_usize;
     for canvas in &batch.canvases {
-        if !terrains.insert(canvas.terrain_id.clone()) || canvas.definition.scene_id != batch.scene_id
-            || canvas.definition.authoring.is_some() || canvas.definition.layers.len() > 64
-            || canvas.densities.len() != canvas.definition.layers.len()
+        if !terrains.insert((canvas.terrain_id.clone(), canvas.models_only)) || canvas.definition.scene_id != batch.scene_id
+            || canvas.definition.schema_version != crate::SCENE_SCHEMA_VERSION
+            || canvas.definition.layers.len() > 64
+            || (canvas.models_only && (canvas.terrain_id.is_some() || !canvas.densities.is_empty() || !canvas.nonzero_layers.is_empty()))
+            || (!canvas.models_only && canvas.densities.len() != canvas.definition.layers.len())
         {
-            return Err("植被预览存在重复画布、跨场景来源、作者图或不完整正式层".into());
+            return Err("植被预览存在重复画布、跨场景来源或不完整密度载体".into());
+        }
+        if let Some(authoring) = &canvas.definition.authoring {
+            if !canvas.models_only && canvas.definition.model_surfaces.is_empty() {
+                return Err("二维预览不得包含无用途的作者图".into());
+            }
+            authoring.validate(&canvas.definition.layers)?;
+        }
+        let mut targets = BTreeSet::new();
+        let sample_layers: BTreeSet<&str> = canvas.definition.authoring.as_ref().map_or_else(
+            || canvas.definition.layers.iter().map(|layer|layer.id.as_str()).collect(),
+            |authoring|authoring.layers.iter().map(|layer|layer.id.as_str()).collect());
+        for surface in canvas.definition.model_surfaces.iter() {
+            surface.validate()?;
+            if !surface.sample_blocks.is_empty() || !targets.insert(&surface.target) {
+                return Err("模型预览需要完整内存样本且不能重复目标".into());
+            }
+            if surface.samples.iter().flat_map(|sample| &sample.layers).any(|(id,_)| !sample_layers.contains(id.as_str())) {
+                return Err("模型预览引用不存在的植被层".into());
+            }
         }
         let mut layers = BTreeSet::new();
         for layer in &canvas.definition.layers {
+            if !layers.insert(&layer.id) { return Err("植被预览层身份重复".into()); }
+            if canvas.models_only { continue; }
             let size = (layer.resolution[0] as usize).checked_mul(layer.resolution[1] as usize)
                 .filter(|size| *size > 0).ok_or("植被预览密度尺寸无效")?;
             let pixels = canvas.densities.get(&layer.id).ok_or("植被预览缺少正式层R8")?;
-            if !layers.insert(&layer.id) || pixels.len() != size {
+            if pixels.len() != size {
                 return Err("植被预览密度尺寸或层身份不符".into());
             }
             total = total.checked_add(size).filter(|size| *size <= MAX_VEGETATION_PREVIEW_BYTES)
@@ -82,18 +110,28 @@ pub fn encode_vegetation_preview(batch: &VegetationPreviewBatch) -> Result<Vec<u
     validate(batch)?;
     let mut raw_len = 0_usize;
     let mut canvases = Vec::new();
+    let mut raw_parts = Vec::new();
     for canvas in &batch.canvases {
         let mut densities = BTreeMap::new();
         for (id, pixels) in &canvas.densities {
             densities.insert(id.clone(), [raw_len, pixels.len()]);
             raw_len += pixels.len();
+            raw_parts.push(pixels.clone());
         }
+        let models = encode_bounded(&canvas.definition.model_surfaces, MAX_VEGETATION_PREVIEW_BYTES.saturating_sub(raw_len))?;
+        let models_range = [raw_len, models.len()];
+        raw_len = raw_len.checked_add(models.len()).filter(|len| *len <= MAX_VEGETATION_PREVIEW_BYTES)
+            .ok_or("植被预览超过64MiB编码预算")?;
+        raw_parts.push(Arc::<[u8]>::from(models));
+        let mut definition = canvas.definition.clone();
+        definition.model_surfaces = Arc::default();
         canvases.push(CanvasHeader { terrain_id: canvas.terrain_id.clone(),
+            models_only: canvas.models_only, models: models_range,
             source_revision: canvas.source_revision, layout_revision: canvas.layout_revision,
-            definition: canvas.definition.clone(), densities, nonzero_layers: canvas.nonzero_layers.clone() });
+            definition, densities, nonzero_layers: canvas.nonzero_layers.clone() });
     }
-    let metadata = serde_json::to_vec(&Header { scene_id: batch.scene_id.clone(),
-        structure_revision: batch.structure_revision, canvases }).map_err(|error| error.to_string())?;
+    let metadata = encode_bounded(&Header { scene_id: batch.scene_id.clone(),
+        structure_revision: batch.structure_revision, canvases }, MAX_HEADER_BYTES)?;
     if metadata.len() > MAX_HEADER_BYTES || 12 + metadata.len() + raw_len > MAX_VEGETATION_PREVIEW_BYTES {
         return Err("植被预览编码超过批次预算".into());
     }
@@ -101,10 +139,26 @@ pub fn encode_vegetation_preview(batch: &VegetationPreviewBatch) -> Result<Vec<u
     bytes.extend_from_slice(MAGIC);
     bytes.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&metadata);
-    for canvas in &batch.canvases {
-        for pixels in canvas.densities.values() { bytes.extend_from_slice(pixels); }
-    }
+    for part in raw_parts { bytes.extend_from_slice(&part); }
     Ok(bytes)
+}
+
+/// 序列化过程中实施预算，不能先分配任意大的样本JSON再检查它已经超限。
+fn encode_bounded(value: &impl Serialize, limit: usize) -> Result<Vec<u8>, String> {
+    struct Writer { bytes: Vec<u8>, limit: usize }
+    impl std::io::Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+                return Err(std::io::Error::other("植被预览编码超过预算"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut writer = Writer { bytes: Vec::new(), limit };
+    serde_json::to_writer(&mut writer, value).map_err(|error| error.to_string())?;
+    Ok(writer.bytes)
 }
 
 /// 背景线程完成完整格式/身份/像素验证；调用方在主线程仍须核对会话、场景和来源代次。
@@ -124,7 +178,7 @@ pub fn decode_vegetation_preview(bytes: &[u8]) -> Result<VegetationPreviewBatch,
     let raw = &bytes[12 + metadata_len..];
     let mut cursor = 0_usize;
     let mut canvases = Vec::new();
-    for canvas in header.canvases {
+    for mut canvas in header.canvases {
         let mut densities = BTreeMap::new();
         for (id, [offset, length]) in canvas.densities {
             if offset != cursor || length > raw.len().saturating_sub(cursor) {
@@ -133,7 +187,14 @@ pub fn decode_vegetation_preview(bytes: &[u8]) -> Result<VegetationPreviewBatch,
             densities.insert(id, Arc::from(&raw[cursor..cursor + length]));
             cursor += length;
         }
+        let [offset, length] = canvas.models;
+        if offset != cursor || length > raw.len().saturating_sub(cursor) || !canvas.definition.model_surfaces.is_empty() {
+            return Err("模型预览范围存在重叠、缺口或越界".into());
+        }
+        canvas.definition.model_surfaces = serde_json::from_slice(&raw[cursor..cursor + length]).map_err(|error| error.to_string())?;
+        cursor += length;
         canvases.push(VegetationPreviewCanvas { terrain_id: canvas.terrain_id,
+            models_only: canvas.models_only,
             source_revision: canvas.source_revision, layout_revision: canvas.layout_revision,
             definition: canvas.definition, densities, nonzero_layers: canvas.nonzero_layers });
     }
@@ -159,8 +220,8 @@ mod tests {
         };
         let pixels: Arc<[u8]> = Arc::from(vec![237; 4096]);
         let mut batch = VegetationPreviewBatch { scene_id: map.clone(), structure_revision: 2,
-            canvases: vec![VegetationPreviewCanvas { terrain_id: None, source_revision: 4, layout_revision: 1,
-                definition: SceneVegetationAsset { schema_version: crate::SCENE_SCHEMA_VERSION, scene_id: map, layers: vec![layer], authoring: None },
+            canvases: vec![VegetationPreviewCanvas { terrain_id: None, models_only: false, source_revision: 4, layout_revision: 1,
+                definition: SceneVegetationAsset { model_surfaces: Vec::new().into(), schema_version: crate::SCENE_SCHEMA_VERSION, scene_id: map, layers: vec![layer], authoring: None },
                 densities: BTreeMap::from([("blade".into(), pixels.clone())]),
                 nonzero_layers: BTreeSet::from(["blade".into()]) }] };
         let encoded = encode_vegetation_preview(&batch).unwrap();
@@ -168,13 +229,34 @@ mod tests {
         assert_eq!(decode_vegetation_preview(&encoded).unwrap().canvases[0].densities["blade"], pixels);
         batch.canvases[0].nonzero_layers.clear();
         assert!(encode_vegetation_preview(&batch).is_err());
+        // 大模型样本超过1MiB仍可放入raw区，不能挤进小描述头，也不能以二维空图冒充模型载体。
+        let canvas = &mut batch.canvases[0];
+        canvas.models_only = true;
+        canvas.densities.clear();
+        let mut surface = crate::ModelSurfaceVegetation::empty("bridge", [2;32], 0.2);
+        surface.samples = (0..16000).map(|triangle|crate::ModelSurfaceVegetationSample {
+            anchor: crate::ModelSurfaceAnchor { primitive:0, triangle, barycentric:[0.2,0.3] },
+            layers: vec![("blade".into(), 255)],
+        }).collect();
+        canvas.definition.model_surfaces = vec![Arc::new(surface)].into();
+        let encoded = encode_vegetation_preview(&batch).unwrap();
+        assert!(encoded.len() > MAX_HEADER_BYTES);
+        let decoded = decode_vegetation_preview(&encoded).unwrap();
+        assert!(decoded.canvases[0].models_only);
+        assert_eq!(decoded.canvases[0].definition.model_surfaces[0].samples.len(),16000);
+        assert_eq!(&encoded[..8],b"FRVEG002");
+        let mut obsolete = encoded.clone(); obsolete[..8].copy_from_slice(b"FRVEG001");
+        assert!(decode_vegetation_preview(&obsolete).is_err());
+        let model = Arc::make_mut(&mut Arc::make_mut(&mut batch.canvases[0].definition.model_surfaces)[0]);
+        model.samples[0].layers[0].0 = "unknown".into();
+        assert!(encode_vegetation_preview(&batch).is_err());
     }
     #[test]
     fn empty_formal_output_roundtrips_and_bad_framing_or_duplicate_canvas_is_rejected() {
         let map = SceneId::parse("MAP-preview").unwrap();
         let mut batch = VegetationPreviewBatch { scene_id: map.clone(), structure_revision: 9,
-            canvases: vec![VegetationPreviewCanvas { terrain_id: None, source_revision: 12,
-                layout_revision: 3, definition: SceneVegetationAsset { scene_id: map, ..Default::default() },
+            canvases: vec![VegetationPreviewCanvas { terrain_id: None, models_only: false, source_revision: 12,
+                layout_revision: 3, definition: SceneVegetationAsset { model_surfaces: Vec::new().into(), scene_id: map, ..Default::default() },
                 densities: BTreeMap::new(), nonzero_layers: BTreeSet::new() }] };
         let encoded = encode_vegetation_preview(&batch).unwrap();
         let decoded = decode_vegetation_preview(&encoded).unwrap();

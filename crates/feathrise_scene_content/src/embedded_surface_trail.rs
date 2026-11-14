@@ -32,7 +32,7 @@ impl SurfaceTrailPatch {
         }
         if !matches!(
             self.terrain_kind,
-            SceneTerrainKind::Gltf | SceneTerrainKind::Heightfield | SceneTerrainKind::SparseClipmap
+            SceneTerrainKind::Gltf | SceneTerrainKind::SparseClipmap
         ) {
             return Err("地表辅助覆盖不支持此真实地形类型".into());
         }
@@ -92,7 +92,7 @@ mod tests {
             surface_revision: 2,
             source_epoch: 1,
             source_to_world: bevy::prelude::Mat4::IDENTITY.to_cols_array(),
-            terrain_kind: SceneTerrainKind::Heightfield,
+            terrain_kind: SceneTerrainKind::Gltf,
             visible: true,
             reset: true,
             block: 15,

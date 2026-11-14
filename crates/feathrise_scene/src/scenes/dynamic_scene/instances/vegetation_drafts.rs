@@ -116,6 +116,7 @@ mod tests {
         DynamicBladeDraftSnapshot {
             source_revision: revision,
             definition: feathrise_scene_content::SceneVegetationAsset {
+                model_surfaces: Vec::new().into(),
                 schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
                 scene_id: map.clone(),
                 ..default()

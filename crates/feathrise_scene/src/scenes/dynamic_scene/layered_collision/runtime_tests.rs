@@ -646,7 +646,7 @@ fn circular_layout_keeps_small_configured_window() {
 #[test]
 fn world_metric_session_crater_reaches_real_cooked_collision_without_changing_author_source() {
     let mut input = request();
-    // 与生产最小64米作者规格一致，0.125米格距下世界原点落在第256格。
+    // 固定64米夹具让世界原点落在第256格；高度地形已允许更小尺寸，不以此声明最小范围。
     input.spec = SparseHeightSpec::new([-32.0; 2], [32.0; 2], 0.125, -8.0, 16.0).unwrap();
     input.anchor = Vec2::ZERO;
     input.lods = vec![SceneCollisionLod { max_distance_meters: 8.0, spacing_multiplier: 1 }];
@@ -656,16 +656,26 @@ fn world_metric_session_crater_reaches_real_cooked_collision_without_changing_au
         crate::scenes::dynamic_scene::session_crater::soil_surface_for_test(&input.spec)).unwrap();
     input.crater_revision = Some(craters.revision());
     let layout = build::prepare_layout(&input).unwrap();
-    let chunk = layout.chunks.values().find(|chunk| chunk.geometry.base_grid_points.contains(&[256.0, 256.0])).unwrap();
+    let probe_grid = [[256.0, 256.0], [256.0, 257.0], [257.0, 257.0]];
+    let chunk = layout.chunks.values().find(|chunk| chunk.geometry.triangles.iter().any(|triangle|
+        triangle.map(|index| chunk.geometry.base_grid_points[index as usize]) == probe_grid)).unwrap();
     let (source_key, local) = input.spec.tile_for_grid_point(256, 256).unwrap();
     let author = Arc::new(SparseHeightTile::blank(&input.spec, source_key).unwrap());
     let before = author.get(local);
     assert!(before.is_some(), "必须核对真实存在的作者局部格点，不能用两次越界None证明数据未变");
     let sources = BTreeMap::from([(source_key, author.clone())]);
     let collider = build::cook_chunk(&input.spec, chunk, &sources, craters.tiles(), &input.stitches).unwrap();
-    let ray = avian3d::parry::query::Ray::new(bevy::prelude::Vec3::new(0.0, 2.0, 0.0), bevy::prelude::Vec3::NEG_Y);
+    // 原点是四块共享角，单取其中一块的边角射线会受三角内部边修正影响而漏射。
+    // 改在该块真实三角的重心射线，并独立按世界半径/缩放推导三个作者角点的深度。
+    let points = probe_grid.map(|grid| input.spec.grid_point_world(grid[0] as u64, grid[1] as u64).unwrap());
+    let probe = points.into_iter().fold([0.0; 2], |sum, point| [sum[0] + point[0] as f32 / 3.0, sum[1] + point[1] as f32 / 3.0]);
+    let ray = avian3d::parry::query::Ray::new(bevy::prelude::Vec3::new(probe[0], 2.0, probe[1]), bevy::prelude::Vec3::NEG_Y);
     let distance = collider.shape().cast_local_ray(&ray, 10.0, false).unwrap();
-    let expected = 2.0 - input.spec.decode_height(input.spec.flat_height_code()) + 0.5 / 3.0;
+    let expected_depth = points.into_iter().map(|[x, z]| {
+        let normalized = ((x as f32 * 2.0).powi(2) + (z as f32 * 0.5).powi(2)) / 4.0_f32.powi(2);
+        (0.5 / 3.0) * (1.0 - normalized).powi(2)
+    }).sum::<f32>() / 3.0;
+    let expected = 2.0 - input.spec.decode_height(input.spec.flat_height_code()) + expected_depth;
     assert!((distance - expected).abs() < 0.001, "真实碰撞坑底必须消费同一源空间浅坑深度");
     assert_eq!(author.get(local), before, "烘焙只合成会话偏移，作者页不能被写成技能坑");
 }

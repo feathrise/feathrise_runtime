@@ -2,6 +2,9 @@
 #[cfg(test)] // 真实Mesh三角面作为独立查询参照。
 #[path = "ground_tests.rs"] // 测试夹具不进入运行时。
 mod tests; // 覆盖接缝、边界和分页等待。
+#[cfg(any(test, feature = "runtime_test_support"))]
+#[path = "ground_query_fixture.rs"]
+mod query_fixture; // 下游输入回归共享真实坡面，不再用Mesh代理Clipmap高度源。
 #[cfg(test)]
 #[path = "ground_surface_snap_tests.rs"]
 mod surface_snap_tests; // 连续三维承托的网格吸附，不依赖高度包络或固定抬高射线。
@@ -13,25 +16,23 @@ use super::SparseHeightPageRuntime; // 正式高度采用边界。
 use super::authority::{AuthoritativeHeightRuntime, AuthorityHeightSnapshot, AuthorityRequestSink}; // 作者精度页独立于当前可见环带窗口。
 use crate::scenes::dynamic_scene::sparse_runtime::{SparseClipmapDisplay, SparseClipmapRuntime};
 use bevy::prelude::*; // 只读资源和纯数学数据。
-#[cfg(test)]
-use feathrise_environment::vegetation::blade::GpuBladeClipmapBand; // 固定模板回归转换为正式环带描述。
 use feathrise_environment::vegetation::blade::GpuBladeClipmapHeight; // 草根与笔刷共享同一几何参数。
 use feathrise_scene_content::{ActiveDynamicScene, SceneId}; // 场景身份必须匹配。
 use std::sync::Arc; // 查询共享最多一个局部页组，不复制整图。 // 唯一显示实体。
 
 #[cfg(test)]
 pub(crate) fn test_ground_snapshot() -> ClipmapGroundSnapshot {
-    tests::snapshot()
+    query_fixture::snapshot()
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "runtime_test_support"))]
 pub(crate) fn test_authoring_ground_snapshot(
     scene_id: SceneId,
     root: Entity,
     live_revision: Option<u64>,
 ) -> ClipmapGroundSnapshot {
     // 仅本库测试可重新绑定真实坡面夹具；生产查询仍只能读取正式发布的不可变快照。
-    let mut snapshot = tests::snapshot();
+    let mut snapshot = query_fixture::snapshot();
     snapshot.scene_id = scene_id.clone();
     snapshot.revision[0] = root.to_bits();
     snapshot.height.revision = snapshot.revision;
@@ -43,6 +44,21 @@ pub(crate) fn test_authoring_ground_snapshot(
         authority.identity.content = snapshot.content_revision;
     }
     snapshot
+}
+
+/// 下游回归在同一坡面布置真实薄壳，验证最近面和遮挡均使用原查询。
+#[cfg(feature = "runtime_test_support")]
+pub(in crate::scenes::dynamic_scene) fn test_ground_with_surface_sheet(
+    mut ground: ClipmapGroundSnapshot,
+    point: Vec3,
+) -> ClipmapGroundSnapshot {
+    let vertices = [(-2., -2.), (2., -2.), (2., 2.), (-2., 2.)]
+        .map(|(x, z)| point + Vec3::new(x, 0., z)).to_vec();
+    let shape = avian3d::prelude::Collider::trimesh(vertices, vec![[0, 2, 1], [0, 3, 2]]);
+    ground.terrain_meshes = Arc::from([
+        super::super::terrain_topology::TerrainMeshQuery::new(shape, Mat4::IDENTITY).unwrap()
+    ]);
+    ground
 }
 
 pub(super) struct GroundPageBytes {
@@ -182,6 +198,43 @@ pub(crate) fn sync_clipmap_ground_surface(
 } // 前台不等待射线计算。
 
 impl ClipmapGroundSnapshot {
+    /// 下游CPU输入回归只装入至多四页作者高度；不声称显示页、碰撞或GPU已经采用。
+    #[cfg(feature = "runtime_test_support")]
+    pub(in crate::scenes::dynamic_scene) fn cpu_authoring_fixture(
+        scene_id: SceneId,
+        root: Entity,
+        spec: feathrise_scene_content::SparseHeightSpec,
+        live: &feathrise_scene_content::SparseHeightLiveOverride,
+    ) -> Self {
+        use super::authority::{AuthorityIdentity, AuthorityPage};
+        use feathrise_environment::vegetation::blade::GpuBladeClipmapBand;
+        use feathrise_scene_content::SparseHeightTileKey;
+        let shape = spec.tile_counts();
+        assert!(u64::from(shape[0]) * u64::from(shape[1]) <= 4, "CPU输入夹具限制为四页");
+        assert_eq!(live.scene_id(), Some(&scene_id));
+        let content = ClipmapGroundContentRevision { root: root.to_bits(), manifest: 1,
+            live: Some(live.revision()), crater: None, topology: 0 };
+        let revision = [root.to_bits(), live.revision(), 0];
+        let pages = (0..shape[1]).flat_map(|z| (0..shape[0]).map(move |x| SparseHeightTileKey { x, z }))
+            .map(|key| (key, live.tile(key).map_or(AuthorityPage::Flat, |tile| AuthorityPage::Tile(tile.clone())))).collect();
+        let height = GpuBladeClipmapHeight {
+            stitches: Default::default(), holes: [Vec4::ZERO; 32], hole_count: 0,
+            atlas: Handle::default(), page_table: Handle::default(),
+            world_min: Vec2::from_array(spec.world_min), world_max: Vec2::from_array(spec.world_max),
+            cell_size: Vec2::new(spec.actual_spacing_meters[0] as f32, spec.actual_spacing_meters[1] as f32),
+            logical_cells: UVec2::new(spec.cells[0] as u32, spec.cells[1] as u32), max_mip: 0,
+            fine_center: Vec2::ZERO, bands: [GpuBladeClipmapBand::default(); 16], band_count: 1,
+            height_min: spec.base_height, height_max: spec.base_height + spec.height_scale,
+            revision, missing_pages: [UVec4::ZERO; 16], ready: true,
+        };
+        Self { author_stitches: Default::default(), holes: Arc::default(), terrain_meshes: Arc::default(),
+            hole_revision: 0, scene_id: scene_id.clone(), revision, missing_pages: height.missing_pages,
+            ready: true, content_revision: content, height, pages: None,
+            authority: Some(Arc::new(AuthorityHeightSnapshot { identity: AuthorityIdentity { scene_id, content },
+                revision: live.revision(), spec, pages, craters: Default::default() })),
+            authority_requests: Default::default() }
+    }
+
     pub(super) fn synchronize_stitches(&mut self,data:Arc<feathrise_environment::vegetation::blade::GpuBladeClipmapStitches>,author:Arc<feathrise_environment::vegetation::blade::GpuBladeClipmapStitches>) {
         self.author_stitches=author;
         if *self.height.stitches==*data{return;}
@@ -729,17 +782,43 @@ impl ClipmapGroundSnapshot {
     }
 
     pub fn height_ray_intersection(&self, origin: Vec3, direction: Vec3) -> ClipmapGroundHit {
+        self.height_ray_surface(origin, direction).0
+    }
+
+    /// 公共种植查询同时读取二维高度面和三维洞面；法线来自实际命中的三角形。
+    pub fn ray_surface(&self, origin: Vec3, direction: Vec3, maximum: f32) -> Option<(Vec3, Vec3)> {
+        self.ray_surface_with_kind(origin, direction, maximum).map(|(point, normal, _)| (point, normal))
+    }
+
+    /// 作者载体沿用公共最近面选择，bool只在真正采用三维命中时为true；容差不参与来源判定。
+    pub(crate) fn ray_surface_with_kind(&self, origin: Vec3, direction: Vec3, maximum: f32) -> Option<(Vec3, Vec3, bool)> {
+        if !maximum.is_finite() || maximum <= 0.0 { return None; }
+        let direction = direction.try_normalize()?;
+        let (height, normal) = self.height_ray_surface(origin, direction);
+        let height = match height {
+            ClipmapGroundHit::Hit(point) if point.distance(origin) <= maximum => Some((point, normal?)),
+            ClipmapGroundHit::WaitingForHeight | ClipmapGroundHit::Failed => return None,
+            _ => None,
+        };
+        // 潜在遮挡高度缺页时上方已经返回，不能把未知上层误当成可穿透表面。
+        let limit = height.as_ref().map_or(maximum, |(point, _)| point.distance(origin));
+        self.three_dimensional_hit(origin, direction, limit).map(|(point, normal)| (point, normal, true))
+            .or_else(|| height.map(|(point, normal)| (point, normal, false)))
+    }
+
+    fn height_ray_surface(&self, origin: Vec3, direction: Vec3) -> (ClipmapGroundHit, Option<Vec3>) {
         // 只能由single-flight后台调用。
         if !origin.is_finite() || !direction.is_finite() || direction.length_squared() < 1e-12 {
-            return ClipmapGroundHit::Failed;
+            return (ClipmapGroundHit::Failed, None);
         } // 拒绝无效数学输入。
         if !self.ready {
-            return ClipmapGroundHit::WaitingForHeight;
+            return (ClipmapGroundHit::WaitingForHeight, None);
         } // 不同修订不能投射。
         let h = &self.height; // 固定上限的可变环带描述。
         let mut padding=Vec2::ZERO;
         for (edge,info) in h.stitches.edges.iter().enumerate(){let axis=if edge<2 {1}else{0};padding[axis]=padding[axis].max(info.y*info.w*0.5);}
         let mut nearest = f32::INFINITY; // 最近正向交点。
+        let mut nearest_normal = None; // 与命中三角面同次采用，不能用最高面或物理Collider补法线。
         let mut unknown = f32::INFINITY; // 可能挡住当前命中的缺页最早位置。
         for band in h.bands.iter().take(h.band_count as usize) {
             // 级数最多16，不随全图细格数增长。
@@ -842,7 +921,10 @@ impl ClipmapGroundSnapshot {
                                 && p.cmple(h.world_max).all()
                                 && !self.holes.iter().any(|hole| hole.contains(p))
                             {
-                                nearest = nearest.min(t);
+                                if t < nearest {
+                                    nearest = t;
+                                    nearest_normal = (vertices[1] - vertices[0]).cross(vertices[2] - vertices[0]).try_normalize();
+                                }
                             }
                         } // 场景外片元与拾取同时裁剪。
                     }; // 不分配三角面数组。
@@ -871,11 +953,11 @@ impl ClipmapGroundSnapshot {
             } // 下一环带行。
         } // 所有可见环带完成。
         if unknown.is_finite() && unknown <= nearest {
-            ClipmapGroundHit::WaitingForHeight
+            (ClipmapGroundHit::WaitingForHeight, None)
         } else if nearest.is_finite() {
-            ClipmapGroundHit::Hit(origin + direction * nearest)
+            (ClipmapGroundHit::Hit(origin + direction * nearest), nearest_normal)
         } else {
-            ClipmapGroundHit::Miss
+            (ClipmapGroundHit::Miss, None)
         } // 最近地面或明确等待。
     } // 无IO、无全图分配、无逐株工作。
 } // 只读地表接口。
