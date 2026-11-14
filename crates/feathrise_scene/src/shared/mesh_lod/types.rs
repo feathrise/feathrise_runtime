@@ -14,6 +14,26 @@ pub(super) struct VisualTarget {
     pub original: Handle<Mesh>,
     pub key: SourceKey,
     pub applied: usize,
+    pub chunk_selection: Option<ChunkSelection>,
+    pub chunk_desired: Vec<usize>,
+    pub chunk_retry_credit: Option<u64>,
+}
+
+pub(super) struct ChunkSelection {
+    pub levels: Vec<usize>,
+    pub mesh: Handle<Mesh>,
+    pub bytes: usize,
+}
+
+pub(super) enum Built {
+    Whole(Vec<feathrise_terrain::StaticMeshLod>),
+    Chunks(std::sync::Arc<feathrise_terrain::EditableMeshChunkLods>),
+}
+
+pub(super) struct CompositionTicket {
+    pub entity: Entity,
+    pub key: SourceKey,
+    pub selection: Vec<usize>,
 }
 
 pub(super) struct VisualLevel {
@@ -29,6 +49,7 @@ pub(super) struct VisualCache {
     pub complete: bool,
     pub failed: bool,
     pub retry_credit: Option<u64>,
+    pub chunks: Option<std::sync::Arc<feathrise_terrain::EditableMeshChunkLods>>,
 }
 
 pub(super) struct Owner {

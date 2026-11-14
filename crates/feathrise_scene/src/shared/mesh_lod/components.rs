@@ -12,3 +12,10 @@ pub struct StaticMeshLodOriginal {
 pub struct MeshLodAuthoringState {
     pub active: bool,
 }
+
+/// 只反映已经采用的实际网格，供诊断和验收读取，不参与作者保存。
+#[derive(Component, Clone, Debug)]
+pub struct StaticMeshChunkLodStatus {
+    pub levels: Vec<usize>,
+    pub triangles: usize,
+}

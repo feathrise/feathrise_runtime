@@ -4,12 +4,14 @@ mod capture;
 mod build;
 mod types;
 mod view;
+mod chunks;
 
 pub use attributes::{copy_static_mesh_attribute_range, empty_static_mesh_attribute};
 pub use capture::{StaticMeshCapture, static_mesh_bytes};
 pub use build::build_static_mesh_lods;
-pub use types::StaticMeshLod;
+pub use types::{StaticMeshLod, EditableMeshChunkLods, EditableMeshLodChunk, EditableMeshLodIndices};
 pub use view::StaticMeshLodView;
+pub use chunks::build_editable_mesh_chunk_lods;
 
 #[cfg(test)]
 mod tests;

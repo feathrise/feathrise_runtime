@@ -5,6 +5,11 @@ use super::{attributes::remap_attribute, types::StaticMeshLod};
 
 /// 返回最多四层完整结果，不包含原始L0；仅供后台任务调用，不能在帧关键路径执行。
 pub fn build_static_mesh_lods(source: Mesh) -> Result<Vec<StaticMeshLod>, String> {
+    build_with_locks(source, None)
+}
+
+/// 分块共边必须显式锁定全部边点；meshopt的LockBorder本身仍允许某些属性接缝共线点合并。
+pub(super) fn build_with_locks(source: Mesh, locked: Option<&[bool]>) -> Result<Vec<StaticMeshLod>, String> {
     if source.primitive_topology() != PrimitiveTopology::TriangleList
         || source.try_contains_attribute(Mesh::ATTRIBUTE_JOINT_INDEX).unwrap_or(true)
         || source.try_contains_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).unwrap_or(true)
@@ -39,7 +44,9 @@ pub fn build_static_mesh_lods(source: Mesh) -> Result<Vec<StaticMeshLod>, String
     let scale = meshopt::simplify_scale(&vertices);
     if !scale.is_finite() || scale <= 0.0 { return Ok(Vec::new()); }
     let (attributes, weights) = appearance_attributes(&source, positions.len())?;
-    let locks = vec![false; positions.len()];
+    let default_locks = vec![false; positions.len()];
+    let locks = locked.unwrap_or(&default_locks);
+    if locks.len() != positions.len() { return Err("静态网格边界锁数量与顶点不匹配".into()); }
     let mut lods = Vec::with_capacity(4);
     let mut last_count = indices.len();
     // 每层从L0派生，误差不会由级联减面累积；目标比例是愿望，接缝和误差约束优先。
@@ -47,7 +54,7 @@ pub fn build_static_mesh_lods(source: Mesh) -> Result<Vec<StaticMeshLod>, String
         let target = (((indices.len() as f32 * ratio) as usize) / 3 * 3).max(3);
         let mut error = 0.0;
         let simplified = meshopt::simplify_with_attributes_and_locks(
-            &indices, &vertices, &attributes, &weights, weights.len() * 4, &locks,
+            &indices, &vertices, &attributes, &weights, weights.len() * 4, locks,
             target, scale * relative_error,
             SimplifyOptions::LockBorder | SimplifyOptions::ErrorAbsolute, Some(&mut error),
         );

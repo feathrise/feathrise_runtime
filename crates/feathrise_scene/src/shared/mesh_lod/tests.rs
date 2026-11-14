@@ -77,7 +77,7 @@ pub(super) fn visual(world: &mut World, root: Entity, handle: Handle<Mesh>) -> E
         .id()
 }
 
-fn camera(world: &mut World) {
+pub(super) fn camera(world: &mut World) {
     world.spawn((
         Camera3d::default(),
         Camera {
@@ -485,6 +485,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 complete: true,
                 failed: false,
                 retry_credit: None,
+                chunks: None,
             },
         );
         runtime.cache.insert(
@@ -496,6 +497,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 complete: true,
                 failed: false,
                 retry_credit: None,
+                chunks: None,
             },
         );
         runtime.queue_cache(small_key);
@@ -513,6 +515,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 complete: false,
                 failed: false,
                 retry_credit: None,
+                chunks: None,
             },
         );
         runtime.queue_cache(new_key);

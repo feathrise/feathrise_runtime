@@ -8,14 +8,16 @@ mod ownership;
 mod resources;
 mod systems;
 mod types;
+mod chunks;
 
-pub use components::{MeshLodAuthoringState, StaticMeshLodOriginal};
-pub use resources::MeshLodRuntimeStatus;
+pub use components::{MeshLodAuthoringState, StaticMeshLodOriginal, StaticMeshChunkLodStatus};
+pub use resources::{MeshLodRuntimeStatus, MeshChunkLodPreview};
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<resources::MeshLodRuntime>()
         .init_resource::<MeshLodRuntimeStatus>()
         .init_resource::<MeshLodAuthoringState>()
+        .init_resource::<MeshChunkLodPreview>()
         .add_message::<AssetEvent<Mesh>>()
         .add_observer(systems::mesh_inserted)
         .add_observer(ownership::hierarchy_changed)
@@ -48,3 +50,6 @@ mod tests;
 
 #[cfg(test)]
 mod parity_tests;
+
+#[cfg(test)]
+mod chunk_tests;

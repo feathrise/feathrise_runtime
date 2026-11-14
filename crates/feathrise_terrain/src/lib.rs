@@ -25,4 +25,5 @@ pub use sculpt::sculpt_height_vertices;
 pub use static_lod::{
     StaticMeshCapture, StaticMeshLod, StaticMeshLodView, static_mesh_bytes, build_static_mesh_lods, copy_static_mesh_attribute_range,
     empty_static_mesh_attribute,
+    EditableMeshChunkLods, EditableMeshLodChunk, EditableMeshLodIndices, build_editable_mesh_chunk_lods,
 };

@@ -170,6 +170,19 @@ impl ScenePlacementInstance {
         Some(updated) // 保留正式采用/退役门，同时撤销旧作者版本的保存回收租约。
     }
 
+    /// 作者属性预览只更新LOD策略，保持原根的批次门和其他来源字段；正式保存仍走完整候选。
+    pub fn with_author_preview_mesh_lod_policy(
+        &self, policy: Option<feathrise_scene_content::MeshLodPolicy>,
+    ) -> Result<Self, String> {
+        if let Some(policy) = policy { policy.validate()?; }
+        let mut updated = self.clone();
+        if updated.mesh_lod != policy {
+            updated.mesh_lod = policy;
+            updated.authoring_version = Some(AuthoringVersion::default());
+        } // 只撤销真实策略变化前的保存租约，不能把正式根换成永久活动的独立预览门。
+        Ok(updated)
+    }
+
     /// 仅变换热改复用真实运行根；资产、碰撞、赋水与LOD结构变化仍走正式候选。
     pub fn with_updated_transform_record(&self, record: &ScenePlacementRecord) -> Option<Self> {
         if self.id != record.id || self.asset_path != record.asset_path
@@ -263,6 +276,33 @@ mod builtin_record_update_tests {
         let mut record: ScenePlacementRecord = serde_json::from_str(r#"{"id":"cube","asset_path":"","translation":[0,1,0],"yaw_degrees":0,"scale":[1,1,1]}"#).unwrap();
         record.asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         record
+    }
+
+    #[test]
+    fn mesh_lod_author_preview_keeps_batch_and_carried_gates_until_retirement() {
+        let map = SceneId("MAP-lod-preview-gate".into());
+        let mut expected = record();
+        expected.mesh_lod = Some(feathrise_scene_content::MeshLodPolicy {
+            display: feathrise_scene_content::MeshLodMode::Disabled, ..Default::default()
+        });
+        for active in [false, true] {
+            let gate = PlacementInstanceGate::new(active);
+            let original = ScenePlacementInstance::new_pending(&map, &record(), gate.clone());
+            let updated = original.with_author_preview_mesh_lod_policy(expected.mesh_lod).unwrap();
+            assert_eq!(updated.is_active(), active);
+            assert_eq!(updated.is_pending(), !active);
+            assert!(updated.matches_record(&map, &expected, &[]));
+            assert_ne!(updated.authoring_version(), original.authoring_version());
+            assert_eq!(updated.authoring_version(), updated.with_author_preview_mesh_lod_policy(expected.mesh_lod).unwrap().authoring_version());
+            gate.activate(); assert!(updated.is_active());
+            gate.retire(); assert!(!updated.is_active() && !updated.is_pending());
+        }
+        let old = PlacementInstanceGate::new(true);
+        let candidate = PlacementInstanceGate::new(false);
+        let carried = ScenePlacementInstance::new_pending(&map, &record(), old.clone()).carried_to(candidate.clone()).unwrap();
+        let updated = carried.with_author_preview_mesh_lod_policy(expected.mesh_lod).unwrap();
+        candidate.retire(); assert!(updated.is_active()); // 失败候选仍借旧批次，不能丢掉previous_gate。
+        old.retire(); assert!(!updated.is_active() && !updated.is_pending());
     }
 
     #[test]

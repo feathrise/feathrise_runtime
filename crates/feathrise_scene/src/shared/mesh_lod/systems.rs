@@ -94,7 +94,7 @@ pub(super) fn register(world: &mut World) {
                 continue;
             }
             let original = if let Some(target) = runtime.targets.get(&entity) {
-                let internal = current == target.original
+                let internal = current == target.original || super::chunks::is_current(target, &current)
                     || runtime.cache.get(&target.key).is_some_and(|cache| {
                         cache.levels.iter().any(|level| level.mesh == current)
                     });
@@ -109,13 +109,14 @@ pub(super) fn register(world: &mut World) {
             } else {
                 current.clone()
             };
-            if let Some(old) = runtime.targets.remove(&entity) {
+            if let Some(mut old) = runtime.targets.remove(&entity) {
                 if old.applied != 0
                     && let Some(cache) = runtime.cache.get_mut(&old.key)
                 {
                     cache.pins = cache.pins.saturating_sub(1);
                 }
                 runtime.coarse.remove(&entity);
+                super::chunks::release(&mut runtime, &mut old, entity);
                 runtime.release_reference(old.key);
             } else {
                 runtime.cursor.push_back(entity);
@@ -128,7 +129,7 @@ pub(super) fn register(world: &mut World) {
             runtime.retain_reference(key);
             world.entity_mut(entity).insert(StaticMeshLodOriginal {
                 mesh: original.clone(),
-            });
+            }).remove::<StaticMeshChunkLodStatus>();
             runtime.targets.insert(
                 entity,
                 VisualTarget {
@@ -136,6 +137,9 @@ pub(super) fn register(world: &mut World) {
                     original,
                     key,
                     applied: 0,
+                    chunk_selection: None,
+                    chunk_desired: Vec::new(),
+                    chunk_retry_credit: None,
                 },
             );
         }
@@ -161,6 +165,7 @@ fn failure(
             complete: false,
             failed: true,
             retry_credit: None,
+            chunks: None,
         },
     );
     runtime.queue_cache(key);
@@ -204,12 +209,7 @@ pub(super) fn drive(
             && runtime.cache.get(&key).is_some_and(|cache| cache.pins == 0)
         {
             if let Some(cache) = runtime.cache.remove(&key) {
-                runtime.retired.extend(
-                    cache
-                        .levels
-                        .into_iter()
-                        .map(|level| (level.mesh, level.bytes)),
-                );
+                runtime.retire_cache(cache);
             }
         } else if runtime.cache.contains_key(&key) {
             runtime.queue_cache(key);
@@ -224,6 +224,12 @@ pub(super) fn drive(
             drop(retired);
         }));
     } // 每帧最多移除一个派生资产，完整CPU数组在后台析构。
+    if runtime.release.is_none()
+        && let Some((chunks, bytes)) = runtime.retired_chunks.pop_front()
+    {
+        runtime.release_credit = bytes;
+        runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move { drop(chunks); }));
+    }
     if runtime.release.is_none()
         && let Some((key, task)) = runtime.task.as_mut()
         && let Some(result) = check_ready(task)
@@ -240,7 +246,26 @@ pub(super) fn drive(
             }));
         } else {
             match result {
-                Ok(levels) => {
+                Ok(Built::Chunks(chunks)) => {
+                    let bytes = chunks.bytes();
+                    if runtime.cache_bytes.saturating_add(bytes) > CACHE_BYTES {
+                        runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move { drop(chunks); }));
+                        failure(&mut runtime, &mut status, key, "内置网格分块LOD缓存信用不足，保留原始显示".into());
+                        let credit = runtime.credit_revision;
+                        runtime.cache.get_mut(&key).unwrap().retry_credit = Some(credit);
+                    } else {
+                        runtime.cache.insert(key, VisualCache {
+                            levels: Vec::new(), bytes, pins: 0, complete: true, failed: false,
+                            retry_credit: None, chunks: Some(chunks),
+                        });
+                        runtime.cache_bytes += bytes;
+                        runtime.requested.remove(&key);
+                        runtime.queue_cache(key);
+                        status.prepared_sources += 1;
+                        status.detail = "内置网格分块LOD后台完成，显示与碰撞独立选择".into();
+                    }
+                }
+                Ok(Built::Whole(levels)) => {
                     runtime.cache.insert(
                         key,
                         VisualCache {
@@ -250,6 +275,7 @@ pub(super) fn drive(
                             complete: false,
                             failed: false,
                             retry_credit: None,
+                            chunks: None,
                         },
                     );
                     runtime.queue_cache(key);
@@ -274,12 +300,7 @@ pub(super) fn drive(
             }
             runtime.requested.remove(&upload.key);
             if let Some(cache) = runtime.cache.remove(&upload.key) {
-                runtime.retired.extend(
-                    cache
-                        .levels
-                        .into_iter()
-                        .map(|level| (level.mesh, level.bytes)),
-                );
+                runtime.retire_cache(cache);
             }
             runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move {
                 drop(upload);
@@ -295,12 +316,7 @@ pub(super) fn drive(
                 }
                 let key = upload.key;
                 if let Some(cache) = runtime.cache.remove(&key) {
-                    runtime.retired.extend(
-                        cache
-                            .levels
-                            .into_iter()
-                            .map(|level| (level.mesh, level.bytes)),
-                    );
+                    runtime.retire_cache(cache);
                 }
                 runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move {
                     drop(upload);
@@ -326,12 +342,7 @@ pub(super) fn drive(
                             .is_some_and(|cache| cache.pins == 0 && cache.complete && !cache.failed)
                     {
                         if let Some(cache) = runtime.cache.remove(&key) {
-                            runtime.retired.extend(
-                                cache
-                                    .levels
-                                    .into_iter()
-                                    .map(|level| (level.mesh, level.bytes)),
-                            );
+                            runtime.retire_cache(cache);
                         }
                         break;
                     } else {
@@ -349,12 +360,7 @@ pub(super) fn drive(
                 // 没有可退役冷缓存时放弃本次派生，释放唯一上传槽让后续小来源继续工作。
                 let key = upload.key;
                 if let Some(cache) = runtime.cache.remove(&key) {
-                    runtime.retired.extend(
-                        cache
-                            .levels
-                            .into_iter()
-                            .map(|level| (level.mesh, level.bytes)),
-                    );
+                    runtime.retire_cache(cache);
                 }
                 runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move {
                     drop(upload);
@@ -439,7 +445,7 @@ pub(super) fn drive(
                 runtime.task = Some((
                     key,
                     AsyncComputeTaskPool::get().spawn(async move {
-                        feathrise_terrain::build_static_mesh_lods(capture.finish()?)
+                        super::chunks::build(capture.finish()?)
                     }),
                 ));
             }
@@ -501,6 +507,7 @@ fn views(world: &mut World) -> Vec<View> {
 pub(super) fn select(world: &mut World) {
     let views = views(world);
     let authoring = world.resource::<MeshLodAuthoringState>().active;
+    let chunk_preview = world.resource::<MeshChunkLodPreview>().active;
     let global = world
         .get_resource::<feathrise_settings::RenderSettings>()
         .map(|settings| settings.mesh_lod.sanitized())
@@ -522,15 +529,16 @@ pub(super) fn select(world: &mut World) {
                     cache.pins = cache.pins.saturating_sub(1);
                 }
                 runtime.coarse.remove(&entity);
+                super::chunks::release(&mut runtime, &mut target, entity);
                 runtime.release_reference(target.key);
                 if let Ok(mut entity) = world.get_entity_mut(entity) {
-                    entity.remove::<StaticMeshLodOriginal>();
+                    entity.remove::<(StaticMeshLodOriginal, StaticMeshChunkLodStatus)>();
                 }
                 continue;
             };
             let source_owner = owner(world, entity)
                 .filter(|owner| owner.root == target.owner && supported_display(world, entity));
-            let current_is_ours = current_mesh == target.original
+            let current_is_ours = current_mesh == target.original || super::chunks::is_current(&target, &current_mesh)
                 || runtime.cache.get(&target.key).is_some_and(|cache| {
                     cache.levels.iter().any(|level| level.mesh == current_mesh)
                 });
@@ -541,11 +549,12 @@ pub(super) fn select(world: &mut World) {
                     cache.pins = cache.pins.saturating_sub(1);
                 }
                 runtime.coarse.remove(&entity);
+                super::chunks::release(&mut runtime, &mut target, entity);
                 runtime.release_reference(target.key);
                 if current_is_ours {
                     world.entity_mut(entity).insert(Mesh3d(target.original));
                 }
-                world.entity_mut(entity).remove::<StaticMeshLodOriginal>();
+                world.entity_mut(entity).remove::<(StaticMeshLodOriginal, StaticMeshChunkLodStatus)>();
                 continue; // 非来源或层级切换场景后撤销登记，不永久轮转或反复请求旧作者源。
             }
             if !current_is_ours {
@@ -555,8 +564,9 @@ pub(super) fn select(world: &mut World) {
                     cache.pins = cache.pins.saturating_sub(1);
                 }
                 runtime.coarse.remove(&entity);
+                super::chunks::release(&mut runtime, &mut target, entity);
                 runtime.release_reference(target.key);
-                world.entity_mut(entity).remove::<StaticMeshLodOriginal>();
+                world.entity_mut(entity).remove::<(StaticMeshLodOriginal, StaticMeshChunkLodStatus)>();
                 runtime.enqueue(entity);
                 continue; // 外部换源立即退旧票据，下次登记只读新原始句柄。
             }
@@ -569,6 +579,8 @@ pub(super) fn select(world: &mut World) {
                 }
                 runtime.release_reference(target.key);
                 runtime.coarse.remove(&entity);
+                super::chunks::release(&mut runtime, &mut target, entity);
+                world.entity_mut(entity).remove::<StaticMeshChunkLodStatus>();
                 target.key = key;
                 target.applied = 0;
                 runtime.retain_reference(key);
@@ -576,13 +588,27 @@ pub(super) fn select(world: &mut World) {
                     .entity_mut(entity)
                     .insert(Mesh3d(target.original.clone()));
             }
+            let chunked = runtime.cache.get(&key).is_some_and(|cache| cache.chunks.is_some());
             let policy = source_owner
                 .as_ref()
                 .filter(|owner| owner.active)
                 .and_then(|owner| owner.policy.resolve_display(global))
-                .filter(|_| !authoring && !views.is_empty());
+                .filter(|_| (!authoring || (chunked && chunk_preview)) && !views.is_empty());
             if policy.is_some() {
                 runtime.request(key);
+            }
+            // 作者对象观察也需要首次准备；原始网格的私有布局标识是固定时间查询。
+            if authoring && chunk_preview && source_owner.as_ref().is_some_and(|owner| owner.active)
+                && source_owner.as_ref().and_then(|owner| owner.policy.resolve_display(global)).is_some()
+                && world.resource::<Assets<Mesh>>().get(&target.original).is_some_and(|mesh|
+                    mesh.contains_attribute(crate::ATTRIBUTE_AUTHORING_WIRE)) {
+                runtime.request(key);
+            }
+            if chunked {
+                super::chunks::select(world, &mut runtime, entity, &mut target, &views, policy);
+                runtime.targets.insert(entity, target);
+                runtime.cursor.push_back(entity);
+                continue;
             }
             let mut selected = 0;
             if let (Some(policy), Some(cache), Some(pose), Some(bounds)) = (
@@ -648,12 +674,14 @@ pub(super) fn select(world: &mut World) {
             runtime.targets.insert(entity, target);
             runtime.cursor.push_back(entity);
         }
+        super::chunks::poll(world, &mut runtime, &views, global, authoring, chunk_preview);
     });
 }
 
 pub(super) fn authoring_ready(world: &mut World) {
     let ready = world.resource::<MeshLodAuthoringState>().active
         && world.resource::<MeshLodRuntime>().coarse.is_empty()
+        && (world.resource::<MeshChunkLodPreview>().active || world.resource::<MeshLodRuntime>().chunk_coarse.is_empty())
         && super::collision::coarse_empty(world);
     world.resource_mut::<MeshLodRuntimeStatus>().authoring_ready = ready;
 }

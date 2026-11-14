@@ -10,6 +10,12 @@ pub(super) const SOURCE_BYTES: usize = 32 * 1024 * 1024;
 pub(super) const UPLOAD_BUDGET: usize = 16 * 1024 * 1024;
 pub(super) const CACHE_BYTES: usize = 64 * 1024 * 1024;
 
+/// 对象观察可显示分块LOD；进入点边面、线框或其他精确作者工具时关闭并等待完整恢复。
+#[derive(Resource, Default)]
+pub struct MeshChunkLodPreview {
+    pub active: bool,
+}
+
 pub(super) struct Upload {
     pub key: SourceKey,
     pub pending: VecDeque<StaticMeshLod>,
@@ -22,6 +28,7 @@ pub(super) struct MeshLodRuntime {
     pub discovery: VecDeque<(Entity, usize)>,
     pub targets: HashMap<Entity, VisualTarget>,
     pub coarse: HashSet<Entity>,
+    pub chunk_coarse: HashSet<Entity>,
     pub cursor: VecDeque<Entity>,
     pub revisions: HashMap<AssetId<Mesh>, u64>,
     pub revision_cursor: VecDeque<AssetId<Mesh>>,
@@ -38,14 +45,23 @@ pub(super) struct MeshLodRuntime {
     pub requests: VecDeque<SourceKey>,
     pub requested: HashSet<SourceKey>,
     pub capture: Option<Capture>,
-    pub task: Option<(SourceKey, Task<Result<Vec<StaticMeshLod>, String>>)>,
+    pub task: Option<(SourceKey, Task<Result<Built, String>>)>,
+    pub composition: Option<(CompositionTicket, Task<Result<Mesh, String>>)>,
     pub upload: Option<Upload>,
     pub release: Option<Task<()>>,
     pub release_credit: usize,
     pub retired: VecDeque<(Handle<Mesh>, usize)>,
+    pub retired_chunks: VecDeque<(std::sync::Arc<feathrise_terrain::EditableMeshChunkLods>, usize)>,
 }
 
 impl MeshLodRuntime {
+    pub fn retire_cache(&mut self, cache: VisualCache) {
+        let mesh_bytes = cache.levels.iter().map(|level| level.bytes).sum::<usize>();
+        self.retired.extend(cache.levels.into_iter().map(|level| (level.mesh, level.bytes)));
+        if let Some(chunks) = cache.chunks {
+            self.retired_chunks.push_back((chunks, cache.bytes.saturating_sub(mesh_bytes)));
+        }
+    }
     pub fn enqueue(&mut self, entity: Entity) {
         if self.queued.insert(entity) {
             self.pending.push_back(entity);
