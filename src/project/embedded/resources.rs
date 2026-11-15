@@ -163,6 +163,7 @@ pub(super) struct Runtime {
     pub previews: super::preview::State,
     pub author_view: Option<feathrise_editor_protocol::AuthorViewState>,
     pub author_camera: Option<Entity>,
+    pub outlined_selection: Option<usize>, // 只跳过本帧已由相机轮廓接管的工具条目。
     pub hotpatch_available: bool,
 }
 
@@ -215,6 +216,7 @@ impl Runtime {
             previews: default(),
             author_view: None,
             author_camera: None,
+            outlined_selection: None,
             hotpatch_available: false,
         }
     }

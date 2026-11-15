@@ -96,7 +96,7 @@ impl ScenePlacementInstance {
             scene_id: scene_id.clone(),                // 预览根只证明创建它的当前草稿场景。
             id: record.id.clone(),                 // 稳定记录ID与其余结构字段来自同一不可变快照。
             asset_path: record.asset_path.clone(), // 后续换资产必须重建预览，不能原地漂移证据。
-            asset_target: record.asset_target,     // 保存、撤销与重新进图都必须恢复同一个子资产。
+            asset_target: record.asset_target.clone(), // 作者网格只共享不可变来源；保存和恢复保持同一子资产。
             building_preset_id: record.building_preset_id.clone(), // 预览根冻结创建时的规范建筑身份。
             terrain_patch: record.terrain_patch.clone(),
             mesh_lod: record.mesh_lod,
@@ -119,7 +119,7 @@ impl ScenePlacementInstance {
             scene_id: scene_id.clone(), // 正式候选的场景身份来自同一完整JSON修订。
             id: record.id.clone(),  // 根ID与场景句柄、变换和覆盖共享同一计划快照。
             asset_path: record.asset_path.clone(), // 保存门拒绝同ID但不同GLB来源的旧根。
-            asset_target: record.asset_target, // 直接primitive不能借用同文件Scene0旧根的Ready信用。
+            asset_target: record.asset_target.clone(), // 直接primitive不能借用同文件Scene0旧根的Ready信用。
             building_preset_id: record.building_preset_id.clone(), // 正式候选保留同修订建筑语义。
             terrain_patch: record.terrain_patch.clone(),
             mesh_lod: record.mesh_lod,
@@ -144,7 +144,7 @@ impl ScenePlacementInstance {
 
     /// 返回创建该根时冻结的Scene0或直接primitive目标。
     pub fn asset_target(&self) -> ScenePlacementAssetTarget {
-        self.asset_target // 视口只读取不可变目标来区分Scene层级命中与直接子资产命中。
+        self.asset_target.clone() // 可编辑网格只增加共享引用，不复制作者点面。
     }
 
     /// 通用表面后台读取与显示根共用同一来源路径，避免碰撞关闭后丢失种植几何。

@@ -7,7 +7,7 @@ use feathrise_scene_core::residency::SceneResidencyAppExt;
 
 mod components; // 隐藏候选根与World实例完成身份。
 mod builtin; // 内置参数化立方体与编辑器预览共用固定拓扑及弱资产缓存。
-pub use builtin::{ATTRIBUTE_AUTHORING_WIRE, editable_cuboid_mesh, editable_mesh_mesh, spawn_builtin_placement_visual, set_builtin_placement_collision_enabled, set_builtin_placement_collision_enabled_world, set_builtin_placement_batch_enabled, set_builtin_placement_batch_enabled_world};
+pub use builtin::{ATTRIBUTE_AUTHORING_WIRE, BuiltinVisualPrepared, builtin_placement_visual_ready, editable_cuboid_mesh, editable_mesh_mesh, spawn_builtin_placement_visual, set_builtin_placement_collision_enabled, set_builtin_placement_collision_enabled_world, set_builtin_placement_batch_enabled, set_builtin_placement_batch_enabled_world};
 mod resources; // 热更新脏状态、候选事务与公开诊断。
 #[cfg(feature = "runtime_test_support")]
 pub(crate) mod runtime_test_support; // 下游回归只构造真实共享门，不放宽生产候选生命周期入口。
@@ -106,6 +106,7 @@ impl Plugin for ScenePlacementDataPlugin {
         // 否则关闭标签只退役资源槽，容器会在每次重新打开后遗留一份。
         crate::register_resident_scene_root::<components::PlacementStagingRoot>(app);
         terrain_mesh_upload::install(app);
+        builtin::install_preparation(app);
         app.init_instance_resource::<resources::ScenePlacementRuntimeState>()
             .init_instance_resource::<terrain_collision::TerrainCollisionRuntime>()
             .init_resource::<TerrainCollisionGarbage>()

@@ -18,10 +18,14 @@ pub(super) fn is_current(target: &VisualTarget, mesh: &Handle<Mesh>) -> bool {
 
 pub(super) fn build(source: Mesh) -> Result<Built, String> {
     // 只有内置作者网格持有这项私有布局声明；普通GLB仍完整保留所有UV与自定义属性。
-    if source.contains_attribute(crate::ATTRIBUTE_AUTHORING_WIRE) {
+    let triangles = source.indices().map_or(source.count_vertices(), |indices| indices.len()) / 3;
+    if triangles <= feathrise_terrain::MAX_EDITABLE_CHUNK_LOD_TRIANGLES
+        && source.contains_attribute(crate::ATTRIBUTE_AUTHORING_WIRE)
+    {
         feathrise_terrain::build_editable_mesh_chunk_lods(source)
             .map(|chunks| Built::Chunks(std::sync::Arc::new(chunks)))
     } else {
+        // 大网格沿原整体静态网格后台管线，避免把现在固定两块的逐目标选档开销扩大。
         feathrise_terrain::build_static_mesh_lods(source).map(Built::Whole)
     }
 }

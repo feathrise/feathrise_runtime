@@ -1,10 +1,13 @@
 //! 隐藏候选复用未变正式根；分帧索引与搬运，不重建玩法组件或World实例。
 
 use super::super::super::components::{
-    PlacementBuildingCollisionReady, PlacementWorldInstanceReady,
+    BuiltinPlacementVisual, BuiltinPlacementVisualRoot, PlacementBuildingCollisionReady,
+    PlacementWorldInstanceReady,
 };
 use super::*;
 use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
+use avian3d::prelude::ColliderOf;
+use bevy::camera::primitives::Aabb;
 use std::hash::{Hash, Hasher};
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -18,7 +21,14 @@ pub(crate) struct PlacementReuseInputs<'w, 's> {
             Option<&'static WorldAssetRoot>,
             Option<&'static PlacementBuildingCollisionGeneration>,
             Option<&'static PlacementBuildingCollisionReady>,
+            Option<&'static BuiltinPlacementVisualRoot>,
         ),
+    >,
+    builtin_visuals: InstanceQuery<
+        'w,
+        's,
+        (&'static ChildOf, Option<&'static ColliderOf>),
+        (With<BuiltinPlacementVisual>, With<Mesh3d>, With<Aabb>),
     >,
     lifecycle: Res<'w, WorldAssetLifecycleIndex>,
 }
@@ -93,13 +103,24 @@ pub(super) fn reuse_placement(
         .get(&id_hash(&plan.record.id))
         .copied()
         .flatten()?;
-    let (instance, water, asset, collision_generation, collision_ready) =
+    let (instance, water, asset, collision_generation, collision_ready, builtin_visual) =
         roots.roots.get(entity).ok()?;
     if !instance.matches_record(
         map,
         &plan.record,
         water.map_or(&[], DynamicWaterMeshOverrides::surfaces),
     ) {
+        return None;
+    }
+    // Avian 会连同旧刚体销毁仍由它持有的 ColliderOf 实体，即使网格的 ChildOf 已经搬走。
+    // 缺网格或碰撞仍属于将退役批次时，走原隐藏候选，在新批次下准备完整网格和碰撞后再交接。
+    if plan.record.asset_target.is_builtin()
+        && !builtin_visual
+            .and_then(|visual| roots.builtin_visuals.get(visual.0).ok())
+            .is_some_and(|(parent, collider)| {
+                parent.parent() == entity && collider.is_none_or(|link| link.body != active.root)
+            })
+    {
         return None;
     }
     let carried = instance.carried_to(staging.gate.clone())?;

@@ -81,7 +81,11 @@ pub use courtyard_presets::*; // F12 印章和场景运行时共享稳定组合�
 pub use distribution::*; // 编辑器预览与动态场景运行时不得产生不同布局。
 pub use placement_transform::*; // 作者工具与正式候选共享实例数量和变换校验边界。
 pub use editable_cuboid::{EDITABLE_CUBOID_EDGES, EDITABLE_CUBOID_FACES, EDITABLE_CUBOID_TRIANGLES};
-pub use editable_mesh::{EditableMeshGeometry, MeshFace, MAX_EDITABLE_MESH_VERTICES, MAX_EDITABLE_MESH_FACES, MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_EDGES};
+pub use editable_mesh::{
+    EditableMeshGeometry, MeshFace, MAX_EDITABLE_MESH_BYTES, MAX_EDITABLE_MESH_EDGES,
+    MAX_EDITABLE_MESH_FACES, MAX_EDITABLE_MESH_FACE_VERTICES, MAX_EDITABLE_MESH_TRIANGLES,
+    MAX_EDITABLE_MESH_VERTICES, editable_mesh_required_bytes,
+};
 pub use mesh_extrusion::{extruded_placement_record, extrusion_normal};
 pub use placement_editor::*;
 pub use placement_water::*; // F12作者工具与正式运行时共享同一网格水体类别、参数和校验边界。

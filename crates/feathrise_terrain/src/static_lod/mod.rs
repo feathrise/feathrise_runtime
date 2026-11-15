@@ -11,7 +11,7 @@ pub use capture::{StaticMeshCapture, static_mesh_bytes};
 pub use build::build_static_mesh_lods;
 pub use types::{StaticMeshLod, EditableMeshChunkLods, EditableMeshLodChunk, EditableMeshLodIndices};
 pub use view::StaticMeshLodView;
-pub use chunks::build_editable_mesh_chunk_lods;
+pub use chunks::{MAX_EDITABLE_CHUNK_LOD_TRIANGLES, build_editable_mesh_chunk_lods};
 
 #[cfg(test)]
 mod tests;

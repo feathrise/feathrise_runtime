@@ -242,6 +242,29 @@ fn grant_candidate_ready(
     }
 }
 
+/// 大网格准备完成后按所属场景与原候选代次授信；失败继续保留旧活动批次。
+pub(super) fn on_builtin_visual_ready(
+    prepared: On<super::builtin::BuiltinVisualPrepared>,
+    context: feathrise_scene_core::residency::EntitySceneScope,
+    pending_roots: Query<(&PlacementPendingRevision, &ScenePlacementInstance), With<PlacementPendingInstance>>,
+    mut states: InstanceResMut<ScenePlacementRuntimeState>,
+    mut statuses: InstanceResMut<ScenePlacementRuntimeStatus>,
+) {
+    let Ok((pending, instance)) = pending_roots.get(prepared.entity) else { return; };
+    if !instance.is_pending() { return; }
+    let scope = context.instance(prepared.entity);
+    let (Some(state), Some(status)) = (states.for_instance_mut(scope), statuses.for_instance_mut(scope)) else { return; };
+    if !state.staging.as_ref().is_some_and(|staging|
+        staging.generation == pending.generation && staging.revision == pending.revision)
+    {
+        return; // 候选已取消或已换代，迟到结果不能使新修订失败或就绪。
+    }
+    match &prepared.result {
+        Ok(()) => grant_candidate_ready(prepared.entity, pending, state, status),
+        Err(error) => fail_revision(state, status, format!("内置摆放{}准备失败：{error}", instance.id())),
+    }
+}
+
 /// Avian完成建筑层级构造时只发布门组件；Insert观察器在命令落地后读取同帧最终状态。
 pub(super) fn on_placement_building_collision_ready(
     ready: On<ColliderConstructorHierarchyReady>,

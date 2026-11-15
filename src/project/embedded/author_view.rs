@@ -2,8 +2,12 @@
 
 use super::{EmbeddedProjectState, resources::Runtime};
 use bevy::prelude::*;
-use feathrise_editor_protocol::Mode;
-use feathrise_scene::author_view::{ShadingView, GridView, apply_shading};
+use feathrise_editor_protocol::{AuthorTool, Mode};
+use feathrise_scene::{
+    ScenePlacementInstance, ScenePlacementPrimitiveVisual,
+    author_view::{GridView, SelectionOutline, ShadingView, apply_shading, supports_selection_outline},
+};
+use feathrise_scene_content::ActiveDynamicScene;
 
 pub(super) fn install(app: &mut App) {
     app.add_plugins((feathrise_scene::author_view::ShadingRenderPlugin,
@@ -21,10 +25,46 @@ pub(super) fn install(app: &mut App) {
 }
 
 pub(super) fn release(world: &mut World, runtime: &mut Runtime) {
+    runtime.outlined_selection = None;
     if let Some(entity) = runtime.author_camera.take() {
         apply_shading(world, entity, None);
-        if let Ok(mut camera) = world.get_entity_mut(entity) { camera.remove::<GridView>(); }
+        if let Ok(mut camera) = world.get_entity_mut(entity) {
+            camera.remove::<(GridView, SelectionOutline)>();
+        }
     }
+}
+
+fn whole_placement<'a>(target: &'a str, scene_id: &str) -> Option<&'a str> {
+    let (scene, placement) = target.strip_prefix("placement:")?.split_once('/')?;
+    let id = placement.strip_suffix("//")?;
+    (scene == scene_id && !id.is_empty() && !id.contains('/')).then_some(id)
+}
+
+fn builtin_selection(world: &World, runtime: &Runtime) -> Option<(usize, Entity)> {
+    // 宿主只传稳定选择身份；工程内通过活动根索引取得自己的正式网格，避免扫描全图。
+    let state = world.resource::<EmbeddedProjectState>();
+    let preview = super::tools::visible(state, runtime)?;
+    let scene = world.get_resource::<ActiveDynamicScene>()?.scene_id.as_ref()?;
+    let (index, id) = preview.items.iter().enumerate().find_map(|(index, item)| {
+        let AuthorTool::Selection(selection) = item else { return None; };
+        whole_placement(&selection.target, scene.as_str()).map(|id| (index, id))
+    })?;
+    let root = super::preview::active_root(world, scene, id).ok()?;
+    if !world.get::<ScenePlacementInstance>(root)?.asset_target().is_builtin()
+        || world.get::<Visibility>(root) == Some(&Visibility::Hidden)
+    {
+        return None;
+    }
+    // 内置立方体及细分网格共享唯一的直接可视子节点。只在完整匹配时替换本条选框。
+    let children = world.get::<Children>(root)?;
+    if children.len() > 64 { return None; }
+    let mut visuals = children.iter().filter(|child| world.get::<ScenePlacementPrimitiveVisual>(*child).is_some());
+    let visual = visuals.next()?;
+    if visuals.next().is_some() || !world.get::<InheritedVisibility>(visual)?.get() { return None; }
+    let mesh = world.get_resource::<Assets<Mesh>>()?.get(&world.get::<Mesh3d>(visual)?.0)?;
+    let material = world.get_resource::<Assets<StandardMaterial>>()?
+        .get(&world.get::<MeshMaterial3d<StandardMaterial>>(visual)?.0)?;
+    supports_selection_outline(mesh, material).then_some((index, visual))
 }
 
 pub(super) fn sync(world: &mut World, mut primary: Local<Option<QueryState<Entity, With<feathrise_scene_core::view::PrimarySceneView>>>>) {
@@ -48,7 +88,15 @@ pub(super) fn sync(world: &mut World, mut primary: Local<Option<QueryState<Entit
             With<feathrise_scene_core::view::PrimarySceneView>>()).single(world).ok();
         if runtime.author_camera != camera || !editing { release(world, &mut runtime); }
         if editing && let Some(entity) = camera {
-            apply_shading(world, entity, Some(ShadingView { options: Vec4::from_array(view.shading), wire: Vec4::from_array(view.wire) }));
+            let shading = ShadingView { options: Vec4::from_array(view.shading), wire: Vec4::from_array(view.wire) };
+            apply_shading(world, entity, Some(shading));
+            let selected = if shading.uses_work_background() { builtin_selection(world, &runtime) } else { None };
+            let outline = selected.map(|(_, visual)| SelectionOutline::new(vec![visual]));
+            if world.get::<SelectionOutline>(entity) != outline.as_ref() {
+                if let Some(outline) = outline { world.entity_mut(entity).insert(outline); }
+                else { world.entity_mut(entity).remove::<SelectionOutline>(); }
+            }
+            runtime.outlined_selection = selected.map(|(index, _)| index);
             let grid = view.grid.map(|[origin_stride, plane, axis_u, axis_v]| GridView {
                 origin_stride:Vec4::from_array(origin_stride), plane:Vec4::from_array(plane),
                 axis_u:Vec4::from_array(axis_u), axis_v:Vec4::from_array(axis_v) }.world_anchored());
@@ -60,6 +108,21 @@ pub(super) fn sync(world: &mut World, mut primary: Local<Option<QueryState<Entit
         }
     }
     world.insert_non_send(runtime);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::whole_placement;
+
+    #[test]
+    fn outline_selects_only_whole_placements_of_the_current_scene() {
+        assert_eq!(whole_placement("placement:SCENE-1/item//", "SCENE-1"), Some("item"));
+        assert_eq!(whole_placement("placement:SCENE-2/item//", "SCENE-1"), None);
+        assert_eq!(whole_placement("placement:SCENE-1/item/Node/Mesh", "SCENE-1"), None);
+        assert_eq!(whole_placement("placement:SCENE-1/item/Node//", "SCENE-1"), None);
+        assert_eq!(whole_placement("placement:SCENE-1///", "SCENE-1"), None);
+        assert_eq!(whole_placement("water:SCENE-1/item//", "SCENE-1"), None);
+    }
 }
 
 /// 验收读取真正参与提取的相机组件和生产资源，不能只回显宿主命令作为采用证据。

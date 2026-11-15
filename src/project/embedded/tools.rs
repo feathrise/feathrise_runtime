@@ -14,7 +14,7 @@ pub(super) fn install(app: &mut App) {
     app.init_gizmo_group::<AuthorToolsGizmos>()
         .init_gizmo_group::<AuthorSpatialToolsGizmos>()
         .add_systems(Startup, configure)
-        .add_systems(PostUpdate, draw);
+        .add_systems(PostUpdate, draw.after(super::author_view::sync));
 }
 
 fn configure(mut store: ResMut<GizmoConfigStore>) {
@@ -36,7 +36,10 @@ fn allowed(state: &EmbeddedProjectState, pending: bool, visible: bool, revision:
 fn draw(runtime: NonSend<Runtime>, state: Res<EmbeddedProjectState>,
     mut gizmos: Gizmos<AuthorToolsGizmos>, mut spatial: Gizmos<AuthorSpatialToolsGizmos>) {
     if let Some(preview) = visible(&state, &runtime) {
-        feathrise_scene::author_view::tools::draw_layer(&mut gizmos, preview, false);
+        // 只替换已采用的内置对象选框；地形、水域及其他对象仍走公共工具几何。
+        let items = preview.items.iter().enumerate()
+            .filter_map(|(index, item)| (Some(index) != runtime.outlined_selection).then_some(item));
+        feathrise_scene::author_view::tools::draw_layer_items(&mut gizmos, items, false);
         feathrise_scene::author_view::tools::draw_layer(&mut spatial, preview, true);
     }
 }

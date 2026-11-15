@@ -4,6 +4,7 @@ mod camera;
 mod components;
 mod grid_render;
 mod render;
+mod selection_outline;
 mod wireframe;
 pub mod tools; // 语义工具预览与协议解耦，编辑器与工程共享同一份几何规则。
 #[cfg(test)]
@@ -13,3 +14,4 @@ pub use components::PrepassLease;
 pub use components::{GridView, ShadingView};
 pub use grid_render::GridRenderPlugin;
 pub use render::ShadingRenderPlugin;
+pub use selection_outline::{SelectionOutline, supports_selection_outline};

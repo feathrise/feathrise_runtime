@@ -29,7 +29,16 @@ pub fn configure(config: &mut GizmoConfig, spatial: bool) {
 }
 
 pub fn draw_layer<T: GizmoConfigGroup>(gizmos: &mut Gizmos<T>, preview: &AuthorToolPreview, spatial: bool) {
-    for item in &preview.items {
+    draw_layer_items(gizmos, &preview.items, spatial);
+}
+
+/// 让工程可以跳过已由相机轮廓接管的选择项，复用其余工具绘制且无需克隆快照。
+pub fn draw_layer_items<'a, T: GizmoConfigGroup>(
+    gizmos: &mut Gizmos<T>,
+    items: impl IntoIterator<Item = &'a AuthorTool>,
+    spatial: bool,
+) {
+    for item in items {
         match item {
             AuthorTool::Brush(brush) if brush.spatial == spatial => draw_brush(gizmos, brush),
             AuthorTool::Transform(handle) if matches!(handle, TransformPreview::Move { spatial: true, .. }) == spatial => draw_transform(gizmos, handle),

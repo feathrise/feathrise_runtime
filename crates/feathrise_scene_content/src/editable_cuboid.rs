@@ -26,7 +26,7 @@ pub const EDITABLE_CUBOID_TRIANGLES: [[usize; 3]; 12] = [
 
 impl ScenePlacementAssetTarget {
     /// 返回固定八顶点的本地半毫米坐标；参数立方体直接±全毫米尺寸，无中心漂移或奇数丢精度。
-    pub fn editable_vertices_half_mm(self) -> Option<[[i32; 3]; 8]> {
+    pub fn editable_vertices_half_mm(&self) -> Option<[[i32; 3]; 8]> {
         match self {
             Self::Cuboid { size_mm, .. } => {
                 let size = size_mm.map(i32::try_from);
@@ -37,7 +37,7 @@ impl ScenePlacementAssetTarget {
                     if index & 4 == 0 { -z } else { z },
                 ]))
             }
-            Self::EditableCuboid { vertices_half_mm, .. } => Some(vertices_half_mm),
+            Self::EditableCuboid { vertices_half_mm, .. } => Some(*vertices_half_mm),
             _ => None,
         }
     }
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(vertices[0], [-1, -3, -9_999_999]);
         assert_eq!(vertices[7], [1, 3, 9_999_999]);
         assert!(editable.validate().is_ok());
-        assert_eq!(editable.into_editable(), Some(editable));
+        assert_eq!(editable.clone().into_editable(), Some(editable.clone()));
         let json = serde_json::to_string(&editable).unwrap();
         assert_eq!(serde_json::from_str::<ScenePlacementAssetTarget>(&json).unwrap(), editable);
         assert!(editable.is_builtin());

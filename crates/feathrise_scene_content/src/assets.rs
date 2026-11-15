@@ -708,7 +708,7 @@ fn placement_terrain_offset_is_zero(value: &f32) -> bool {
 /// 明确选择单个primitive后，则把网格编号和当时的原关联材质编号一并写入场景数据，
 /// 避免保存、撤销或重新进入场景后退化成完整场景或统一白材质。内置立方体保存整数规格，
 /// 不伪造磁盘模型路径，仍沿用同一稳定实例、变换、历史和保存证明。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScenePlacementAssetTarget {
     /// 实例化源文件的第零个场景；与历史摆放协议完全一致。
@@ -766,33 +766,33 @@ impl ScenePlacementAssetTarget {
     };
 
     /// 内置几何无需磁盘模型路径或AssetServer依赖。
-    pub const fn is_builtin(self) -> bool {
+    pub const fn is_builtin(&self) -> bool {
         matches!(self, Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. })
     }
 
     /// GLB 节点的碰撞使用实际网格，跟随 Blender 的形状变化。
-    pub const fn has_primitive_collision(self) -> bool {
+    pub const fn has_primitive_collision(&self) -> bool {
         matches!(self, Self::Primitive { collision: true, .. })
     }
 
     /// 固定大小参数在作者预览、保存及正式采用前共用同一合法范围。
-    pub fn validate(self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if let Self::Cuboid { size_mm, roughness_milli, .. } = self {
             if size_mm.iter().any(|size| !(1..=10_000_000).contains(size)) {
                 return Err("立方体各轴尺寸必须在0.001～10000米之间".into());
             }
-            if roughness_milli > 1_000 {
+            if *roughness_milli > 1_000 {
                 return Err("立方体粗糙度必须在0～1之间".into());
             }
         }
         if let Self::EditableCuboid { vertices_half_mm, roughness_milli, .. } = self {
-            if roughness_milli > 1_000 {
+            if *roughness_milli > 1_000 {
                 return Err("可编辑网格粗糙度必须在0～1之间".into());
             }
-            crate::editable_cuboid::validate_vertices(vertices_half_mm)?;
+            crate::editable_cuboid::validate_vertices(*vertices_half_mm)?;
         }
         if let Self::EditableMesh { geometry, roughness_milli, .. } = self {
-            if roughness_milli > 1_000 { return Err("可编辑网格粗糙度必须在0～1之间".into()); }
+            if *roughness_milli > 1_000 { return Err("可编辑网格粗糙度必须在0～1之间".into()); }
             geometry.validate()?;
         }
         Ok(())
@@ -826,7 +826,7 @@ impl ScenePlacementAssetTarget {
     }
 
     /// 返回作者界面可直接辨认的目标短标签。
-    pub fn label(self) -> String {
+    pub fn label(&self) -> String {
         match self {
             Self::Scene0 => "Scene0".to_owned(),
             Self::Cuboid { .. } => "立方体".to_owned(),

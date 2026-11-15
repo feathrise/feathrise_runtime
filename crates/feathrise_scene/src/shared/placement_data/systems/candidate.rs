@@ -152,9 +152,9 @@ fn spawn_ready_placement(
             PlacementPendingInstance,
             PlacementPendingRevision { generation, revision },
             ChildOf(staging_root),
-        )).id();
-        super::super::builtin::spawn_builtin_placement_visual(commands, root, plan.record.asset_target);
-        return Ok((root, true)); // 固定拓扑与同源碰撞在命令落地时共同安装，无异步World或Trimesh依赖。
+        )).observe(super::super::settlement::on_builtin_visual_ready).id();
+        super::super::builtin::spawn_builtin_placement_visual(commands, root, plan.record.asset_target.clone());
+        return Ok((root, false)); // 只有真实网格与同源碰撞安装后才登记候选信用。
     }
     if let Some(primitive_asset) = plan.primitive.as_ref() {
         let (mesh, primitive) = match plan.record.asset_target {

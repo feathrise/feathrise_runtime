@@ -20,7 +20,7 @@ pub fn load_model_surface(
     asset_root: &Path,
     record: &ScenePlacementRecord,
 ) -> Result<MeshSurfaceSnapshot, String> {
-    load_model_surface_source(asset_root, &record.asset_path, record.asset_target)
+    load_model_surface_source(asset_root, &record.asset_path, record.asset_target.clone())
 }
 
 /// 运行时读取实例冻结的不可变资产身份；不为查询几何复制整份作者记录或读取碰撞组件。

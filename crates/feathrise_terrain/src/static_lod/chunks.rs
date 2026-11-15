@@ -4,7 +4,7 @@ use bevy::{mesh::{Indices, PrimitiveTopology, VertexAttributeValues}, prelude::*
 use std::collections::HashMap;
 
 /// 与当前作者格式的124三角上限配对；不把这个小网格路径用于无界GLB批处理。
-const MAX_TRIANGLES: usize = 124;
+pub const MAX_EDITABLE_CHUNK_LOD_TRIANGLES: usize = 124;
 // 作者源本来很小，过细切块会把几乎所有点都变成锁定边界，失去可简化的块内区域。
 const CHUNK_TRIANGLES: usize = 64;
 
@@ -56,13 +56,13 @@ pub fn build_editable_mesh_chunk_lods(source: Mesh) -> Result<EditableMeshChunkL
     let Some(VertexAttributeValues::Float32x3(normals)) = source.attribute(Mesh::ATTRIBUTE_NORMAL) else {
         return Err("内置分块LOD缺少法线".into());
     };
-    if positions.len() != normals.len() || positions.len() > MAX_TRIANGLES * 3
+    if positions.len() != normals.len() || positions.len() > MAX_EDITABLE_CHUNK_LOD_TRIANGLES * 3
         || positions.iter().chain(normals).flatten().any(|x| !x.is_finite()) {
         return Err("内置分块LOD来源超过作者容量或包含无效属性".into());
     }
     let indices: Vec<usize> = source.indices().map(|indices| indices.iter().collect())
         .unwrap_or_else(|| (0..positions.len()).collect());
-    if indices.is_empty() || indices.len() % 3 != 0 || indices.len() > MAX_TRIANGLES * 3
+    if indices.is_empty() || indices.len() % 3 != 0 || indices.len() > MAX_EDITABLE_CHUNK_LOD_TRIANGLES * 3
         || indices.iter().any(|&index| index >= positions.len()) {
         return Err("内置分块LOD三角索引无效或超限".into());
     }

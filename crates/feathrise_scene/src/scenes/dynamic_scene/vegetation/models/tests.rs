@@ -169,7 +169,8 @@ fn model_input() -> (
         collision: false,
     };
     let geometry =
-        crate::paint_surface::load_model_surface_source(Path::new("unused"), "", target).unwrap();
+        crate::paint_surface::load_model_surface_source(Path::new("unused"), "", target.clone())
+            .unwrap();
     let hit = geometry
         .ray_surface(Mat4::IDENTITY, Vec3::new(0., 4., 0.), Vec3::NEG_Y, 20.)
         .unwrap();
@@ -251,7 +252,7 @@ fn two_centimeter_wall_sides_keep_exact_local_roots_and_normals_in_the_gpu_uploa
     let geometry = crate::paint_surface::load_model_surface_source(
         Path::new("unused"),
         "",
-        input.target,
+        input.target.clone(),
     )
     .unwrap();
     let mut density = ModelSurfaceVegetation::empty("bridge", geometry.topology(), 0.5);

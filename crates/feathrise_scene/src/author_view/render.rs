@@ -16,11 +16,15 @@ use bevy::{
             *,
         },
         renderer::{RenderContext, ViewQuery},
-        view::ViewTarget,
+        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
 pub struct ShadingRenderPlugin;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SolidViewPass;
+
 impl Plugin for ShadingRenderPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "solid.wesl");
@@ -37,10 +41,12 @@ impl Plugin for ShadingRenderPlugin {
                     Core3d,
                     solid_pass
                         .in_set(Core3dSystems::MainPass)
+                        .in_set(SolidViewPass)
                         .after(bevy::core_pipeline::core_3d::main_opaque_pass_3d)
                         .before(bevy::core_pipeline::core_3d::main_transparent_pass_3d),
                 ); // 先改变实体表面，再画透明内容与编辑Gizmo，不能盖掉点边面高亮和手柄。
         }
+        super::selection_outline::install(app);
     }
     fn finish(&self, app: &mut App) {
         super::wireframe::install(app);
@@ -71,6 +77,7 @@ fn init_pipeline(
                     texture_2d(TextureSampleType::Float { filterable: false }),
                     texture_depth_2d(),
                     uniform_buffer::<ShadingView>(true),
+                    uniform_buffer::<ViewUniform>(true),
                 ),
             ),
         ),
@@ -101,7 +108,7 @@ impl SpecializedRenderPipeline for SolidPipeline {
 #[derive(Default)]
 struct BindCache {
     entries: Vec<(
-        (TextureViewId, TextureViewId, TextureViewId, BufferId),
+        (TextureViewId, TextureViewId, TextureViewId, BufferId, BufferId),
         BindGroup,
     )>,
 }
@@ -111,15 +118,17 @@ fn solid_pass(
         &ViewPrepassTextures,
         &ShadingView,
         &DynamicUniformIndex<ShadingView>,
+        &ViewUniformOffset,
     )>,
     pipeline: Option<Res<SolidPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     mut pipelines: ResMut<SpecializedRenderPipelines<SolidPipeline>>,
     uniforms: Res<ComponentUniforms<ShadingView>>,
+    views: Res<ViewUniforms>,
     mut bindings: Local<BindCache>,
     mut context: RenderContext,
 ) {
-    let (target, prepass, settings, index) = view.into_inner();
+    let (target, prepass, settings, index, view_offset) = view.into_inner();
     if settings.options.x > 1.0 && settings.options.w > 0.5 {
         return;
     }
@@ -145,16 +154,18 @@ fn solid_pass(
     {
         return;
     }
-    let (Some(normal), Some(depth), Some(uniform), Some(buffer)) = (
+    let (Some(normal), Some(depth), Some(uniform), Some(buffer), Some(view_uniform), Some(view_buffer)) = (
         prepass.normal_view(),
         prepass.depth_only_view(),
         uniforms.uniforms().binding(),
         uniforms.uniforms().buffer(),
+        views.uniforms.binding(),
+        views.uniforms.buffer(),
     ) else {
         return;
     };
     let post = target.post_process_write();
-    let key = (post.source.id(), normal.id(), depth.id(), buffer.id());
+    let key = (post.source.id(), normal.id(), depth.id(), buffer.id(), view_buffer.id());
     let slot = bindings
         .entries
         .iter()
@@ -166,7 +177,7 @@ fn solid_pass(
             let binding = context.render_device().create_bind_group(
                 "editor_solid_bind",
                 &pipeline_cache.get_bind_group_layout(&pipeline.layout),
-                &BindGroupEntries::sequential((post.source, normal, depth, uniform)),
+                &BindGroupEntries::sequential((post.source, normal, depth, uniform, view_uniform)),
             );
             bindings.entries.push((key, binding));
             bindings.entries.len() - 1
@@ -187,6 +198,6 @@ fn solid_pass(
             multiview_mask: None,
         });
     pass.set_pipeline(compiled);
-    pass.set_bind_group(0, &bindings.entries[slot].1, &[index.index()]);
+    pass.set_bind_group(0, &bindings.entries[slot].1, &[index.index(), view_offset.offset]);
     pass.draw(0..3, 0..1);
 }

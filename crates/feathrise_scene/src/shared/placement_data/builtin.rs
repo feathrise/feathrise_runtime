@@ -3,11 +3,17 @@
 use std::collections::{HashMap, VecDeque};
 
 use avian3d::prelude::{Collider, ColliderDisabled, RigidBodyDisabled};
-use bevy::{asset::{AssetId, RenderAssetUsages}, mesh::{Indices, MeshVertexAttribute, PrimitiveTopology}, prelude::*, render::render_resource::VertexFormat};
+use bevy::{asset::{AssetId, RenderAssetUsages}, camera::primitives::{Aabb, MeshAabb}, mesh::{Indices, MeshVertexAttribute, PrimitiveTopology}, prelude::*, render::render_resource::VertexFormat};
 use feathrise_scene_content::{EditableMeshGeometry, ScenePlacementAssetTarget, EDITABLE_CUBOID_TRIANGLES};
 
 use super::{ScenePlacementInstance, ScenePlacementPrimitiveVisual};
 use super::components::{BuiltinPlacementVisual, BuiltinPlacementVisualRoot};
+
+mod preparation;
+#[cfg(test)]
+mod preparation_tests;
+pub use preparation::BuiltinVisualPrepared;
+pub(super) use preparation::install_preparation;
 
 /// 声明UV1承载作者真实边编码；私有固定ID排在标准属性之后，不改变原属性偏移或正式Shader输入。
 /// 额外Float32使完整顶点步长增加4字节，避免与普通UV1网格共用源管线/多重绘制批次；无需逐实体提取标记。
@@ -17,7 +23,7 @@ pub const ATTRIBUTE_AUTHORING_WIRE: MeshVertexAttribute = MeshVertexAttribute::n
 
 const BUILTIN_CACHE_ENTRIES: usize = 256; // 缓存只保留资产ID；尺寸连续拖动不会无限强持有旧网格或材质。
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum BuiltinGeometryKey {
     Cuboid([u32; 3]),
     Editable([[i32; 3]; 8]),
@@ -38,7 +44,7 @@ pub fn editable_cuboid_mesh(vertices_half_mm: [[i32; 3]; 8]) -> Mesh {
     editable_mesh_mesh(EditableMeshGeometry::from_cuboid_vertices(vertices_half_mm))
 }
 
-/// 只接收已validate的单个网格，最多64共享点、124三角；显示与碰撞消费同源三角化。
+/// 显示与碰撞消费同一份已经验证并缓存的作者三角。大网格调用方在后台构造。
 pub fn editable_mesh_mesh(geometry: EditableMeshGeometry) -> Mesh {
     let vertices = geometry.vertices().iter().map(|point| Vec3::from_array(point.map(|value| value as f32 * 0.0005))).collect::<Vec<_>>();
     let triangles = geometry.triangles_with_faces();
@@ -46,7 +52,7 @@ pub fn editable_mesh_mesh(geometry: EditableMeshGeometry) -> Mesh {
     let mut normals = Vec::with_capacity(triangles.len() * 3);
     let mut uv = Vec::with_capacity(triangles.len() * 3);
     let mut authoring_wire = Vec::with_capacity(triangles.len() * 3);
-    for (face_index, triangle) in &triangles {
+    for (face_index, triangle) in triangles {
         let [a, b, c] = triangle.map(|index| vertices[index]);
         let normal = (b - a).cross(c - a).normalize_or_zero().to_array();
         positions.extend([a.to_array(), b.to_array(), c.to_array()]);
@@ -59,7 +65,7 @@ pub fn editable_mesh_mesh(geometry: EditableMeshGeometry) -> Mesh {
         for corner in 0..3 {
             let edge = [triangle[(corner + 1) % 3], triangle[(corner + 2) % 3]];
             if (0..face.len()).any(|side| {
-                let boundary = [usize::from(face[side]), usize::from(face[(side + 1) % face.len()])];
+                let boundary = [face[side] as usize, face[(side + 1) % face.len()] as usize];
                 boundary == edge || boundary == [edge[1], edge[0]]
             }) {
                 mask |= 1 << corner;
@@ -75,12 +81,16 @@ pub fn editable_mesh_mesh(geometry: EditableMeshGeometry) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, authoring_wire);
     mesh.insert_attribute(ATTRIBUTE_AUTHORING_WIRE, vec![0.0_f32; triangles.len() * 3]); // 只占布局身份；实际边界数据仍在UV1。
     mesh.insert_indices(Indices::U32((0..(triangles.len() * 3) as u32).collect()));
+    // 使用共享作者顶点预计算范围，避免Bevy新旧显示句柄交接时再扫描每个重复三角顶点。
+    let (min, max) = geometry.bounds_half_mm();
+    let [min, max] = [min, max].map(|point| Vec3::from_array(point.map(|value| value as f32 * 0.0005)));
+    mesh.final_aabb = Some(Aabb::from_min_max(min, max).into());
     mesh
 }
 
 /// 参数立方体改用作者三角源后，仍保留Bevy Cuboid六个面的原UV0朝向；不改变已编辑网格的历史UV0。
-fn parameter_cuboid_uv0(geometry: EditableMeshGeometry) -> Vec<[f32; 2]> {
-    geometry.triangles_with_faces().into_iter().flat_map(|(face, triangle)| {
+fn parameter_cuboid_uv0(geometry: &EditableMeshGeometry) -> Vec<[f32; 2]> {
+    geometry.triangles_with_faces().iter().flat_map(|&(face, triangle)| {
         triangle.map(|vertex| {
             let [x, y, z] = [(vertex & 1) as f32, ((vertex >> 1) & 1) as f32, ((vertex >> 2) & 1) as f32];
             match face {
@@ -105,104 +115,43 @@ pub fn spawn_builtin_placement_visual(
     root: Entity,
     target: ScenePlacementAssetTarget,
 ) -> bool {
-    let (geometry, color_srgb, roughness_milli, collision) = match target {
+    let (geometry, color_srgb, roughness_milli, collision) = match &target {
         ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, collision } =>
-            (BuiltinGeometryKey::Cuboid(size_mm), color_srgb, roughness_milli, collision),
+            (BuiltinGeometryKey::Cuboid(*size_mm), *color_srgb, *roughness_milli, *collision),
         ScenePlacementAssetTarget::EditableCuboid { vertices_half_mm, color_srgb, roughness_milli, collision } =>
-            (BuiltinGeometryKey::Editable(vertices_half_mm), color_srgb, roughness_milli, collision),
+            (BuiltinGeometryKey::Editable(*vertices_half_mm), *color_srgb, *roughness_milli, *collision),
         ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb, roughness_milli, collision } =>
-            (BuiltinGeometryKey::Mesh(geometry), color_srgb, roughness_milli, collision),
+            (BuiltinGeometryKey::Mesh(geometry.clone()), *color_srgb, *roughness_milli, *collision),
         _ => return false,
     };
-    if target.validate().is_err() {
-        return true; // 正式校验负责显示错误；防御性阻止其他入口生成坏网格。
-    }
     commands.queue(move |world: &mut World| {
-        if world.get::<ScenePlacementInstance>(root).is_none_or(|instance| instance.asset_target() != target) {
-            return; // 删除、撤销或来源换代后，迟到命令不能覆盖新作者身份。
-        }
-        world.init_resource::<BuiltinPrimitiveCache>();
-        let (mesh, material) = world.resource_scope(|world, mut cache: Mut<BuiltinPrimitiveCache>| {
-            let mesh = {
-                let mut meshes = world.resource_mut::<Assets<Mesh>>();
-                if let Some(handle) = cache.meshes.get(&geometry).and_then(|id| meshes.get_strong_handle(*id)) {
-                    handle
-                } else {
-                    let authoring_geometry = target.editable_geometry().expect("已校验内置目标必须有作者几何");
-                    let mut mesh = editable_mesh_mesh(authoring_geometry); // 所有内置表面共享真实边元数据，最多64共享点、124三角。
-                    if matches!(geometry, BuiltinGeometryKey::Cuboid(_)) {
-                        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, parameter_cuboid_uv0(authoring_geometry));
-                    } // 只补参数配方原有UV朝向，正式材质与盒碰撞仍沿用原路径。
-                    let handle = meshes.add(mesh);
-                    if !cache.meshes.contains_key(&geometry) {
-                        if cache.mesh_order.len() >= BUILTIN_CACHE_ENTRIES {
-                            if let Some(old) = cache.mesh_order.pop_front() { cache.meshes.remove(&old); }
-                        }
-                        cache.mesh_order.push_back(geometry);
-                    }
-                    cache.meshes.insert(geometry, handle.id());
-                    handle
-                }
-            };
-            let key = (color_srgb, roughness_milli);
-            let material = {
-                let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
-                if let Some(handle) = cache.materials.get(&key).and_then(|id| materials.get_strong_handle(*id)) {
-                    handle
-                } else {
-                    let handle = materials.add(StandardMaterial {
-                        base_color: Color::srgb_u8(color_srgb[0], color_srgb[1], color_srgb[2]),
-                        perceptual_roughness: roughness_milli as f32 / 1_000.0,
-                        ..default()
-                    });
-                    if !cache.materials.contains_key(&key) {
-                        if cache.material_order.len() >= BUILTIN_CACHE_ENTRIES {
-                            if let Some(old) = cache.material_order.pop_front() { cache.materials.remove(&old); }
-                        }
-                        cache.material_order.push_back(key);
-                    }
-                    cache.materials.insert(key, handle.id());
-                    handle
-                }
-            };
-            (mesh, material)
+        preparation::request(world, root, preparation::Request {
+            target, geometry, material: (color_srgb, roughness_milli), collision,
         });
-        if let Some(old) = builtin_visual_for_root(world, root) {
-            world.despawn(old); // 只替换本入口登记且仍归本根的唯一节点，不碰作者附加的其他孩子。
-        }
-        let hidden = world.get::<Visibility>(root) == Some(&Visibility::Hidden);
-        let mut child = world.spawn((
-            Name::new(if matches!(geometry, BuiltinGeometryKey::Cuboid(_)) { "内置立方体网格" } else { "可编辑网格" }),
-            BuiltinPlacementVisual,
-            ScenePlacementPrimitiveVisual,
-            Mesh3d(mesh),
-            MeshMaterial3d(material),
-            Transform::IDENTITY,
-            Visibility::Inherited,
-            ChildOf(root),
-        ));
-        if collision {
-            let collider = match geometry {
-                BuiltinGeometryKey::Cuboid(size_mm) => {
-                    let [x, y, z] = size_mm.map(|millimeters| millimeters as f32 / 1_000.0);
-                    Collider::cuboid(x, y, z)
-                }
-                BuiltinGeometryKey::Editable(vertices) => Collider::trimesh(
-                    vertices.map(|point| Vec3::from_array(point.map(|value| value as f32 * 0.0005))).to_vec(),
-                    EDITABLE_CUBOID_TRIANGLES.map(|triangle| triangle.map(|index| index as u32)).to_vec(),
-                ), // 显示与物理共用八点、固定对角线，斜面和凹形不能由包围盒冒充。
-                BuiltinGeometryKey::Mesh(geometry) => Collider::trimesh(
-                    geometry.vertices().iter().map(|point| Vec3::from_array(point.map(|value| value as f32 * 0.0005))).collect(),
-                    geometry.triangles().into_iter().map(|triangle| triangle.map(|index| index as u32)).collect(),
-                ), // 拓扑编辑后的凹形与新增侧壁仍使用作者网格真实三角碰撞。
-            };
-            child.insert(collider);
-            if hidden { child.insert(ColliderDisabled); } // 同帧删除或隐藏优先，不能让迟到可视安装重新产生承托面。
-        }
-        let visual = child.id();
-        world.entity_mut(root).insert(BuiltinPlacementVisualRoot(visual)); // 新节点与精确父地址在同一次World命令中发布。
     });
     true
+}
+
+#[derive(Component)]
+struct BuiltinVisualSource(ScenePlacementAssetTarget);
+
+/// 完成的子节点必须匹配当前作者快照；旧画面可继续显示，但不会给新的保存或预览交接授信。
+pub fn builtin_placement_visual_ready(world: &World, root: Entity) -> bool {
+    let Some(instance) = world.get::<ScenePlacementInstance>(root) else { return false; };
+    let Some(visual) = builtin_visual_for_root(world, root) else { return false; };
+    let target = instance.asset_target();
+    let collision = match &target {
+        ScenePlacementAssetTarget::Cuboid { collision, .. }
+        | ScenePlacementAssetTarget::EditableCuboid { collision, .. }
+        | ScenePlacementAssetTarget::EditableMesh { collision, .. } => *collision,
+        _ => return false,
+    };
+    (instance.is_active() || instance.is_pending())
+        && world.get::<BuiltinVisualSource>(visual).is_some_and(|source| source.0 == target)
+        && world.get::<Aabb>(visual).is_some()
+        && world.get::<Mesh3d>(visual).is_some()
+        && world.get::<MeshMaterial3d<StandardMaterial>>(visual).is_some()
+        && (!collision || world.get::<Collider>(visual).is_some())
 }
 
 /// 单节点地址仅表达查找，不授予他人子树写入权；重挂、删除或去标记后立即失败关闭。
@@ -266,12 +215,12 @@ mod tests {
 
     fn install(world: &mut World, root: Entity, target: ScenePlacementAssetTarget) {
         world.run_system_once(move |mut commands: Commands| {
-            assert!(spawn_builtin_placement_visual(&mut commands, root, target));
+            assert!(spawn_builtin_placement_visual(&mut commands, root, target.clone()));
         }).unwrap();
     }
 
     fn spawn_root(world: &mut World, target: ScenePlacementAssetTarget) -> Entity {
-        let record = record(target);
+        let record = record(target.clone());
         world.spawn((ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record),
             Transform::IDENTITY, Visibility::Inherited)).id()
     }
@@ -291,7 +240,7 @@ mod tests {
         let triangles = geometry.triangles_with_faces();
         assert_eq!(packed.len(), triangles.len() * 3);
         let mut edges = vec![BTreeSet::new(); geometry.faces().len()];
-        for (index, (face, triangle)) in triangles.into_iter().enumerate() {
+        for (index, (face, triangle)) in triangles.iter().copied().enumerate() {
             let mask = (packed[index * 3][0] / 4.0).floor() as u8;
             assert!(mask <= 7);
             let offset = f32::from(mask) * 4.0;
@@ -306,11 +255,11 @@ mod tests {
     }
 
     fn assert_only_face_boundary_edges(geometry: EditableMeshGeometry, mesh: &Mesh) -> BTreeSet<[usize; 2]> {
-        let decoded = decoded_wire_edges_by_face(geometry, mesh);
+        let decoded = decoded_wire_edges_by_face(geometry.clone(), mesh);
         for (face, actual) in geometry.faces().iter().zip(&decoded) {
             let boundary = face.indices();
             let expected = boundary.iter().zip(boundary.iter().cycle().skip(1)).take(boundary.len())
-                .map(|(a, b)| ordered_edge([usize::from(*a), usize::from(*b)])).collect::<BTreeSet<_>>();
+                .map(|(a, b)| ordered_edge([*a as usize, *b as usize])).collect::<BTreeSet<_>>();
             assert_eq!(*actual, expected, "只能暴露本作者面的边界，不能显示其耳切或四边面对角线");
         }
         decoded.into_iter().flatten().collect()
@@ -319,11 +268,11 @@ mod tests {
     #[test]
     fn editable_wire_metadata_keeps_twelve_cuboid_edges_and_hides_quad_diagonals() {
         let geometry = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
-        let mesh = editable_mesh_mesh(geometry);
+        let mesh = editable_mesh_mesh(geometry.clone());
         assert_eq!(geometry.vertices().len(), 8);
-        let edges = assert_only_face_boundary_edges(geometry, &mesh);
+        let edges = assert_only_face_boundary_edges(geometry.clone(), &mesh);
         assert_eq!(edges.len(), 12);
-        assert_eq!(edges, geometry.edges().into_iter().map(ordered_edge).collect::<BTreeSet<_>>());
+        assert_eq!(edges, geometry.edges().iter().copied().map(ordered_edge).collect::<BTreeSet<_>>());
         let VertexAttributeValues::Float32x2(uv1) = mesh.attribute(Mesh::ATTRIBUTE_UV_1).unwrap() else { unreachable!() };
         for pair in uv1.chunks_exact(6) {
             assert_eq!((pair[0][0] / 4.0).floor() as u8, 0b101, "首三角顶点1的对边是0到2对角线");
@@ -342,15 +291,15 @@ mod tests {
             vertices.extend(boundary.map(|[x, z]| [x, y, z]));
         }
         let mut faces = vec![MeshFace::new(&[5, 4, 3, 2, 1, 0]).unwrap(), MeshFace::new(&[6, 7, 8, 9, 10, 11]).unwrap()];
-        for side in 0..6_u8 {
+        for side in 0..6_u32 {
             let next = (side + 1) % 6;
             faces.push(MeshFace::new(&[side, next, next + 6, side + 6]).unwrap());
         }
         let geometry = EditableMeshGeometry::from_parts(&vertices, &faces).unwrap();
         assert_eq!(geometry.triangles().len(), 20);
-        let edges = assert_only_face_boundary_edges(geometry, &editable_mesh_mesh(geometry));
+        let edges = assert_only_face_boundary_edges(geometry.clone(), &editable_mesh_mesh(geometry.clone()));
         assert_eq!(edges.len(), 18);
-        assert_eq!(edges, geometry.edges().into_iter().map(ordered_edge).collect::<BTreeSet<_>>());
+        assert_eq!(edges, geometry.edges().iter().copied().map(ordered_edge).collect::<BTreeSet<_>>());
     }
 
     #[test]
@@ -359,8 +308,8 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
-        let root = spawn_root(&mut world, target);
-        install(&mut world, root, target);
+        let root = spawn_root(&mut world, target.clone());
+        install(&mut world, root, target.clone());
         assert_eq!(world.get::<Children>(root).unwrap().len(), 1, "线框不能另建边实体");
         let visual = world.get::<Children>(root).unwrap()[0];
         let mesh = world.resource::<Assets<Mesh>>().get(&world.get::<Mesh3d>(visual).unwrap().0).unwrap();
@@ -390,17 +339,17 @@ mod tests {
     #[test]
     fn builtin_wire_cache_distinguishes_author_face_topology_with_identical_triangles() {
         let quads = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
-        let triangles = quads.triangles().into_iter().map(|triangle| MeshFace::new(&triangle.map(|vertex| vertex as u8)).unwrap()).collect::<Vec<_>>();
+        let triangles = quads.triangles().into_iter().map(|triangle| MeshFace::new(&triangle.map(|vertex| vertex as u32)).unwrap()).collect::<Vec<_>>();
         let split = EditableMeshGeometry::from_parts(quads.vertices(), &triangles).unwrap();
         assert_eq!(quads.triangles(), split.triangles());
         let mut world = World::new();
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         let mut handles = Vec::new();
-        for geometry in [quads, quads, split, split] {
+        for geometry in [quads.clone(), quads.clone(), split.clone(), split.clone()] {
             let target = ScenePlacementAssetTarget::EditableMesh { geometry, color_srgb: [160; 3], roughness_milli: 700, collision: false };
-            let root = spawn_root(&mut world, target);
-            install(&mut world, root, target);
+            let root = spawn_root(&mut world, target.clone());
+            install(&mut world, root, target.clone());
             let visual = world.get::<Children>(root).unwrap()[0];
             handles.push(world.get::<Mesh3d>(visual).unwrap().0.clone());
         }
@@ -422,7 +371,7 @@ mod tests {
     fn authoring_wire_layout_stays_distinct_from_plain_uv1_meshes_with_or_without_colors() {
         let geometry = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
         for with_colors in [false, true] {
-            let mut authoring = editable_mesh_mesh(geometry);
+            let mut authoring = editable_mesh_mesh(geometry.clone());
             if with_colors {
                 authoring.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0_f32; 4]; 36]);
             } // 幽灵可额外带原顶点颜色，仍需与相同标准属性集合的普通网格隔离。
@@ -454,10 +403,10 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
-        let first = spawn_root(&mut world, target);
-        let second = spawn_root(&mut world, target);
-        install(&mut world, first, target);
-        install(&mut world, second, target);
+        let first = spawn_root(&mut world, target.clone());
+        let second = spawn_root(&mut world, target.clone());
+        install(&mut world, first, target.clone());
+        install(&mut world, second, target.clone());
         let first_visual = world.get::<Children>(first).unwrap()[0];
         let second_visual = world.get::<Children>(second).unwrap()[0];
         assert_eq!(world.get::<Mesh3d>(first_visual).unwrap().0, world.get::<Mesh3d>(second_visual).unwrap().0);
@@ -470,9 +419,9 @@ mod tests {
         assert!(world.get::<ColliderDisabled>(first_visual).is_none());
 
         let changed = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000], color_srgb: [10, 20, 30], roughness_milli: 400, collision: false };
-        let record = record(changed);
+        let record = record(changed.clone());
         world.entity_mut(first).insert(ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record));
-        install(&mut world, first, changed);
+        install(&mut world, first, changed.clone());
         assert_eq!(world.get::<Children>(first).unwrap().len(), 1);
         assert!(world.get_entity(first_visual).is_err());
         let changed_visual = world.get::<Children>(first).unwrap()[0];
@@ -486,12 +435,12 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
-        let root = spawn_root(&mut world, target);
+        let root = spawn_root(&mut world, target.clone());
         let stale = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000; 3], color_srgb: [160; 3], roughness_milli: 700, collision: true };
-        install(&mut world, root, stale);
+        install(&mut world, root, stale.clone());
         assert!(world.get::<Children>(root).is_none());
         world.entity_mut(root).insert(Visibility::Hidden);
-        install(&mut world, root, target);
+        install(&mut world, root, target.clone());
         let visual = world.get::<Children>(root).unwrap()[0];
         assert!(world.get::<ColliderDisabled>(visual).is_some());
     }
@@ -502,16 +451,16 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
-        let root = spawn_root(&mut world, target);
-        install(&mut world, root, target);
+        let root = spawn_root(&mut world, target.clone());
+        install(&mut world, root, target.clone());
         let old_visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         let author_children = (0..1_024).map(|_| world.spawn(ChildOf(root)).id()).collect::<Vec<_>>();
         let author_collider = world.spawn((ChildOf(root), Collider::sphere(0.25))).id();
         let author_leaf = world.spawn(ChildOf(author_children[0])).id();
         let changed = ScenePlacementAssetTarget::Cuboid { size_mm: [1_000, 2_000, 3_000],
             color_srgb: [10, 20, 30], roughness_milli: 400, collision: true };
-        world.entity_mut(root).insert(ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record(changed)));
-        install(&mut world, root, changed);
+        world.entity_mut(root).insert(ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record(changed.clone())));
+        install(&mut world, root, changed.clone());
         let visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         assert_ne!(visual, old_visual);
         assert!(world.get_entity(old_visual).is_err(), "尺寸变化只替换登记的旧唯一网格");
@@ -533,12 +482,12 @@ mod tests {
         world.init_resource::<Assets<StandardMaterial>>();
         let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let batch = world.spawn((Transform::IDENTITY, RigidBody::Static)).id();
-        let root = spawn_root(&mut world, target);
-        let sibling = spawn_root(&mut world, target);
+        let root = spawn_root(&mut world, target.clone());
+        let sibling = spawn_root(&mut world, target.clone());
         world.entity_mut(root).insert(ChildOf(batch));
         world.entity_mut(sibling).insert(ChildOf(batch));
-        install(&mut world, root, target);
-        install(&mut world, sibling, target);
+        install(&mut world, root, target.clone());
+        install(&mut world, sibling, target.clone());
         let visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         let sibling_visual = world.get::<BuiltinPlacementVisualRoot>(sibling).unwrap().0;
         assert!(world.get::<RigidBody>(root).is_none(), "粘贴预览组的子根可共用上层刚体");
@@ -564,12 +513,12 @@ mod tests {
         world.init_resource::<Assets<StandardMaterial>>();
         let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
         let batch = world.spawn((Transform::IDENTITY, RigidBody::Static)).id();
-        let root = spawn_root(&mut world, target);
-        let sibling = spawn_root(&mut world, target);
+        let root = spawn_root(&mut world, target.clone());
+        let sibling = spawn_root(&mut world, target.clone());
         world.entity_mut(root).insert(ChildOf(batch));
         world.entity_mut(sibling).insert(ChildOf(batch));
-        install(&mut world, root, target);
-        install(&mut world, sibling, target);
+        install(&mut world, root, target.clone());
+        install(&mut world, sibling, target.clone());
         let visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
         let sibling_visual = world.get::<BuiltinPlacementVisualRoot>(sibling).unwrap().0;
         set_builtin_placement_collision_enabled_world(&mut world, root, false);
@@ -624,8 +573,8 @@ mod tests {
             world.init_resource::<Assets<Mesh>>();
             world.init_resource::<Assets<StandardMaterial>>();
             let target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
-            let root = spawn_root(&mut world, target);
-            install(&mut world, root, target);
+            let root = spawn_root(&mut world, target.clone());
+            install(&mut world, root, target.clone());
             let old_visual = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
             if reparented {
                 let other = world.spawn_empty().id();
@@ -635,7 +584,7 @@ mod tests {
             }
             set_builtin_placement_collision_enabled_world(&mut world, root, false);
             assert!(world.get::<ColliderDisabled>(old_visual).is_none(), "地址没有当前标记及真实父的共同证明就无写入权");
-            install(&mut world, root, target);
+            install(&mut world, root, target.clone());
             assert!(world.get_entity(old_visual).is_ok(), "替换不能销毁已被其他层级或作者接管的旧地址");
             let replacement = world.get::<BuiltinPlacementVisualRoot>(root).unwrap().0;
             assert_ne!(replacement, old_visual);
@@ -654,8 +603,8 @@ mod tests {
         for index in 0..BUILTIN_CACHE_ENTRIES + 8 {
             let target = ScenePlacementAssetTarget::Cuboid { size_mm: [index as u32 + 1; 3],
                 color_srgb: [(index % 256) as u8, (index / 256) as u8, 0], roughness_milli: 700, collision: false };
-            let root = spawn_root(&mut world, target);
-            install(&mut world, root, target);
+            let root = spawn_root(&mut world, target.clone());
+            install(&mut world, root, target.clone());
             world.despawn(root);
         }
         let cache = world.resource::<BuiltinPrimitiveCache>();
@@ -743,10 +692,10 @@ mod tests {
         world.init_resource::<Assets<Mesh>>();
         world.init_resource::<Assets<StandardMaterial>>();
         let target = sloped_target();
-        let root = spawn_root(&mut world, target);
-        let second = spawn_root(&mut world, target);
-        install(&mut world, root, target);
-        install(&mut world, second, target);
+        let root = spawn_root(&mut world, target.clone());
+        let second = spawn_root(&mut world, target.clone());
+        install(&mut world, root, target.clone());
+        install(&mut world, second, target.clone());
         let visual = world.get::<Children>(root).unwrap()[0];
         let other = world.get::<Children>(second).unwrap()[0];
         let mesh_handle = &world.get::<Mesh3d>(visual).unwrap().0;
@@ -786,9 +735,9 @@ mod tests {
         app.finish();
         let batch = app.world_mut().spawn((Transform::IDENTITY, RigidBody::Static, RigidBodyDisabled, bevy_tnua::TnuaNotPlatform)).id();
         let target = sloped_target();
-        let root = spawn_root(app.world_mut(), target);
+        let root = spawn_root(app.world_mut(), target.clone());
         app.world_mut().entity_mut(root).insert(ChildOf(batch));
-        install(app.world_mut(), root, target);
+        install(app.world_mut(), root, target.clone());
         let visual = app.world().get::<Children>(root).unwrap()[0];
         let dynamic = app.world_mut().spawn((RigidBody::Dynamic, LockedAxes::ALL_LOCKED,
             Collider::sphere(0.5), Transform::from_xyz(0.0, 1.8, 0.0))).id();
@@ -812,8 +761,8 @@ mod tests {
         let after = feathrise_scene_content::extruded_placement_record(&before,3,0.5).unwrap();
         let geometry = after.asset_target.editable_geometry().unwrap();
         let mut world = World::new(); world.init_resource::<Assets<Mesh>>(); world.init_resource::<Assets<StandardMaterial>>();
-        let root = spawn_root(&mut world,after.asset_target); install(&mut world,root,after.asset_target);
-        let other = spawn_root(&mut world,after.asset_target); install(&mut world,other,after.asset_target);
+        let root = spawn_root(&mut world,after.asset_target.clone()); install(&mut world,root,after.asset_target.clone());
+        let other = spawn_root(&mut world,after.asset_target.clone()); install(&mut world,other,after.asset_target.clone());
         let visual = world.get::<Children>(root).unwrap()[0]; let other_visual = world.get::<Children>(other).unwrap()[0];
         assert_eq!(world.get::<Mesh3d>(visual).unwrap().0,world.get::<Mesh3d>(other_visual).unwrap().0);
         let mesh = world.resource::<Assets<Mesh>>().get(&world.get::<Mesh3d>(visual).unwrap().0).unwrap();
@@ -821,7 +770,7 @@ mod tests {
         let VertexAttributeValues::Float32x3(normals) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap() else { panic!("需要三角法线") };
         let collider = world.get::<Collider>(visual).unwrap(); let trimesh = collider.shape().as_trimesh().unwrap();
         let triangles = geometry.triangles(); let vertices = geometry.vertices().iter().map(|point| Vec3::from_array(point.map(|value| value as f32*0.0005))).collect::<Vec<_>>();
-        assert_eq!((geometry.vertex_count,geometry.face_count),(12,10)); assert_eq!(positions.len(),60);
+        assert_eq!((geometry.vertex_count(),geometry.face_count()),(12,10)); assert_eq!(positions.len(),60);
         assert_eq!(trimesh.indices().len(),triangles.len());
         for (index,triangle) in triangles.iter().enumerate() {
             assert_eq!(trimesh.indices()[index],triangle.map(|vertex| vertex as u32));
@@ -833,7 +782,7 @@ mod tests {
         }
         let ray = avian3d::parry::query::Ray::new(Vec3::new(0.0,10.0,0.0),Vec3::NEG_Y);
         assert!((collider.shape().cast_local_ray(&ray,20.0,false).unwrap()-8.5).abs()<1e-5);
-        world.entity_mut(root).insert(Visibility::Hidden); install(&mut world,root,after.asset_target);
+        world.entity_mut(root).insert(Visibility::Hidden); install(&mut world,root,after.asset_target.clone());
         let hidden_visual = world.get::<Children>(root).unwrap()[0]; assert!(world.get::<ColliderDisabled>(hidden_visual).is_some());
     }
 }

@@ -97,9 +97,9 @@ fn formal_candidate_replacement_preserves_author_preview_and_per_root_visibility
         ScenePlacementInstance::new(&map, &later_edit), author_transform,
         Visibility::Inherited, RigidBody::Static,
     )).id();
-    let target = later_edit.asset_target;
+    let target = later_edit.asset_target.clone();
     app.world_mut().run_system_once(move |mut commands: Commands| {
-        assert!(crate::shared::placement_data::spawn_builtin_placement_visual(&mut commands, author, target));
+        assert!(crate::shared::placement_data::spawn_builtin_placement_visual(&mut commands, author, target.clone()));
     }).unwrap();
     let author_visual = app.world().get::<Children>(author).unwrap()[0];
     assert!(app.world().get::<Collider>(author_visual).is_some());

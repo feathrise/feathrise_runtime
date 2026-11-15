@@ -50,10 +50,10 @@ pub(super) fn prepare(
                     .collect::<Vec<_>>();
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
             }
-            let color = match value.target {
+            let color = match &value.target {
                 ScenePlacementAssetTarget::Cuboid { color_srgb, .. }
                 | ScenePlacementAssetTarget::EditableCuboid { color_srgb, .. }
-                | ScenePlacementAssetTarget::EditableMesh { color_srgb, .. } => color_srgb,
+                | ScenePlacementAssetTarget::EditableMesh { color_srgb, .. } => *color_srgb,
                 _ => return Err("网格预览颜色来源不兼容".into()),
             };
             Ok((
@@ -244,8 +244,11 @@ impl State {
             && active.handoff
             && super::super::placement::active_root(world, &active.scene_id, &active.id)
                 .ok()
-                .and_then(|entity| world.get::<ScenePlacementInstance>(entity))
-                .is_some_and(|root| root.asset_target() == active.target);
+                .is_some_and(|entity| {
+                    world.get::<ScenePlacementInstance>(entity)
+                        .is_some_and(|root| root.asset_target() == active.target)
+                        && feathrise_scene::builtin_placement_visual_ready(world, entity)
+                });
         if !owner_current || !scene_current || adopted || world.get_entity(active.ghost).is_err() {
             self.release(world);
         }

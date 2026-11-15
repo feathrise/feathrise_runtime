@@ -1,9 +1,15 @@
 //! 原隐藏候选和退役链的实体复用业务回归；不以直接写Ready代替生产采用。
 
-use super::super::retirement::{cleanup_retired_placement_trees, retire_candidate};
+use super::super::retirement::{
+    cleanup_retired_placement_plan, cleanup_retired_placement_trees, retire_candidate,
+};
 use super::*;
 use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
+use avian3d::prelude::{
+    ColliderOf, Gravity, PhysicsPlugins, RigidBodyColliders, SpatialQuery, SpatialQueryFilter,
+};
 use bevy::asset::AssetPlugin;
+use bevy::{camera::visibility::VisibilityPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin};
 
 #[derive(Component, Debug, PartialEq)]
 struct GameplayMemory(u64);
@@ -17,14 +23,24 @@ fn record(id: &str) -> feathrise_scene_content::ScenePlacementRecord {
     value
 }
 
-fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
+fn candidate_app() -> App {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
-        .init_resource::<Assets<Mesh>>()
+    app.add_plugins((MinimalPlugins, AssetPlugin::default(), MeshPlugin))
         .init_resource::<Assets<StandardMaterial>>()
         .init_resource::<WorldAssetLifecycleIndex>()
         .init_resource::<ScenePlacementRuntimeStatus>()
-        .init_resource::<BuildingVegetationClearanceState>();
+        .init_resource::<BuildingVegetationClearanceState>()
+        .insert_resource(ScenePlacementRuntimeState {
+            active_scene_id: Some(SceneId("MAP-reuse".into())),
+            generation: 1,
+            ..Default::default()
+        })
+        .add_systems(Update, tick);
+    app
+}
+
+fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
+    let mut app = candidate_app();
     let map = SceneId("MAP-reuse".into());
     let container = app
         .world_mut()
@@ -54,6 +70,19 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
         app.world_mut().spawn((GameplayMemory(99), ChildOf(root)));
         roots.push(root);
     }
+    // 复用要验证正式可见子节点。此夹具没有共享刚体绑定，用于隔离验证原来的携带和取消行为。
+    let visual_roots = roots.clone();
+    app.world_mut()
+        .run_system_once(move |mut commands: Commands| {
+            for &root in &visual_roots {
+                assert!(crate::spawn_builtin_placement_visual(
+                    &mut commands,
+                    root,
+                    feathrise_scene_content::ScenePlacementAssetTarget::DEFAULT_CUBOID,
+                ));
+            }
+        })
+        .unwrap();
     let state = ScenePlacementRuntimeState {
         active_scene_id: Some(map),
         generation: 1,
@@ -74,13 +103,13 @@ fn fixture(count: usize) -> (App, Vec<Entity>, Entity) {
 }
 
 fn begin(app: &mut App, records: Vec<feathrise_scene_content::ScenePlacementRecord>) {
-    app.world_mut()
-        .resource_mut::<ScenePlacementRuntimeState>()
-        .pending = Some(super::super::super::resources::PendingPlacementRevision {
+    let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>();
+    state.revision += 1;
+    state.pending = Some(super::super::super::resources::PendingPlacementRevision {
         terrain_patch_count: 0,
         terrain_holes: Default::default(),
-        generation: 1,
-        revision: 2,
+        generation: state.generation,
+        revision: state.revision,
         scene_id: SceneId("MAP-reuse".into()),
         building_preset_revision: 0,
         building_clearances: Default::default(),
@@ -95,7 +124,6 @@ fn begin(app: &mut App, records: Vec<feathrise_scene_content::ScenePlacementReco
             })
             .collect(),
     });
-    app.add_systems(Update, tick);
 }
 
 fn tick(
@@ -176,7 +204,6 @@ fn placement_reuse_create_delete_preserves_unmodified_gameplay_entity_and_childr
 
 #[test]
 fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state() {
-    use bevy::ecs::system::RunSystemOnce;
     let (mut app, roots, old_container) = fixture(1);
     begin(&mut app, vec![record("kept-0")]);
     app.update(); // 首帧只预留容器，不可能提前采用。
@@ -224,6 +251,81 @@ fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state()
             .get::<PlacementPendingRevision>(roots[0])
             .is_none()
     );
+}
+
+#[test]
+fn same_saved_cube_survives_retirement_of_its_old_shared_rigid_body() {
+    let mut app = candidate_app();
+    app.add_plugins((TransformPlugin, VisibilityPlugin, PhysicsPlugins::default()))
+        .insert_resource(Gravity(Vec3::ZERO))
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f64(1.0 / 60.0),
+        ))
+        .add_systems(
+            Update,
+            (cleanup_active_placement_markers, cleanup_retired_placement_plan).after(tick),
+        );
+    app.finish();
+
+    let cube = record("saved-cube");
+    begin(&mut app, vec![cube.clone()]);
+    let (old_body, old_visual) = wait_for_cube(&mut app, 1);
+    assert_eq!(app.world().get::<ColliderOf>(old_visual).map(|link| link.body), Some(old_body));
+    assert!(app.world().get::<RigidBodyColliders>(old_body).unwrap().contains(&old_visual));
+    assert_eq!(app.world_mut().run_system_once(cube_ray_hit).unwrap(), Some(old_visual));
+
+    // 同样的记录会被文件监听再次提交。旧刚体和 Mesh3d 之间还存在独立于 ChildOf 的 linked_spawn 关系。
+    begin(&mut app, vec![cube]);
+    app.update();
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().revision, 1);
+    assert_eq!(app.world_mut().run_system_once(cube_ray_hit).unwrap(), Some(old_visual),
+        "候选隐藏准备期间，已有立方体必须继续承托");
+    for _ in 0..8 {
+        if app.world().resource::<ScenePlacementRuntimeStatus>().revision == 2 { break; }
+        app.update();
+    }
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeStatus>().revision, 2);
+    assert_eq!(app.world().get::<Visibility>(old_body), Some(&Visibility::Hidden));
+    assert!(app.world().get::<RigidBodyDisabled>(old_body).is_some());
+
+    // 单独推进生产退役器，确保通过的是刚体真正销毁之后的画面和物理，而不是接管间隙。
+    for _ in 0..8 {
+        cleanup_retired_placement_trees(app.world_mut());
+    }
+    assert!(app.world().get_entity(old_body).is_err());
+    let (body, visual) = wait_for_cube(&mut app, 2);
+    assert_ne!(body, old_body);
+    assert!(app.world().get::<RigidBodyDisabled>(body).is_none());
+    assert_eq!(app.world().get::<ColliderOf>(visual).map(|link| link.body), Some(body));
+    assert!(app.world().get::<RigidBodyColliders>(body).unwrap().contains(&visual));
+    assert_eq!(app.world_mut().run_system_once(cube_ray_hit).unwrap(), Some(visual));
+}
+
+fn wait_for_cube(app: &mut App, revision: u64) -> (Entity, Entity) {
+    for _ in 0..8 {
+        if app.world().resource::<ScenePlacementRuntimeStatus>().revision == revision { break; }
+        app.update();
+    }
+    let world = app.world();
+    let status = world.resource::<ScenePlacementRuntimeStatus>();
+    assert_eq!(status.phase, ScenePlacementRuntimePhase::Ready, "{}", status.detail);
+    assert_eq!(status.revision, revision);
+    assert_eq!(status.placement_count, 1);
+    let active = world.resource::<ScenePlacementRuntimeState>().active.as_ref().unwrap();
+    assert_eq!(active.roots.len(), 1);
+    let root = active.roots[0];
+    assert!(world.get::<ScenePlacementInstance>(root).unwrap().is_active());
+    assert!(crate::builtin_placement_visual_ready(world, root), "活动立方体必须保有真实网格");
+    let visual = world.get::<Children>(root).unwrap()[0];
+    let mesh = &world.get::<Mesh3d>(visual).unwrap().0;
+    assert_eq!(world.resource::<Assets<Mesh>>().get(mesh).unwrap().count_vertices(), 36);
+    assert!(world.get::<InheritedVisibility>(visual).unwrap().get());
+    (active.root, visual)
+}
+
+fn cube_ray_hit(physics: SpatialQuery, ground: feathrise_grounding::GroundSurfaceFilter) -> Option<Entity> {
+    physics.cast_ray_predicate(Vec3::new(0.0, 5.0, 0.0), Dir3::NEG_Y, 10.0, true,
+        &SpatialQueryFilter::default(), &|entity| ground.is_active(entity)).map(|hit| hit.entity)
 }
 
 #[test]

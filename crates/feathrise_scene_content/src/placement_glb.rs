@@ -56,6 +56,7 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
     let mut visited = HashSet::new();
     let mut ids = HashSet::new();
     let mut placements = Vec::new();
+    let mut recipes = HashMap::new();
     while let Some((node_index, parent)) = stack.pop() {
         if !visited.insert(node_index) {
             return Err("场景 GLB 的节点重复或形成环".into());
@@ -67,7 +68,7 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
                 stack.push((index(child)?, world));
             }
         }
-        if let Some(record) = read_node(&document, node, world, asset_path, preserve_recipes)? {
+        if let Some(record) = read_node(&document, node, world, asset_path, preserve_recipes, &mut recipes)? {
             if !ids.insert(record.id.clone()) {
                 return Err(format!("场景 {scene_id} 的摆放 ID {} 重复", record.id));
             }
@@ -82,12 +83,13 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
     Ok(result)
 }
 
-fn read_node(
-    document: &Value,
-    node: &Value,
+fn read_node<'a>(
+    document: &'a Value,
+    node: &'a Value,
     transform: Mat4,
     asset_path: &str,
     preserve_recipes: bool,
+    recipes: &mut HashMap<&'a str, ScenePlacementAssetTarget>,
 ) -> Result<Option<ScenePlacementRecord>, String> {
     let extras = &node["extras"];
     let owned_mesh = node.get("mesh").map(index).transpose()?;
@@ -120,16 +122,27 @@ fn read_node(
         fields["editor"].as_object_mut().ok_or_else(|| format!("节点 {id} 的编辑属性无效"))?
             .insert("name".to_owned(), json!(name));
     }
-    if let Some(mesh) = owned_mesh {
+    let target = if let Some(mesh) = owned_mesh {
         let collision = extras[COLLISION].as_bool()
             .or_else(|| extras[COLLISION].as_u64().map(|value| value != 0))
             .unwrap_or(false);
         let material = mesh_material(document, mesh)?;
         let mesh_matches = extras[BUILTIN_MESH].as_u64() == Some(mesh as u64);
-        let recipe = (preserve_recipes && mesh_matches).then(|| extras[BUILTIN_RECIPE].as_str()).flatten()
-            .map(serde_json::from_str::<ScenePlacementAssetTarget>).transpose()
-            .map_err(|error| format!("节点 {id} 的内置网格参数无效：{error}"))?;
-        let target = if let Some(recipe) = recipe.filter(|target| target.is_builtin() && builtin_material(*target).2 == collision) {
+        let recipe = if let Some(encoded) = extras[BUILTIN_RECIPE].as_str().filter(|_| preserve_recipes && mesh_matches) {
+            // 相同配方跨摆放复用已验证 Arc 几何，不重复解码、三角化或构建空间索引。
+            let target = match recipes.entry(encoded) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let decoded = serde_json::from_str::<ScenePlacementAssetTarget>(encoded)
+                        .map_err(|error| format!("节点 {id} 的内置网格参数无效：{error}"))?;
+                    entry.insert(decoded).clone()
+                }
+            };
+            Some(target)
+        } else {
+            None
+        };
+        let target = if let Some(recipe) = recipe.filter(|target| target.is_builtin() && builtin_material(target).2 == collision) {
             fields["asset_path"] = json!("");
             recipe.validate()?;
             recipe
@@ -142,12 +155,19 @@ fn read_node(
                 collision,
             }
         };
-        fields["asset_target"] = serde_json::to_value(target).map_err(|error| error.to_string())?;
-    } else if fields["asset_path"].as_str().is_none_or(str::is_empty) {
-        return Err(format!("节点 {id} 没有网格或共享资产引用"));
-    }
-    let record: ScenePlacementRecord = serde_json::from_value(fields)
+        fields.as_object_mut().expect("已核对摆放字段对象").remove("asset_target");
+        Some(target)
+    } else {
+        if fields["asset_path"].as_str().is_none_or(str::is_empty) {
+            return Err(format!("节点 {id} 没有网格或共享资产引用"));
+        }
+        None
+    };
+    let mut record: ScenePlacementRecord = serde_json::from_value(fields)
         .map_err(|error| format!("节点 {id} 的摆放无效：{error}"))?;
+    if let Some(target) = target {
+        record.asset_target = target;
+    }
     record.asset_target.validate()?;
     Ok(Some(record))
 }
@@ -236,16 +256,27 @@ pub fn write_scene_placements_glb(
         let name = if record.editor.name.is_empty() { &record.id } else { &record.editor.name };
         let rotation = Quat::from_rotation_y(record.yaw_degrees.to_radians()).to_array();
         let mut node = json!({"name": name, "translation": record.translation, "scale": record.scale, "rotation": rotation});
-        let mut fields = serde_json::to_value(record).map_err(|error| error.to_string())?;
+        // 内置编辑源可能有数十万面。几何配方在BUILTIN_RECIPE只序列化一次，节点字段不再复制同一整片数据。
+        let builtin_fields;
+        let fields_source = if record.asset_target.is_builtin() {
+            builtin_fields = ScenePlacementRecord {
+                asset_target: ScenePlacementAssetTarget::Scene0,
+                ..record.clone()
+            };
+            &builtin_fields
+        } else {
+            record
+        };
+        let mut fields = serde_json::to_value(fields_source).map_err(|error| error.to_string())?;
         let field_map = fields.as_object_mut().expect("摆放记录总是对象");
         for key in ["id", "translation", "yaw_degrees", "scale"] {
             field_map.remove(key);
         }
         let mut extras = json!({PLACEMENT_ID: record.id});
-        let mesh = match record.asset_target {
+        let mesh = match &record.asset_target {
             target if target.is_builtin() => {
                 target.validate()?;
-                let recipe = serde_json::to_string(&target).map_err(|error| error.to_string())?;
+                let recipe = serde_json::to_string(target).map_err(|error| error.to_string())?;
                 let mesh = if let Some(mesh) = recipes.get(&recipe) { *mesh } else {
                     let mesh = append_builtin(&mut document, &mut bin, target)?;
                     recipes.insert(recipe.clone(), mesh);
@@ -258,11 +289,11 @@ pub fn write_scene_placements_glb(
             }
             ScenePlacementAssetTarget::Primitive { mesh, primitive: 0, material, collision }
                 if record.asset_path == asset_path => {
-                if mesh_material(&document, mesh as usize)? != material {
+                if mesh_material(&document, *mesh as usize)? != *material {
                     return Err(format!("场景 GLB 网格 {} 的材质已换代，请重新打开场景", record.id));
                 }
                 extras[COLLISION] = json!(collision);
-                Some(mesh as usize)
+                Some(*mesh as usize)
             }
             _ if record.asset_path == asset_path => return Err(format!("场景 GLB 内部引用 {} 无效", record.id)),
             _ => None, // 共享资产在 GLB 内保存为带引用的空节点，由原摆放加载器实例化。
@@ -293,8 +324,8 @@ pub fn write_scene_placements_glb(
     write_chunks(&document, &bin)
 }
 
-fn builtin_material(target: ScenePlacementAssetTarget) -> ([u8; 3], u16, bool) {
-    match target {
+fn builtin_material(target: &ScenePlacementAssetTarget) -> ([u8; 3], u16, bool) {
+    match *target {
         ScenePlacementAssetTarget::Cuboid { color_srgb, roughness_milli, collision, .. }
         | ScenePlacementAssetTarget::EditableCuboid { color_srgb, roughness_milli, collision, .. }
         | ScenePlacementAssetTarget::EditableMesh { color_srgb, roughness_milli, collision, .. } => {
@@ -307,7 +338,7 @@ fn builtin_material(target: ScenePlacementAssetTarget) -> ([u8; 3], u16, bool) {
 fn append_builtin(
     document: &mut Value,
     bin: &mut Vec<u8>,
-    target: ScenePlacementAssetTarget,
+    target: &ScenePlacementAssetTarget,
 ) -> Result<usize, String> {
     let geometry = target.editable_geometry().ok_or("内置几何无效")?;
     let positions: Vec<_> = geometry.vertices().iter()
@@ -497,5 +528,27 @@ mod tests {
         let saved = write_scene_placements_glb(&draft, PATH, Some(&exported)).unwrap();
         assert_eq!(read_chunks(&saved).unwrap().1, edited);
         assert_eq!(read_scene_placements(&saved, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
+    fn glb_persisted_dense_builtin_copies_reuse_the_validated_recipe() {
+        let mut draft = dock();
+        let mut record = draft.placements[0].clone();
+        for _ in 0..15 {
+            record = crate::extruded_placement_record(&record, 3, 0.1).unwrap();
+        }
+        let original = record.asset_target.editable_geometry().unwrap();
+        assert_eq!(original.vertex_count(), 68);
+        draft.placements[0] = record.clone();
+        record.id = "bank-copy".into();
+        record.translation[0] += 30.0;
+        draft.placements.push(record);
+        let saved = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let loaded = read_scene_placements(&saved, PATH).unwrap();
+        assert_eq!(loaded.placements, draft.placements);
+        let restored = loaded.placements[0].asset_target.editable_geometry().unwrap();
+        let copied = loaded.placements[1].asset_target.editable_geometry().unwrap();
+        assert_eq!(restored, original);
+        assert!(restored.same_storage(&copied));
     }
 }

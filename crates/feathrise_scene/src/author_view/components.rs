@@ -12,6 +12,11 @@ pub struct ShadingView {
 }
 
 impl ShadingView {
+    /// 关闭场景背景的作者视口使用工作区配色；试玩的模型三角线框有独立的显示合同。
+    pub fn uses_work_background(&self) -> bool {
+        self.wire.z < 0.5 && (self.options.x < 0.5 || self.options.w < 0.5)
+    }
+
     /// 游戏预览检查真实模型三角网格；不隐藏作者多边形面内对角线，也不附加无限参考网格。
     pub fn mesh_triangles() -> Self {
         Self { options: Vec4::new(0.0, 1.0, 0.0, 1.0), wire: Vec4::new(0.0, 0.0, 1.0, 0.0) }

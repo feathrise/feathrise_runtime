@@ -384,7 +384,7 @@ fn spawn_formal_builtin(world: &mut World) -> Entity {
         Transform::IDENTITY, Visibility::Inherited,
     )).id();
     world.run_system_once(move |mut commands: Commands| {
-        assert!(crate::spawn_builtin_placement_visual(&mut commands, root, target));
+        assert!(crate::spawn_builtin_placement_visual(&mut commands, root, target.clone()));
     }).unwrap();
     // 沿正式作者目标生成Mesh与StandardMaterial，必须实际带真实面边编码才覆盖本次缺失路径。
     let visual = world.query_filtered::<&Mesh3d, With<crate::ScenePlacementPrimitiveVisual>>()

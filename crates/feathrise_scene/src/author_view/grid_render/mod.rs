@@ -2,7 +2,7 @@
 mod components;
 mod resources;
 
-use super::components::GridView;
+use super::components::{GridView, ShadingView};
 use components::GridBindGroup;
 use resources::{BindCache, GridPipeline};
 use bevy::{
@@ -26,6 +26,7 @@ use bevy::{
         sync_world::MainEntity,
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
+    shader::ShaderDefVal,
 };
 
 pub struct GridRenderPlugin;
@@ -60,14 +61,15 @@ fn init_pipeline(mut commands: Commands, assets: Res<AssetServer>, fullscreen: R
 }
 
 impl SpecializedRenderPipeline for GridPipeline {
-    type Key = (TextureFormat, u32);
-    fn specialize(&self, (format, samples): Self::Key) -> RenderPipelineDescriptor {
+    type Key = (TextureFormat, u32, bool);
+    fn specialize(&self, (format, samples, work_background): Self::Key) -> RenderPipelineDescriptor {
         RenderPipelineDescriptor {
             label: Some("editor_infinite_grid".into()),
             layout: vec![self.layout.clone()],
             vertex: self.fullscreen.to_vertex_state(),
             fragment: Some(FragmentState {
                 shader: self.shader.clone(),
+                shader_defs: vec![ShaderDefVal::Bool("WORK_BACKGROUND".into(), work_background)],
                 targets: vec![Some(ColorTargetState {
                     format,
                     blend: Some(BlendState::PREMULTIPLIED_ALPHA_BLENDING),
@@ -89,7 +91,7 @@ impl SpecializedRenderPipeline for GridPipeline {
 }
 
 fn queue_grid(
-    views: Query<(Entity, &ExtractedView, &Msaa, &MainEntity), With<GridView>>,
+    views: Query<(Entity, &ExtractedView, &Msaa, &MainEntity, Option<&ShadingView>), With<GridView>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     pipeline: Option<Res<GridPipeline>>,
     cache: Res<PipelineCache>,
@@ -98,9 +100,10 @@ fn queue_grid(
 ) {
     let Some(pipeline) = pipeline else { return; };
     let draw_function = draw_functions.read().get_id::<(SetItemPipeline, DrawGrid)>().unwrap();
-    for (entity, view, msaa, main_entity) in &views {
+    for (entity, view, msaa, main_entity, shading) in &views {
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else { continue; };
-        let id = pipelines.specialize(&cache, &pipeline, (view.target_format, msaa.samples()));
+        let work_background = shading.is_some_and(ShadingView::uses_work_background);
+        let id = pipelines.specialize(&cache, &pipeline, (view.target_format, msaa.samples(), work_background));
         if cache.get_render_pipeline(id).is_none() {
             continue; // 异步管线尚未就绪时保留原画面，禁止同步等待或提交半成品。
         }

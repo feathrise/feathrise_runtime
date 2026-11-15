@@ -18,6 +18,12 @@ fn lines(coordinate: vec2<f32>, footprint: vec2<f32>, spacing: f32) -> f32 {
     return max(coverage.x, coverage.y);
 }
 fn axis_color(direction: vec3<f32>) -> vec3<f32> {
+    // 空工作区对照 Blender：水平 XZ 对应其 XY，竖直 Y 对应其 Z。
+    @if(WORK_BACKGROUND) {
+        return direction.x * vec3<f32>(0.527,0.026,0.051)
+             + direction.y * vec3<f32>(0.064,0.186,0.476)
+             + direction.z * vec3<f32>(0.133,0.361,0.014);
+    }
     // sRGB(0.60,0.21,0.20)、(0.24,0.52,0.28)、(0.25,0.39,0.67)转线性；轴色按延伸方向。
     return direction.x * vec3<f32>(0.318547,0.036306,0.033105)
          + direction.y * vec3<f32>(0.046665,0.233022,0.063724)
@@ -52,10 +58,18 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let minor = lines(coordinate,footprint,spacing) * (1.0-blend);
     let major = lines(coordinate,footprint,spacing*10.0);
     let distant = lines(coordinate,footprint,spacing*100.0);
-    var color = over(vec4<f32>(0.0),vec3<f32>(0.036306),minor);
-    // 两档灰度同处工作背景较暗一侧，防止LOD交接的颜色穿过背景灰而让整档网格隐去。
-    color = over(color,vec3<f32>(mix(0.046665,0.036306,blend)),major);
-    color = over(color,vec3<f32>(0.046665),distant);
+    var color = vec4<f32>(0.0);
+    @if(WORK_BACKGROUND) {
+        // 线性灰稍亮于空工作区底色，同时让穿过较亮实体面的参考线保持柔和。
+        color = over(color,vec3<f32>(0.079),minor * 0.52);
+        color = over(color,vec3<f32>(mix(0.100,0.079,blend)),major * 0.58);
+        color = over(color,vec3<f32>(0.100),distant * 0.60);
+    }
+    @if(!WORK_BACKGROUND) {
+        color = over(color,vec3<f32>(0.036306),minor);
+        color = over(color,vec3<f32>(mix(0.046665,0.036306,blend)),major);
+        color = over(color,vec3<f32>(0.046665),distant);
+    }
     let axis = clamp(vec2<f32>(1.0)-abs(coordinate)/footprint,vec2<f32>(0.0),vec2<f32>(1.0));
     color = over(color,axis_color(grid.axis_v.xyz),axis.x);
     color = over(color,axis_color(grid.axis_u.xyz),axis.y);

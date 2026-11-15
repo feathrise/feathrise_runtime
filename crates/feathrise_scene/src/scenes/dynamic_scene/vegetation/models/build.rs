@@ -35,7 +35,7 @@ pub(super) fn build(
     let mut budget = UPLOAD_BUDGET;
     let mut output = VecDeque::new();
     for object in objects {
-        let geometry = load_model_surface_source(root, &object.path, object.target);
+        let geometry = load_model_surface_source(root, &object.path, object.target.clone());
         if let Some(object) = append_object(
             &definition,
             &compiler,
@@ -68,7 +68,7 @@ pub(super) async fn build_async(
     for object in objects {
         let root = root.to_owned();
         let path = object.path.clone();
-        let target = object.target;
+        let target = object.target.clone();
         let source = bevy::tasks::IoTaskPool::get()
             .spawn(async move { read_model_surface_source(&root, &path, target) })
             .await;

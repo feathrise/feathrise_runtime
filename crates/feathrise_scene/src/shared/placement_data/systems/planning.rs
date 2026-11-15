@@ -237,7 +237,7 @@ pub(super) fn advance_planning_bound(
                     terrain_patch: source.terrain_patch.clone(), // 有界元数据随同一实例冻结，不在强句柄准备时丢失洞口。
                     id: source.id.clone(), // ID已通过一KiB前置门，只做一次有界拷贝。
                     asset_path: source.asset_path.clone(), // 路径已通过四KiB前置门。
-                    asset_target: source.asset_target, // Scene0或单primitive数字身份是固定大小值。
+                    asset_target: source.asset_target.clone(), // 可编辑网格共享不可变来源，克隆不复制拓扑。
                     building_preset_id: source.building_preset_id.clone(), // 可选稳定身份已通过有界字符校验。
                     courtyard: source.courtyard.clone(), // 保留已校验的院落成员身份，不把正式候选拆离组合。
                     translation: resolved.translation, // 完整姿态以已采用的对象身份解析，不能只跟随Y。
