@@ -1,5 +1,5 @@
 //! 只认领明确场景静态来源；骨骼、形变、水体与已有专用LOD从祖先链排除。
-use super::{resources::MeshLodRuntime, types::Owner};
+use super::{components::MeshLodAuxiliary, resources::MeshLodRuntime, types::Owner};
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use feathrise_environment::vegetation::{VegetationMeshBatchNode, VegetationMeshLodNode};
 use feathrise_scene_content::SceneTerrainKind;
@@ -16,7 +16,8 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
         {
             return None;
         }
-        if node.contains::<SkinnedMesh>()
+        if node.contains::<MeshLodAuxiliary>()
+            || node.contains::<SkinnedMesh>()
             || node.contains::<bevy::mesh::morph::MorphWeights>()
             || node.contains::<VegetationMeshLodNode>()
             || node.contains::<VegetationMeshBatchNode>()

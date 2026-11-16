@@ -11,7 +11,7 @@ const POLL_BUDGET: usize = 32;
 pub(super) struct Request {
     pub(super) target: ScenePlacementAssetTarget,
     pub(super) geometry: BuiltinGeometryKey,
-    pub(super) material: ([u8; 3], u16),
+    pub(super) material: ([u8; 3], u16, bool),
     pub(super) collision: bool,
 }
 
@@ -234,10 +234,13 @@ fn finish(world: &mut World, root: Entity, request: Request, result: Result<Prep
             if let Some(handle) = cache.materials.get(&key).and_then(|id| materials.get_strong_handle(*id)) {
                 handle
             } else {
-                let ([r, g, b], roughness) = key;
+                let ([r, g, b], roughness, open_surface) = key;
                 let handle = materials.add(StandardMaterial {
                     base_color: Color::srgb_u8(r, g, b),
                     perceptual_roughness: roughness as f32 / 1_000.0,
+                    double_sided: open_surface,
+                    cull_mode: if open_surface { None } else { Some(bevy::render::render_resource::Face::Back) },
+                    // 平面不封底；双面材质与闭壳分开缓存，避免同色立方体继承双面绘制。
                     ..default()
                 });
                 if !cache.materials.contains_key(&key) {

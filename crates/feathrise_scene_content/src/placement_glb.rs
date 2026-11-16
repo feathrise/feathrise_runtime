@@ -368,7 +368,8 @@ fn append_builtin(
     let (color, roughness, _) = builtin_material(target);
     let [r, g, b] = color;
     let color = bevy::color::Color::srgb_u8(r, g, b).to_linear();
-    let material = push(document, "materials", json!({"pbrMetallicRoughness": {
+    let open_surface = matches!(target, ScenePlacementAssetTarget::EditableMesh { geometry, .. } if geometry.is_open());
+    let material = push(document, "materials", json!({"doubleSided": open_surface, "pbrMetallicRoughness": {
         "baseColorFactor": [color.red, color.green, color.blue, color.alpha],
         "metallicFactor": 0.0, "roughnessFactor": f32::from(roughness) / 1000.0
     }}))?;
@@ -511,6 +512,22 @@ mod tests {
         }
         assert!(!bin.is_empty());
         assert_eq!(read_scene_placements(&bytes, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
+    fn plane_glb_keeps_open_author_geometry_double_sided_material_and_collision() {
+        let mut draft = dock();
+        draft.placements[0].asset_target = ScenePlacementAssetTarget::EditableMesh {
+            geometry: crate::EditableMeshGeometry::from_plane_size_mm([3000, 5000]).unwrap(),
+            color_srgb: [100, 150, 200], roughness_milli: 250, collision: true,
+        };
+        let bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let (document, _) = read_chunks(&bytes).unwrap();
+        assert_eq!(document["materials"][0]["doubleSided"], true);
+        assert_eq!(document["nodes"][1]["extras"][COLLISION], true);
+        let reopened = read_scene_placements(&bytes, PATH).unwrap();
+        assert_eq!(reopened.placements, draft.placements);
+        assert!(reopened.placements[0].asset_target.editable_geometry().unwrap().is_open());
     }
 
     #[test]

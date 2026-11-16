@@ -151,6 +151,7 @@ use scenes::ScenesPlugin; // crate内部统一装配数据驱动场景。
 pub struct GameScenePlugin; // 根应用只需添加该插件即可启用完整场景域。
 
 pub use shared::mesh_lod::{MeshLodAuthoringState, MeshLodRuntimeStatus, StaticMeshLodOriginal, MeshChunkLodPreview, StaticMeshChunkLodStatus};
+pub use shared::mesh_lod::{MeshLodAuxiliary, MeshLodInspection, MeshLodInspectionRequest, MeshLodInspectionSample};
 
 impl Plugin for GameScenePlugin {
     fn finish(&self, app: &mut App) {

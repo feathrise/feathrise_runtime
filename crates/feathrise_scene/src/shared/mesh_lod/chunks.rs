@@ -5,11 +5,40 @@ use feathrise_scene_content::MeshDisplayLodSettings;
 
 pub(super) fn release(runtime: &mut MeshLodRuntime, target: &mut VisualTarget, entity: Entity) {
     if let Some(selection) = target.chunk_selection.take() {
-        runtime.retired.push_back((selection.mesh, selection.bytes));
+        release_composition(runtime, target.key, &selection.levels);
     }
     target.chunk_desired.clear();
     target.chunk_retry_credit = None;
     runtime.chunk_coarse.remove(&entity);
+}
+
+/// 最后一位实例退出才退役组合网格，沿原后台析构路径归还缓存信用。
+fn release_composition(runtime: &mut MeshLodRuntime, key: SourceKey, levels: &[usize]) {
+    let Some(cache) = runtime.cache.get_mut(&key) else { return; };
+    let Some(composed) = cache.compositions.get_mut(levels) else { return; };
+    composed.instances -= 1;
+    if composed.instances == 0 {
+        let composed = cache.compositions.remove(levels).unwrap();
+        runtime.retired.push_back((composed.mesh, composed.bytes));
+    }
+}
+
+/// 同源和同档组合复用实际句柄。相机、材质及归属校验在进入本函数前已完成。
+fn adopt(world: &mut World, runtime: &mut MeshLodRuntime, entity: Entity,
+    target: &mut VisualTarget, levels: &[usize]) -> bool {
+    let Some(cache) = runtime.cache.get_mut(&target.key) else { return false; };
+    let Some(composed) = cache.compositions.get_mut(levels) else { return false; };
+    composed.instances += 1;
+    let (mesh, triangles) = (composed.mesh.clone(), composed.triangles);
+    if target.chunk_selection.is_none() { cache.pins += 1; }
+    if let Some(old) = target.chunk_selection.replace(ChunkSelection { levels: levels.to_vec(), mesh: mesh.clone() }) {
+        release_composition(runtime, target.key, &old.levels);
+    }
+    target.applied = 1;
+    target.chunk_retry_credit = None;
+    runtime.chunk_coarse.insert(entity);
+    world.entity_mut(entity).insert((Mesh3d(mesh), StaticMeshChunkLodStatus { levels: levels.to_vec(), triangles }));
+    true
 }
 
 pub(super) fn is_current(target: &VisualTarget, mesh: &Handle<Mesh>) -> bool {
@@ -25,12 +54,12 @@ pub(super) fn build(source: Mesh) -> Result<Built, String> {
         feathrise_terrain::build_editable_mesh_chunk_lods(source)
             .map(|chunks| Built::Chunks(std::sync::Arc::new(chunks)))
     } else {
-        // 大网格沿原整体静态网格后台管线，避免把现在固定两块的逐目标选档开销扩大。
+        // GLB 和超出分块预算的来源沿用保留完整属性的静态网格后台管线。
         feathrise_terrain::build_static_mesh_lods(source).map(Built::Whole)
     }
 }
 
-/// 每个目标至多2个块、每块5档；选择只看缓存元数据，组合复制留在唯一worker。
+/// 每个目标至多八块、每块五档；选择只看元数据，组合复制留在唯一worker。
 pub(super) fn select(world: &mut World, runtime: &mut MeshLodRuntime, entity: Entity,
     target: &mut VisualTarget, views: &[View], policy: Option<MeshDisplayLodSettings>) {
     let Some(policy) = policy.filter(|_| plain_builtin_material(world, entity)) else {
@@ -47,9 +76,13 @@ pub(super) fn select(world: &mut World, runtime: &mut MeshLodRuntime, entity: En
     if selection.iter().all(|&level| level == 0) {
         restore(world, runtime, entity, target); return;
     }
-    target.chunk_desired = selection.clone();
+    if target.chunk_desired != selection {
+        target.chunk_desired = selection.clone();
+        target.chunk_retry_credit = None; // 信用不足只阻挡相同组合，移动到更省的档位仍可申请。
+    }
     if target.chunk_selection.as_ref().is_some_and(|value| value.levels == selection)
-        || runtime.composition.is_some() || runtime.release.is_some()
+        || adopt(world, runtime, entity, target, &selection) { return; }
+    if runtime.composition.is_some() || runtime.release.is_some()
         || target.chunk_retry_credit == Some(runtime.credit_revision) { return; }
     let ticket = CompositionTicket { entity, key: target.key, selection };
     let choices = ticket.selection.clone();
@@ -87,9 +120,17 @@ pub(super) fn poll(world: &mut World, runtime: &mut MeshLodRuntime, views: &[Vie
     let Some(result) = check_ready(task) else { return; };
     let (ticket, _) = runtime.composition.take().unwrap();
     if let Some(cache) = runtime.cache.get_mut(&ticket.key) { cache.pins = cache.pins.saturating_sub(1); }
-    let valid = runtime.current(ticket.key) && (!authoring || preview)
+    let inspection = world.resource::<MeshLodInspection>().request;
+    let valid = runtime.current(ticket.key)
         && runtime.targets.get(&ticket.entity).is_some_and(|target|
-            target.key == ticket.key && target.chunk_desired == ticket.selection)
+            target.key == ticket.key && target.chunk_desired == ticket.selection && {
+                let inspected = inspection.filter(|request| request.root == target.owner);
+                // 对照原始、退出预览或切换对象后，旧组合不能覆盖已经采用的原始网格。
+                let automatic = preview && runtime.cache.get(&ticket.key)
+                    .and_then(|cache| cache.chunks.as_ref()).is_some_and(|chunks| chunks.small_author_preview());
+                !authoring || (inspected.is_some() || automatic)
+                    && !inspected.is_some_and(|request| request.original)
+            })
         && owner(world, ticket.entity).is_some_and(|owner| owner.active && owner.policy.resolve_display(global).is_some())
         && plain_builtin_material(world, ticket.entity);
     let valid = valid && runtime.targets.get(&ticket.entity).is_some_and(|target| {
@@ -124,13 +165,10 @@ pub(super) fn poll(world: &mut World, runtime: &mut MeshLodRuntime, views: &[Vie
     }
     let triangles = mesh.indices().map_or(0, |indices| indices.len() / 3);
     let handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
-    let target = runtime.targets.get_mut(&ticket.entity).unwrap();
-    if target.chunk_selection.is_none() { runtime.cache.get_mut(&ticket.key).unwrap().pins += 1; }
-    if let Some(old) = target.chunk_selection.replace(ChunkSelection {
-        levels: ticket.selection.clone(), mesh: handle.clone(), bytes,
-    }) { runtime.retired.push_back((old.mesh, old.bytes)); }
-    target.applied = 1;
+    runtime.cache.get_mut(&ticket.key).unwrap().compositions.insert(ticket.selection.clone(),
+        ChunkComposition { mesh: handle, bytes, triangles, instances: 0 });
     runtime.cache_bytes += bytes;
-    runtime.chunk_coarse.insert(ticket.entity);
-    world.entity_mut(ticket.entity).insert((Mesh3d(handle), StaticMeshChunkLodStatus { levels: ticket.selection, triangles }));
+    let mut target = runtime.targets.remove(&ticket.entity).unwrap();
+    adopt(world, runtime, ticket.entity, &mut target, &ticket.selection);
+    runtime.targets.insert(ticket.entity, target);
 }

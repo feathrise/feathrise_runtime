@@ -161,6 +161,32 @@ fn actual_static_display_lod_keeps_source_metadata_and_recovers_for_authoring() 
 }
 
 #[test]
+fn model_inspection_previews_only_the_selected_static_glb_root() {
+    let mut app = app();
+    let source = app.world_mut().resource_mut::<Assets<Mesh>>().add(grid());
+    let root = owner_root(app.world_mut(), false);
+    let other_root = owner_root(app.world_mut(), false);
+    let selected = visual(app.world_mut(), root, source.clone());
+    let sibling = visual(app.world_mut(), other_root, source.clone());
+    camera(app.world_mut());
+    app.world_mut().resource_mut::<MeshLodAuthoringState>().active = true;
+    let request = MeshLodInspectionRequest { root, original: false, triangles: false };
+    app.world_mut().resource_mut::<MeshLodInspection>().request = Some(request);
+    until(&mut app, |world| world.get::<Mesh3d>(selected).unwrap().0 != source);
+    let sample = app.world().resource::<MeshLodInspection>().sample.unwrap();
+    assert!(sample.displayed_triangles < sample.original_triangles);
+    assert_eq!(sample.levels.iter().filter(|level| **level).count(), 1);
+    assert!(!sample.levels[0]);
+    assert_eq!(app.world().get::<Mesh3d>(sibling).unwrap().0, source);
+    assert!(!app.world().resource::<MeshLodRuntimeStatus>().authoring_ready);
+
+    app.world_mut().resource_mut::<MeshLodInspection>().request = None;
+    app.update();
+    assert_eq!(app.world().get::<Mesh3d>(selected).unwrap().0, source);
+    assert!(app.world().resource::<MeshLodRuntimeStatus>().authoring_ready);
+}
+
+#[test]
 fn authoring_world_picks_wait_until_all_lod_primitives_restore_across_the_fixed_frame_budget() {
     let mut app = app();
     let source = app.world_mut().resource_mut::<Assets<Mesh>>().add(grid());
@@ -486,6 +512,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 failed: false,
                 retry_credit: None,
                 chunks: None,
+                compositions: default(),
             },
         );
         runtime.cache.insert(
@@ -498,6 +525,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 failed: false,
                 retry_credit: None,
                 chunks: None,
+                compositions: default(),
             },
         );
         runtime.queue_cache(small_key);
@@ -516,6 +544,7 @@ fn pending_large_asset_retirement_keeps_credit_until_the_real_background_release
                 failed: false,
                 retry_credit: None,
                 chunks: None,
+                compositions: default(),
             },
         );
         runtime.queue_cache(new_key);

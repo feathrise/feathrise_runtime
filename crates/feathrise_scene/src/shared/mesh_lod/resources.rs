@@ -16,6 +16,29 @@ pub struct MeshChunkLodPreview {
     pub active: bool,
 }
 
+/// 作者只读预览只请求一个活动的摆放根。实际采用的网格由原 LOD 系统统计。
+#[derive(Resource, Default)]
+pub struct MeshLodInspection {
+    pub request: Option<MeshLodInspectionRequest>,
+    pub sample: Option<MeshLodInspectionSample>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MeshLodInspectionRequest {
+    pub root: Entity,
+    pub original: bool,
+    pub triangles: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MeshLodInspectionSample {
+    pub original_triangles: usize,
+    pub displayed_triangles: usize,
+    /// 下标是当前真实出现的 LOD 编号，分块模型可以同时采用多档。
+    pub levels: [bool; 5],
+    pub pending: bool,
+}
+
 pub(super) struct Upload {
     pub key: SourceKey,
     pub pending: VecDeque<StaticMeshLod>,

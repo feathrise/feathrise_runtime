@@ -3,6 +3,54 @@
 use super::*;
 use super::triangulation::triangulate_face;
 
+#[test]
+fn plane_is_one_open_quad_with_upward_triangles_and_explicit_codec_identity() {
+    let plane = EditableMeshGeometry::from_plane_size_mm([3000, 5000]).unwrap();
+    assert!(plane.is_open());
+    assert_eq!((plane.vertex_count(), plane.edges().len(), plane.face_count(), plane.triangles().len()), (4, 4, 1, 2));
+    assert_eq!(plane.bounds_half_mm(), ([-3000, 0, -5000], [3000, 0, 5000]));
+    for edge in 0..4 { assert_eq!(plane.adjacent_faces(edge).collect::<Vec<_>>(), [0]); }
+    for triangle in plane.triangles() {
+        let [a, b, c] = triangle.map(|i| DVec3::from_array(plane.vertices()[i].map(f64::from)));
+        assert!((b - a).cross(c - a).y > 0.0);
+    }
+    let mut json = serde_json::to_value(&plane).unwrap();
+    assert_eq!(json["open_surface"], true);
+    assert_eq!(json["vertices_half_mm"].as_array().unwrap().len(), 4);
+    assert_eq!(serde_json::from_value::<EditableMeshGeometry>(json.clone()).unwrap(), plane);
+    json.as_object_mut().unwrap().remove("open_surface");
+    assert!(serde_json::from_value::<EditableMeshGeometry>(json).is_err(), "缺省仍按闭壳校验，不能放行旧坏存档");
+    assert!(EditableMeshGeometry::from_parts(plane.vertices(), plane.faces()).is_err());
+    for size in [[0, 1000], [1000, 10_000_001]] { assert!(EditableMeshGeometry::from_plane_size_mm(size).is_err()); }
+    EditableMeshGeometry::from_plane_size_mm([1, 1]).unwrap();
+}
+
+#[test]
+fn plane_topology_and_deformation_keep_an_open_disk_and_reject_invalid_candidates() {
+    let plane = EditableMeshGeometry::from_plane_size_mm([2000, 2000]).unwrap();
+    let points = (-1..=1).flat_map(|z| (-1..=1).map(move |x| [x * 2000, 0, z * 2000])).collect::<Vec<_>>();
+    let faces = [0, 1, 3, 4].map(|v| MeshFace::new(&[v, v + 3, v + 4, v + 1]).unwrap());
+    let grid = plane.with_parts(points, faces.to_vec()).unwrap();
+    assert_eq!((grid.vertex_count(), grid.edges().len(), grid.face_count()), (9, 12, 4));
+    assert!(grid.is_open());
+    let mut points = grid.vertices().to_vec();
+    points[4][1] = 1000;
+    let bent = grid.with_vertices(points).unwrap();
+    assert!(bent.is_open());
+    assert_eq!(serde_json::from_slice::<EditableMeshGeometry>(&serde_json::to_vec(&bent).unwrap()).unwrap(), bent);
+    let mut points = grid.vertices().to_vec();
+    points[4] = points[0];
+    assert!(grid.with_vertices(points).is_err());
+    let mut disconnected = plane.vertices().to_vec();
+    disconnected.extend(plane.vertices().iter().map(|p| [p[0] + 10_000, p[1], p[2]]));
+    assert!(plane.with_parts(disconnected, vec![plane.faces()[0], MeshFace::new(&[4, 5, 6, 7]).unwrap()]).is_err());
+    let mut duplicate = grid.faces().to_vec();
+    duplicate.push(duplicate[0]);
+    assert!(grid.with_parts(grid.vertices().to_vec(), duplicate).is_err());
+    let cube = ScenePlacementAssetTarget::DEFAULT_CUBOID.editable_geometry().unwrap();
+    assert!(cube.with_parts(cube.vertices().to_vec(), cube.faces()[..5].to_vec()).is_err());
+}
+
 fn prism(boundary: &[[i32; 2]]) -> EditableMeshGeometry {
     let count = boundary.len();
     let mut vertices = Vec::new();
@@ -98,7 +146,7 @@ fn mesh_roundtrip_preserves_legacy_padding_and_rejects_truncation_or_hidden_data
     assert!(MeshFace::new(&[0, 1, 2, 0]).is_err());
     assert!(MeshFace::new(&(0..17).collect::<Vec<_>>()).is_err());
     assert!(
-        EditableMeshGeometry::check_budget(MAX_EDITABLE_MESH_VERTICES, MAX_EDITABLE_MESH_FACES)
+        EditableMeshGeometry::check_budget(MAX_EDITABLE_MESH_VERTICES, MAX_EDITABLE_MESH_FACES, false)
             .unwrap_err()
             .contains("96 MiB")
     );

@@ -1,4 +1,4 @@
-//! 只在构造／解码时校验坐标、带方向的闭壳邻接、正体积及自交。
+//! 只在构造／解码时校验有向闭壳或单边界开口面的邻接、坐标及自交。
 
 use super::{EDITABLE_CUBOID_EDGES, MeshFace, spatial::TriangleIndex, triangulation::visit_face_triangles};
 use bevy::math::DVec3;
@@ -16,9 +16,9 @@ pub(super) struct DerivedMesh {
     pub(super) spatial: TriangleIndex,
 }
 
-pub(super) fn validate(vertices: &[[i32; 3]], faces: &[MeshFace]) -> Result<DerivedMesh, String> {
+pub(super) fn validate(vertices: &[[i32; 3]], faces: &[MeshFace], open_surface: bool) -> Result<DerivedMesh, String> {
     let (points, render_points, bounds) = points(vertices)?;
-    let (edges, edge_faces) = validate_topology(vertices.len(), faces)?;
+    let (edges, edge_faces) = validate_topology(vertices.len(), faces, open_surface)?;
     let mut triangles = Vec::with_capacity(2 * vertices.len() - 4);
     let mut surface = Vec::with_capacity(triangles.capacity());
     let mut face_starts = Vec::with_capacity(faces.len() + 1);
@@ -45,7 +45,7 @@ pub(super) fn validate(vertices: &[[i32; 3]], faces: &[MeshFace]) -> Result<Deri
         })?;
     }
     face_starts.push(triangles.len());
-    if volume <= 1.0 {
+    if !open_surface && volume <= 1.0 {
         return Err("可编辑网格闭壳体积退化或整体翻面".into());
     }
     let spatial = TriangleIndex::build(&triangles, &points, true)?;
@@ -86,9 +86,11 @@ fn ordered(a: usize, b: usize) -> [usize; 2] { [a.min(b), a.max(b)] }
 
 type EdgesWithFaces = (Vec<[usize; 2]>, Vec<[usize; 2]>);
 
-fn validate_topology(count: usize, faces: &[MeshFace]) -> Result<EdgesWithFaces, String> {
+fn validate_topology(count: usize, faces: &[MeshFace], open_surface: bool) -> Result<EdgesWithFaces, String> {
     let mut canonical_faces = HashSet::with_capacity(faces.len());
-    let expected_edges = count + faces.len() - 2;
+    // 连通闭壳的 Euler 值为2，单边界开口面的 Euler 值为1。
+    let expected_edges = count + faces.len() - 2 + usize::from(open_surface);
+    let topology_error = if open_surface { "开口网格必须保持单一连续边界" } else { "当前编辑网格必须保持单一无孔闭壳" };
     let mut edge_lookup = HashMap::with_capacity(expected_edges);
     let mut edges = Vec::<EdgeUse>::with_capacity(expected_edges);
     let mut incident = vec![Vec::new(); count];
@@ -107,9 +109,9 @@ fn validate_topology(count: usize, faces: &[MeshFace]) -> Result<EdgesWithFaces,
             let index = match edge_lookup.entry(ordered(from, to)) {
                 std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
                 std::collections::hash_map::Entry::Vacant(entry) => {
-                    // 多于 V+F−2 的边不可能通过闭壳条件，及早退出也使坏输入遵守邻接预算。
+                    // 及早拒绝不能满足当前 Euler 值的输入，限制临时邻接占用。
                     if edges.len() == expected_edges {
-                        return Err("当前编辑网格必须保持单一无孔闭壳".into());
+                        return Err(topology_error.into());
                     }
                     let index = edges.len();
                     edges.push(EdgeUse { endpoints: [from, to], sides: [None; 2] });
@@ -121,7 +123,7 @@ fn validate_topology(count: usize, faces: &[MeshFace]) -> Result<EdgesWithFaces,
             let edge = &mut edges[index];
             let direction = usize::from(edge.endpoints[0] != from);
             if edge.sides[direction].replace(side_index).is_some() {
-                return Err("可编辑网格必须是每边双面且绕序一致的闭壳".into());
+                return Err("共享边需要两面反向连接，每个方向至多一个面".into());
             }
         }
     }
@@ -129,11 +131,8 @@ fn validate_topology(count: usize, faces: &[MeshFace]) -> Result<EdgesWithFaces,
     if incident.iter().any(Vec::is_empty) {
         return Err("可编辑网格不能保留无关联顶点".into());
     }
-    if edges.iter().any(|edge| edge.sides.contains(&None)) {
-        return Err("可编辑网格必须是每边双面且绕序一致的闭壳".into());
-    }
-    if expected_edges != edges.len() {
-        return Err("当前编辑网格必须保持单一无孔闭壳".into());
+    if expected_edges != edges.len() || edges.iter().any(|edge| edge.sides.contains(&None)) != open_surface {
+        return Err(topology_error.into());
     }
     // 耳切边界最多16点，理论边数也已由Euler约束；临时邻接与校验哈希可先释放。
     validate_connected(&incident, &edges)?;
@@ -167,7 +166,7 @@ fn validate_topology(count: usize, faces: &[MeshFace]) -> Result<EdgesWithFaces,
 }
 
 fn face_index(face: Option<NonZeroU32>) -> usize {
-    (face.expect("已核对完整双面边").get() - 1) as usize
+    face.map_or(usize::MAX, |index| (index.get() - 1) as usize)
 }
 
 fn validate_connected(incident: &[Vec<usize>], edges: &[EdgeUse]) -> Result<(), String> {
@@ -184,7 +183,7 @@ fn validate_connected(incident: &[Vec<usize>], edges: &[EdgeUse]) -> Result<(), 
         }
     }
     if reached.contains(&false) {
-        return Err("可编辑网格包含分离的闭壳".into());
+        return Err("可编辑网格包含分离的几何".into());
     }
     Ok(())
 }
@@ -194,16 +193,19 @@ fn validate_one_rings(incident: &[Vec<usize>], edges: &[EdgeUse], faces: usize) 
     let mut parent = vec![0; faces];
     let mut size = vec![0; faces];
     for adjoining in incident {
+        let mut boundary_edges = 0;
         for &edge in adjoining {
-            for face in edges[edge].sides.map(face_index) {
+            for side in edges[edge].sides {
+                let Some(face) = side else { boundary_edges += 1; continue; };
+                let face = (face.get() - 1) as usize;
                 parent[face] = face;
                 size[face] = 1;
             }
         }
         let mut joins = 0;
         for &edge in adjoining {
-            let [a, b] = edges[edge].sides.map(face_index);
-            let [mut a, mut b] = [root(&mut parent, a), root(&mut parent, b)];
+            let [Some(a), Some(b)] = edges[edge].sides else { continue; };
+            let [mut a, mut b] = [root(&mut parent, (a.get() - 1) as usize), root(&mut parent, (b.get() - 1) as usize)];
             if a != b {
                 if size[a] < size[b] {
                     std::mem::swap(&mut a, &mut b);
@@ -213,8 +215,8 @@ fn validate_one_rings(incident: &[Vec<usize>], edges: &[EdgeUse], faces: usize) 
                 joins += 1;
             }
         }
-        // 闭合双面壳上，一个点的关联面个数等于关联边个数；一环必须只含一个连通分量。
-        if joins + 1 != adjoining.len() {
+        // 内点的一环为闭合圈，边界点必须恰有两条开口边，一环为连续的面链。
+        if !matches!(boundary_edges, 0 | 2) || joins + 1 != adjoining.len() - boundary_edges / 2 {
             return Err("可编辑网格顶点的一环面必须连通，不能把多个壳粘在一点".into());
         }
     }

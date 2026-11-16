@@ -1,14 +1,21 @@
 //! 内置自由建模网格的后台空间分块与独立减面；完整作者源始终由调用方保留。
-use super::{build::build_with_locks, types::{EditableMeshChunkLods, EditableMeshLodChunk, EditableMeshLodIndices}, StaticMeshLodView};
+use super::{attributes::remap_attribute, build::build_with_locks, types::{EditableMeshChunkLods, EditableMeshLodChunk, EditableMeshLodIndices}, StaticMeshLodView};
 use bevy::{mesh::{Indices, PrimitiveTopology, VertexAttributeValues}, prelude::*};
 use std::collections::HashMap;
 
-/// 与当前作者格式的124三角上限配对；不把这个小网格路径用于无界GLB批处理。
-pub const MAX_EDITABLE_CHUNK_LOD_TRIANGLES: usize = 124;
-// 作者源本来很小，过细切块会把几乎所有点都变成锁定边界，失去可简化的块内区域。
-const CHUNK_TRIANGLES: usize = 64;
+/// 覆盖一次100切的立方体；作者数据仍可更大，分块后台任务不因此扩大预算。
+pub const MAX_EDITABLE_CHUNK_LOD_TRIANGLES: usize = 131_072;
+/// 旧小网格允许对象查看时自动准备，密集分块由显式预览或运行时请求。
+pub const SMALL_EDITABLE_CHUNK_LOD_TRIANGLES: usize = 124;
+// 密集来源最多八块；小网格沿用两块，避免把内部点都锁成边界。
+const DENSE_SPLIT_DEPTH: u8 = 3;
 
 impl EditableMeshChunkLods {
+    pub fn small_author_preview(&self) -> bool {
+        self.chunks.iter().map(|chunk| chunk.levels[0].indices.len() / 3).sum::<usize>()
+            <= SMALL_EDITABLE_CHUNK_LOD_TRIANGLES
+    }
+
     pub fn bytes(&self) -> usize {
         super::static_mesh_bytes(&self.source) + self.chunks.iter().map(|chunk|
             chunk.levels.iter().map(|level| level.indices.len() * 4).sum::<usize>()
@@ -40,8 +47,28 @@ impl EditableMeshChunkLods {
         for (chunk, &level) in self.chunks.iter().zip(selection) {
             indices.extend_from_slice(&chunk.levels.get(level).ok_or("分块LOD档位已失效")?.indices);
         }
-        let mut mesh = self.source.clone();
-        mesh.insert_indices(Indices::U32(indices));
+        // 只上传这组档位实际引用的顶点；全量共享来源留给下一次组合与原始回退。
+        let mut remap = vec![u32::MAX; self.source.count_vertices()];
+        let mut retained = Vec::new();
+        for index in &mut indices {
+            let old = *index as usize;
+            if remap[old] == u32::MAX {
+                remap[old] = retained.len() as u32;
+                retained.push(old);
+            }
+            *index = remap[old];
+        }
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, self.source.asset_usage);
+        mesh.enable_raytracing = self.source.enable_raytracing;
+        for (attribute, values) in self.source.attributes() {
+            mesh.insert_attribute(*attribute, remap_attribute(values, &retained));
+        }
+        let indices = if retained.len() <= usize::from(u16::MAX) + 1 {
+            Indices::U16(indices.into_iter().map(|index| index as u16).collect())
+        } else {
+            Indices::U32(indices)
+        };
+        mesh.insert_indices(indices);
         Ok(mesh)
     }
 }
@@ -72,9 +99,8 @@ pub fn build_editable_mesh_chunk_lods(source: Mesh) -> Result<EditableMeshChunkL
     let mut lookup = HashMap::new();
     let mut remap = Vec::with_capacity(positions.len());
     for (position, normal) in positions.iter().zip(normals) {
-        let bits = |values: &[f32; 3]| values.map(|value| if value == 0.0 { 0 } else { value.to_bits() });
         let next = vertices.len() as u32;
-        let index = *lookup.entry((bits(position), bits(normal))).or_insert_with(|| {
+        let index = *lookup.entry((bits(*position), bits(*normal))).or_insert_with(|| {
             vertices.push(*position);
             welded_normals.push(*normal);
             next
@@ -87,36 +113,54 @@ pub fn build_editable_mesh_chunk_lods(source: Mesh) -> Result<EditableMeshChunkL
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, welded_normals);
     mesh.enable_raytracing = source.enable_raytracing;
+    let dense = triangles.len() > SMALL_EDITABLE_CHUNK_LOD_TRIANGLES;
     let mut groups = Vec::new();
-    partition(&vertices, triangles, &mut groups);
+    partition(&vertices, triangles, if dense { 512 } else { 64 },
+        if dense { DENSE_SPLIT_DEPTH } else { 1 }, &mut groups);
     let mut chunks = Vec::with_capacity(groups.len());
     for triangles in groups {
         let indices: Vec<u32> = triangles.iter().flatten().copied().collect();
+        let mut local_ids = HashMap::new();
+        let mut local_positions = Vec::new();
+        let mut local_normals = Vec::new();
+        let Some(VertexAttributeValues::Float32x3(normals)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else {
+            unreachable!("派生来源创建时已安装法线");
+        };
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
-        for &index in &indices {
-            let point = Vec3::from_array(vertices[index as usize]);
-            min = min.min(point); max = max.max(point);
-        }
-        let mut input = mesh.clone();
-        input.insert_indices(Indices::U32(indices.clone()));
+        // 每块只复制用得到的顶点。大网格不能为每块重复克隆和校验整个来源。
+        let local_indices: Vec<u32> = indices.iter().map(|&global| {
+            *local_ids.entry(global).or_insert_with(|| {
+                let position = vertices[global as usize];
+                let point = Vec3::from_array(position);
+                min = min.min(point);
+                max = max.max(point);
+                let local = local_positions.len() as u32;
+                local_positions.push(position);
+                local_normals.push(normals[global as usize]);
+                local
+            })
+        }).collect();
         let mut edges = HashMap::<[u32; 2], usize>::new();
-        for triangle in &triangles { for side in 0..3 {
+        for triangle in local_indices.chunks_exact(3) { for side in 0..3 {
             let [a, b] = [triangle[side], triangle[(side + 1) % 3]];
             *edges.entry([a.min(b), a.max(b)]).or_default() += 1;
         } }
-        let mut locks = vec![false; vertices.len()];
+        let mut locks = vec![false; local_positions.len()];
         for ([a, b], count) in edges {
             if count == 1 { locks[a as usize] = true; locks[b as usize] = true; }
         }
+        let input = Mesh::new(PrimitiveTopology::TriangleList, mesh.asset_usage)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, local_positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, local_normals)
+            .with_inserted_indices(Indices::U32(local_indices));
         let mut levels = vec![EditableMeshLodIndices { indices, max_error: 0.0 }];
         // 共用成熟减面器的LockBorder；每块边界始终保留全部原始点，任何相邻档位都能闭合。
         for lod in build_with_locks(input, Some(&locks))? {
             let Some(VertexAttributeValues::Float32x3(points)) = lod.mesh.attribute(Mesh::ATTRIBUTE_POSITION) else { unreachable!() };
             let Some(VertexAttributeValues::Float32x3(normals)) = lod.mesh.attribute(Mesh::ATTRIBUTE_NORMAL) else { unreachable!() };
             let to_source: Vec<u32> = points.iter().zip(normals)
-                .map(|(point, normal)| lookup[&(point.map(|v| if v == 0.0 { 0 } else { v.to_bits() }),
-                    normal.map(|v| if v == 0.0 { 0 } else { v.to_bits() }))]).collect();
+                .map(|(point, normal)| lookup[&(bits(*point), bits(*normal))]).collect();
             levels.push(EditableMeshLodIndices {
                 indices: lod.mesh.indices().unwrap().iter().map(|index| to_source[index]).collect(),
                 max_error: lod.max_error,
@@ -127,8 +171,16 @@ pub fn build_editable_mesh_chunk_lods(source: Mesh) -> Result<EditableMeshChunkL
     Ok(EditableMeshChunkLods { source: mesh, chunks })
 }
 
-fn partition(vertices: &[[f32; 3]], mut triangles: Vec<[u32; 3]>, out: &mut Vec<Vec<[u32; 3]>>) {
-    if triangles.len() <= CHUNK_TRIANGLES { out.push(triangles); return; }
+fn bits(values: [f32; 3]) -> [u32; 3] {
+    values.map(|value| if value == 0.0 { 0 } else { value.to_bits() })
+}
+
+fn partition(vertices: &[[f32; 3]], mut triangles: Vec<[u32; 3]>, target_size: usize,
+    split_depth: u8, out: &mut Vec<Vec<[u32; 3]>>) {
+    if triangles.len() <= target_size || split_depth == 0 {
+        out.push(triangles);
+        return;
+    }
     let center = |face: &[u32; 3]| face.iter().map(|&i| Vec3::from_array(vertices[i as usize])).sum::<Vec3>() / 3.0;
     let min = triangles.iter().map(center).fold(Vec3::splat(f32::INFINITY), Vec3::min);
     let max = triangles.iter().map(center).fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
@@ -136,6 +188,6 @@ fn partition(vertices: &[[f32; 3]], mut triangles: Vec<[u32; 3]>, out: &mut Vec<
     let axis = if extent.x >= extent.y && extent.x >= extent.z { 0 } else if extent.y >= extent.z { 1 } else { 2 };
     triangles.sort_by(|a, b| center(a)[axis].total_cmp(&center(b)[axis]));
     let right = triangles.split_off(triangles.len() / 2);
-    partition(vertices, triangles, out);
-    partition(vertices, right, out);
+    partition(vertices, triangles, target_size, split_depth - 1, out);
+    partition(vertices, right, target_size, split_depth - 1, out);
 }

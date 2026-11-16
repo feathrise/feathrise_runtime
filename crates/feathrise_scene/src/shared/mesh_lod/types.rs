@@ -1,6 +1,7 @@
 //! 静态网格LOD的不可变来源票据、缓存条目与相机投影规格。
 use bevy::{asset::AssetId, prelude::*};
 use feathrise_scene_content::MeshLodPolicy;
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct SourceKey {
@@ -22,7 +23,13 @@ pub(super) struct VisualTarget {
 pub(super) struct ChunkSelection {
     pub levels: Vec<usize>,
     pub mesh: Handle<Mesh>,
+}
+
+pub(super) struct ChunkComposition {
+    pub mesh: Handle<Mesh>,
     pub bytes: usize,
+    pub triangles: usize,
+    pub instances: usize,
 }
 
 pub(super) enum Built {
@@ -50,6 +57,7 @@ pub(super) struct VisualCache {
     pub failed: bool,
     pub retry_credit: Option<u64>,
     pub chunks: Option<std::sync::Arc<feathrise_terrain::EditableMeshChunkLods>>,
+    pub compositions: HashMap<Vec<usize>, ChunkComposition>,
 }
 
 pub(super) struct Owner {

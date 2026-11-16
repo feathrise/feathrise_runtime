@@ -19,6 +19,33 @@ fn install(app: &mut App, root: Entity, target: ScenePlacementAssetTarget) {
 }
 
 #[test]
+fn plane_visual_has_two_sided_material_real_surface_collider_and_separate_cube_cache() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins).init_resource::<Assets<Mesh>>().init_resource::<Assets<StandardMaterial>>();
+    let root = app.world_mut().spawn((Transform::IDENTITY, Visibility::Inherited)).id();
+    install(&mut app, root, ScenePlacementAssetTarget::EditableMesh {
+        geometry: feathrise_scene_content::EditableMeshGeometry::from_plane_size_mm([3000, 5000]).unwrap(),
+        color_srgb: [160; 3], roughness_milli: 700, collision: true,
+    });
+    let visual = builtin_visual_for_root(app.world(), root).unwrap();
+    assert!(builtin_placement_visual_ready(app.world(), root));
+    let material = app.world().get::<MeshMaterial3d<StandardMaterial>>(visual).unwrap().0.clone();
+    let plane_material = app.world().resource::<Assets<StandardMaterial>>().get(&material).unwrap();
+    assert!(plane_material.double_sided);
+    assert_eq!(plane_material.cull_mode, None);
+    let bounds = app.world().get::<Aabb>(visual).unwrap();
+    assert_eq!(bounds.half_extents.y, 0.0);
+    assert_eq!(app.world().get::<Collider>(visual).unwrap().shape().as_trimesh().unwrap().indices().len(), 2);
+    install(&mut app, root, ScenePlacementAssetTarget::DEFAULT_CUBOID);
+    let visual = builtin_visual_for_root(app.world(), root).unwrap();
+    let cube_material = &app.world().get::<MeshMaterial3d<StandardMaterial>>(visual).unwrap().0;
+    assert_ne!(cube_material, &material);
+    let cube_material = app.world().resource::<Assets<StandardMaterial>>().get(cube_material).unwrap();
+    assert!(!cube_material.double_sided);
+    assert!(cube_material.cull_mode.is_some());
+}
+
+#[test]
 fn full_builtin_appearance_survives_small_and_async_geometry_swaps() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)

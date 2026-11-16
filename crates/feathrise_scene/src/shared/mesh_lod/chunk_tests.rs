@@ -9,6 +9,63 @@ mod fixture;
 
 fn source() -> Mesh { crate::editable_mesh_mesh(fixture::geometry()) }
 
+#[test]
+fn dense_chunk_preview_reports_actual_reduction_and_restores_the_identical_source() {
+    use bevy::{asset::RenderAssetUsages, mesh::{Indices, PrimitiveTopology}};
+    let (mut app, visual, _, original) = setup();
+    let root = app.world().get::<ChildOf>(visual).unwrap().parent();
+    // 与实际细分立方体一致：每个三角拥有独立的作者角点、UV 和线框标记。
+    let mut positions = Vec::new();
+    for y in 0..24 {
+        for x in 0..24 {
+            // 二进制可精确表示的格距保证相邻三角共点，不把浮点加法尾差误当真实接缝。
+            let [x, y] = [x as f32 / 16.0 - 1.0, y as f32 / 16.0 - 1.0];
+            let next_x = x + 1.0 / 16.0;
+            let next_y = y + 1.0 / 16.0;
+            positions.extend([[x,y,0.0], [next_x,y,0.0], [next_x,next_y,0.0],
+                [x,y,0.0], [next_x,next_y,0.0], [x,next_y,0.0]]);
+        }
+    }
+    let count = positions.len();
+    let dense = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0,0.0,1.0]; count])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, [[0.0,0.0], [1.0,0.0], [1.0,1.0]].repeat(count / 3))
+        .with_inserted_attribute(crate::ATTRIBUTE_AUTHORING_WIRE, vec![0.0; count])
+        .with_inserted_indices(Indices::U32((0..count as u32).collect()));
+    app.world_mut().resource_mut::<Assets<Mesh>>().insert(original.id(), dense).unwrap();
+    let overlay = app.world_mut().spawn((Mesh3d(original.clone()), MeshLodAuxiliary,
+        MeshMaterial3d::<StandardMaterial>(default()), ChildOf(root))).id();
+    app.world_mut().resource_mut::<MeshLodAuthoringState>().active = true;
+    let request = MeshLodInspectionRequest { root, original: false, triangles: true };
+    app.world_mut().resource_mut::<MeshLodInspection>().request = Some(request);
+    tests::until(&mut app, |world| world.resource::<MeshLodInspection>().sample
+        .is_some_and(|sample| sample.displayed_triangles < sample.original_triangles));
+    let report = app.world().resource::<MeshLodInspection>().sample.unwrap();
+    let adopted = app.world().get::<Mesh3d>(visual).unwrap();
+    assert_ne!(adopted.0, original);
+    assert_eq!(report.original_triangles, count / 3);
+    assert!(!app.world().resource::<resources::MeshLodRuntime>().targets.contains_key(&overlay));
+    assert!(report.displayed_triangles < count / 6, "{report:?}");
+    assert_eq!(report.displayed_triangles, app.world().resource::<Assets<Mesh>>()
+        .get(&adopted.0).unwrap().indices().unwrap().len() / 3);
+    let installed = app.world().resource::<Assets<Mesh>>().get(&adopted.0).unwrap();
+    assert_eq!(installed.indices().unwrap().iter().collect::<BTreeSet<_>>().len(), installed.count_vertices());
+    assert!(app.world().get::<StaticMeshChunkLodStatus>(visual).unwrap().levels.len() > 2);
+
+    app.world_mut().resource_mut::<MeshLodInspection>().request =
+        Some(MeshLodInspectionRequest { original: true, ..request });
+    app.update();
+    assert_eq!(app.world().get::<Mesh3d>(visual).unwrap().0, original);
+    assert_eq!(app.world().resource::<MeshLodInspection>().sample.unwrap().displayed_triangles, count / 3);
+    app.world_mut().resource_mut::<MeshLodInspection>().request = Some(request);
+    tests::until(&mut app, |world| world.get::<Mesh3d>(visual).unwrap().0 != original);
+    app.world_mut().resource_mut::<MeshLodInspection>().request = None;
+    app.update();
+    assert_eq!(app.world().get::<Mesh3d>(visual).unwrap().0, original);
+    assert!(app.world().resource::<MeshLodInspection>().sample.is_none());
+}
+
 fn setup() -> (App, Entity, Entity, Handle<Mesh>) {
     let mut app = tests::app();
     let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
@@ -27,6 +84,30 @@ fn setup() -> (App, Entity, Entity, Handle<Mesh>) {
     tests::camera(app.world_mut());
     let camera = app.world_mut().query_filtered::<Entity, With<Camera3d>>().single(app.world()).unwrap();
     (app, entity, camera, source)
+}
+
+#[test]
+fn identical_chunk_levels_share_one_mesh_until_the_last_instance_releases_it() {
+    let (mut app, first, _, source) = setup();
+    let other_root = tests::owner_root(app.world_mut(), false);
+    let other = tests::visual(app.world_mut(), other_root, source.clone());
+    let material = app.world().get::<MeshMaterial3d<StandardMaterial>>(first).unwrap().clone();
+    let bounds = *app.world().get::<Aabb>(first).unwrap();
+    app.world_mut().entity_mut(other).insert((material, bounds));
+    tests::until(&mut app, |world| world.get::<StaticMeshChunkLodStatus>(first).is_some()
+        && world.get::<StaticMeshChunkLodStatus>(other).is_some());
+    let shared = app.world().get::<Mesh3d>(first).unwrap().0.clone();
+    assert_eq!(app.world().get::<Mesh3d>(other).unwrap().0, shared);
+    assert_ne!(shared, source);
+
+    app.world_mut().despawn(first);
+    app.update();
+    assert_eq!(app.world().get::<Mesh3d>(other).unwrap().0, shared);
+    assert!(app.world().resource::<Assets<Mesh>>().contains(shared.id()));
+
+    app.world_mut().resource_mut::<feathrise_settings::RenderSettings>().mesh_lod.display_enabled = false;
+    tests::until(&mut app, |world| !world.resource::<Assets<Mesh>>().contains(shared.id()));
+    assert_eq!(app.world().get::<Mesh3d>(other).unwrap().0, source);
 }
 
 #[test]

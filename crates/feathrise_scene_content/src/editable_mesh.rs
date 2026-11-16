@@ -75,6 +75,7 @@ impl MeshFace {
 pub struct EditableMeshGeometry(Arc<MeshData>);
 
 struct MeshData {
+    open_surface: bool,
     vertices: Vec<[i32; 3]>,
     faces: Vec<MeshFace>,
     edges: Vec<[usize; 2]>,
@@ -91,6 +92,7 @@ struct MeshData {
 impl std::fmt::Debug for EditableMeshGeometry {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_struct("EditableMeshGeometry")
+            .field("open_surface", &self.is_open())
             .field("vertices", &self.vertex_count())
             .field("faces", &self.face_count())
             .field("fingerprint", &self.0.fingerprint)
@@ -101,6 +103,7 @@ impl std::fmt::Debug for EditableMeshGeometry {
 impl PartialEq for EditableMeshGeometry {
     fn eq(&self, other: &Self) -> bool {
         self.same_storage(other) || (self.0.fingerprint == other.0.fingerprint
+            && self.is_open() == other.is_open()
             && self.vertices() == other.vertices() && self.faces() == other.faces())
     }
 }
@@ -114,6 +117,18 @@ impl Hash for EditableMeshGeometry {
 }
 
 impl EditableMeshGeometry {
+    /// 创建朝 +Y 的单个 XZ 四边面。毫米尺寸正好对应本地半毫米坐标的半边长。
+    pub fn from_plane_size_mm(size_mm: [u32; 2]) -> Result<Self, String> {
+        if size_mm.iter().any(|size| !(1..=10_000_000).contains(size)) {
+            return Err("平面尺寸必须在 0.001 至 10000 米之间".into());
+        }
+        let [x, z] = size_mm.map(|size| size as i32);
+        let vertices = vec![[-x, 0, -z], [-x, 0, z], [x, 0, z], [x, 0, -z]];
+        Self::construct(vertices, vec![MeshFace::new(&[0, 1, 2, 3])?], true)
+    }
+
+    pub fn is_open(&self) -> bool { self.0.open_surface }
+
     /// 保留已校验的旧八点调用入口；公开作者入口通过受检构造返回错误。
     pub fn from_cuboid_vertices(vertices: [[i32; 3]; 8]) -> Self {
         Self::checked_cuboid(vertices).expect("构造内置八点网格前必须校验来源")
@@ -125,17 +140,28 @@ impl EditableMeshGeometry {
     }
 
     pub fn from_parts(vertices: &[[i32; 3]], faces: &[MeshFace]) -> Result<Self, String> {
-        Self::check_budget(vertices.len(), faces.len())?;
+        Self::check_budget(vertices.len(), faces.len(), false)?;
         Self::from_owned_parts(vertices.to_vec(), faces.to_vec())
     }
 
     pub fn from_owned_parts(vertices: Vec<[i32; 3]>, faces: Vec<MeshFace>) -> Result<Self, String> {
-        Self::check_budget(vertices.len(), faces.len())?;
-        let derived = validation::validate(&vertices, &faces)?;
+        Self::construct(vertices, faces, false)
+    }
+
+    /// 拓扑操作继承作者来源的开口或闭合约定，不能让坏闭壳悄悄降级为开口面。
+    pub fn with_parts(&self, vertices: Vec<[i32; 3]>, faces: Vec<MeshFace>) -> Result<Self, String> {
+        Self::construct(vertices, faces, self.is_open())
+    }
+
+    fn construct(vertices: Vec<[i32; 3]>, faces: Vec<MeshFace>, open_surface: bool) -> Result<Self, String> {
+        Self::check_budget(vertices.len(), faces.len(), open_surface)?;
+        let derived = validation::validate(&vertices, &faces, open_surface)?;
         let mut hasher = DefaultHasher::new();
+        open_surface.hash(&mut hasher);
         vertices.hash(&mut hasher);
         faces.hash(&mut hasher);
         Ok(Self(Arc::new(MeshData {
+            open_surface,
             vertices,
             faces,
             edges: derived.edges,
@@ -150,9 +176,12 @@ impl EditableMeshGeometry {
         })))
     }
 
-    fn check_budget(vertices: usize, faces: usize) -> Result<(), String> {
-        if vertices < 4 || faces < 4 {
-            return Err("可编辑网格至少需要4个共享顶点和4个面".into());
+    fn check_budget(vertices: usize, faces: usize, open_surface: bool) -> Result<(), String> {
+        if open_surface && (vertices < 3 || faces == 0) {
+            return Err("开口网格至少需要3个共享顶点和1个面".into());
+        }
+        if !open_surface && (vertices < 4 || faces < 4) {
+            return Err("可编辑闭壳至少需要4个共享顶点和4个面".into());
         }
         if editable_mesh_required_bytes(vertices, faces).is_none_or(|bytes| bytes > MAX_EDITABLE_MESH_BYTES) {
             return Err("可编辑网格的原始几何与派生数据超过96 MiB安全内存预算".into());
@@ -165,8 +194,8 @@ impl EditableMeshGeometry {
         if vertices == self.vertices() {
             return Ok(self.clone());
         }
-        Self::check_budget(vertices.len(), self.face_count())?;
-        Self::from_owned_parts(vertices, self.faces().to_vec())
+        Self::check_budget(vertices.len(), self.face_count(), self.is_open())?;
+        self.with_parts(vertices, self.faces().to_vec())
     }
 
     pub fn same_storage(&self, other: &Self) -> bool {
@@ -201,8 +230,13 @@ impl EditableMeshGeometry {
     /// 真实作者边固定顺序；不把渲染三角对角线混入选区。
     pub fn edges(&self) -> &[[usize; 2]] { &self.0.edges }
 
-    /// 与作者边索引对齐的两个相邻面，不需要调用方重新遍历整壳。
+    /// 与作者边索引对齐的相邻面。开口网格没有面的边侧使用 usize::MAX。
     pub fn edge_faces(&self) -> &[[usize; 2]] { &self.0.edge_faces }
+
+    /// 遍历指定边真实相邻的一个或两个面，编辑工具无需处理开口边的空侧。
+    pub fn adjacent_faces(&self, edge: usize) -> impl Iterator<Item = usize> {
+        self.edge_faces().get(edge).into_iter().flatten().copied().filter(|&face| face != usize::MAX)
+    }
 
     pub fn triangles(&self) -> &[[usize; 3]] { &self.0.triangles }
 

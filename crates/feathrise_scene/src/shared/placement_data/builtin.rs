@@ -34,8 +34,8 @@ enum BuiltinGeometryKey {
 struct BuiltinPrimitiveCache {
     meshes: HashMap<BuiltinGeometryKey, AssetId<Mesh>>,
     mesh_order: VecDeque<BuiltinGeometryKey>,
-    materials: HashMap<([u8; 3], u16), AssetId<StandardMaterial>>,
-    material_order: VecDeque<([u8; 3], u16)>,
+    materials: HashMap<([u8; 3], u16, bool), AssetId<StandardMaterial>>,
+    material_order: VecDeque<([u8; 3], u16, bool)>,
 }
 
 /// 正式显示与编辑幽灵共用十二三角及逐三角法线，非平面四边面不会假装成单一平面。
@@ -124,9 +124,10 @@ pub fn spawn_builtin_placement_visual(
             (BuiltinGeometryKey::Mesh(geometry.clone()), *color_srgb, *roughness_milli, *collision),
         _ => return false,
     };
+    let open_surface = matches!(&geometry, BuiltinGeometryKey::Mesh(geometry) if geometry.is_open());
     commands.queue(move |world: &mut World| {
         preparation::request(world, root, preparation::Request {
-            target, geometry, material: (color_srgb, roughness_milli), collision,
+            target, geometry, material: (color_srgb, roughness_milli, open_surface), collision,
         });
     });
     true

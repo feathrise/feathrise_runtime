@@ -166,6 +166,7 @@ fn failure(
             failed: true,
             retry_credit: None,
             chunks: None,
+            compositions: default(),
         },
     );
     runtime.queue_cache(key);
@@ -256,7 +257,7 @@ pub(super) fn drive(
                     } else {
                         runtime.cache.insert(key, VisualCache {
                             levels: Vec::new(), bytes, pins: 0, complete: true, failed: false,
-                            retry_credit: None, chunks: Some(chunks),
+                            retry_credit: None, chunks: Some(chunks), compositions: default(),
                         });
                         runtime.cache_bytes += bytes;
                         runtime.requested.remove(&key);
@@ -276,6 +277,7 @@ pub(super) fn drive(
                             failed: false,
                             retry_credit: None,
                             chunks: None,
+                            compositions: default(),
                         },
                     );
                     runtime.queue_cache(key);
@@ -508,6 +510,7 @@ pub(super) fn select(world: &mut World) {
     let views = views(world);
     let authoring = world.resource::<MeshLodAuthoringState>().active;
     let chunk_preview = world.resource::<MeshChunkLodPreview>().active;
+    let inspection = world.resource::<MeshLodInspection>().request.filter(|_| authoring);
     let global = world
         .get_resource::<feathrise_settings::RenderSettings>()
         .map(|settings| settings.mesh_lod.sanitized())
@@ -588,20 +591,27 @@ pub(super) fn select(world: &mut World) {
                     .entity_mut(entity)
                     .insert(Mesh3d(target.original.clone()));
             }
-            let chunked = runtime.cache.get(&key).is_some_and(|cache| cache.chunks.is_some());
+            let chunks = runtime.cache.get(&key).and_then(|cache| cache.chunks.as_ref());
+            let chunked = chunks.is_some();
+            let automatic_preview = chunk_preview && chunks.is_some_and(|chunks| chunks.small_author_preview());
+            let inspected = inspection.filter(|request| request.root == target.owner);
             let policy = source_owner
                 .as_ref()
                 .filter(|owner| owner.active)
                 .and_then(|owner| owner.policy.resolve_display(global))
-                .filter(|_| (!authoring || (chunked && chunk_preview)) && !views.is_empty());
+                .filter(|_| (!authoring || inspected.is_some() || automatic_preview)
+                    && !inspected.is_some_and(|request| request.original) && !views.is_empty());
             if policy.is_some() {
                 runtime.request(key);
             }
-            // 作者对象观察也需要首次准备；原始网格的私有布局标识是固定时间查询。
-            if authoring && chunk_preview && source_owner.as_ref().is_some_and(|owner| owner.active)
+            // 保留小网格的自动准备。密集来源只在明确预览或运行时需要时提交后台。
+            if authoring && chunk_preview && !inspected.is_some_and(|request| request.original)
+                && source_owner.as_ref().is_some_and(|owner| owner.active)
                 && source_owner.as_ref().and_then(|owner| owner.policy.resolve_display(global)).is_some()
                 && world.resource::<Assets<Mesh>>().get(&target.original).is_some_and(|mesh|
-                    mesh.contains_attribute(crate::ATTRIBUTE_AUTHORING_WIRE)) {
+                    mesh.try_contains_attribute(crate::ATTRIBUTE_AUTHORING_WIRE).unwrap_or(false)
+                        && mesh.try_indices_option().ok().flatten().is_some_and(|indices|
+                            indices.len() / 3 <= feathrise_terrain::SMALL_EDITABLE_CHUNK_LOD_TRIANGLES)) {
                 runtime.request(key);
             }
             if chunked {
@@ -675,6 +685,11 @@ pub(super) fn select(world: &mut World) {
             runtime.cursor.push_back(entity);
         }
         super::chunks::poll(world, &mut runtime, &views, global, authoring, chunk_preview);
+        let sample = inspection.and_then(|request| super::inspection::sample(world, &runtime, request, global.is_some()));
+        let mut report = world.resource_mut::<MeshLodInspection>();
+        if report.sample != sample {
+            report.sample = sample;
+        }
     });
 }
 

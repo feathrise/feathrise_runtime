@@ -110,7 +110,7 @@ pub fn extruded_placement_record(
     }
     // 有效负距可以采用；穿入旧表面、重叠侧壁或翻面时完整拒绝候选。
     let target = before.asset_target.with_editable_geometry(
-        EditableMeshGeometry::from_owned_parts(points, boundaries)?,
+        geometry.with_parts(points, boundaries)?,
     )?;
     let mut after = before.clone();
     after.asset_target = target;

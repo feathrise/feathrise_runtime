@@ -13,12 +13,14 @@ use std::marker::PhantomData;
 
 impl Serialize for EditableMeshGeometry {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let legacy = self.vertex_count() <= LEGACY_CAPACITY && self.face_count() <= LEGACY_CAPACITY;
-        let mut state = serializer.serialize_struct("EditableMeshGeometry", 4)?;
+        let open_surface = self.is_open();
+        let legacy = !open_surface && self.vertex_count() <= LEGACY_CAPACITY && self.face_count() <= LEGACY_CAPACITY;
+        let mut state = serializer.serialize_struct("EditableMeshGeometry", 4 + usize::from(open_surface))?;
         state.serialize_field("vertices_half_mm", &Sequence(self.vertices(), legacy))?;
         state.serialize_field("faces", &Sequence(self.faces(), legacy))?;
         state.serialize_field("vertex_count", &self.vertex_count())?;
         state.serialize_field("face_count", &self.face_count())?;
+        if open_surface { state.serialize_field("open_surface", &true)?; }
         state.end()
     }
 }
@@ -50,6 +52,8 @@ impl<'de> Deserialize<'de> for EditableMeshGeometry {
             faces: Bounded<MeshFace, MAX_EDITABLE_MESH_FACES>,
             vertex_count: usize,
             face_count: usize,
+            #[serde(default)]
+            open_surface: bool,
         }
         let decoded = Encoded::deserialize(deserializer)?;
         let mut vertices = decoded.vertices_half_mm.0;
@@ -69,7 +73,7 @@ impl<'de> Deserialize<'de> for EditableMeshGeometry {
         } else if vertices.len() != decoded.vertex_count || faces.len() != decoded.face_count {
             return Err(de::Error::custom("紧凑网格的点面数组必须和声明数量相同"));
         }
-        Self::from_owned_parts(vertices, faces).map_err(de::Error::custom)
+        Self::construct(vertices, faces, decoded.open_surface).map_err(de::Error::custom)
     }
 }
 

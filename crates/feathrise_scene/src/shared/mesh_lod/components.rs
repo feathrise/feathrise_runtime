@@ -7,6 +7,10 @@ pub struct StaticMeshLodOriginal {
     pub mesh: Handle<Mesh>,
 }
 
+/// 只为作者辅助绘制的网格。它可以复用模型的显示句柄，不作为独立减面来源或统计项。
+#[derive(Component, Clone, Copy)]
+pub struct MeshLodAuxiliary;
+
 /// F12作者模式临时要求原始显示；不修改全局质量偏好或场景LOD策略。
 #[derive(Resource, Default)]
 pub struct MeshLodAuthoringState {

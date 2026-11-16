@@ -4,20 +4,23 @@ use bevy::{asset::AssetEvent, prelude::*};
 mod capture;
 mod collision;
 mod components;
+mod inspection;
 mod ownership;
 mod resources;
 mod systems;
 mod types;
 mod chunks;
 
-pub use components::{MeshLodAuthoringState, StaticMeshLodOriginal, StaticMeshChunkLodStatus};
+pub use components::{MeshLodAuthoringState, MeshLodAuxiliary, StaticMeshLodOriginal, StaticMeshChunkLodStatus};
 pub use resources::{MeshLodRuntimeStatus, MeshChunkLodPreview};
+pub use resources::{MeshLodInspection, MeshLodInspectionRequest, MeshLodInspectionSample};
 
 pub(crate) fn install(app: &mut App) {
     app.init_resource::<resources::MeshLodRuntime>()
         .init_resource::<MeshLodRuntimeStatus>()
         .init_resource::<MeshLodAuthoringState>()
         .init_resource::<MeshChunkLodPreview>()
+        .init_resource::<MeshLodInspection>()
         .add_message::<AssetEvent<Mesh>>()
         .add_observer(systems::mesh_inserted)
         .add_observer(ownership::hierarchy_changed)
@@ -53,3 +56,6 @@ mod parity_tests;
 
 #[cfg(test)]
 mod chunk_tests;
+
+#[cfg(test)]
+mod gpu_benchmark;
