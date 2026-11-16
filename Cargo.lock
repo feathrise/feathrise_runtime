@@ -459,6 +459,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 [[package]]
 name = "avian3d"
 version = "0.8.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "approx",
  "avian_derive",
@@ -616,6 +617,7 @@ dependencies = [
 [[package]]
 name = "bevy_anti_alias"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -795,6 +797,7 @@ dependencies = [
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -978,6 +981,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1650,6 +1654,7 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.20.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -3071,6 +3076,7 @@ dependencies = [
 [[package]]
 name = "dlss_wgpu"
 version = "6.0.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "ash",
  "bindgen",
@@ -7510,6 +7516,7 @@ dependencies = [
 [[package]]
 name = "wgpu-ffx"
 version = "0.1.0"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -7528,6 +7535,7 @@ checksum = "e7188412df1ef6714a00704b21b568c67e317c2fb09fbafe59baf0bd43ec43ff"
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
+source = "git+https://github.com/feathrise/feathrise_patches.git?rev=5eaec9241a2c1860f8b2f683a80fbe2b150236e8#5eaec9241a2c1860f8b2f683a80fbe2b150236e8"
 dependencies = [
  "android_system_properties",
  "arrayvec",

@@ -142,3 +142,14 @@ opt-level = 3
 # 保留现有渲染开发命令和缓存名称，优化规则统一继承 dev。
 [profile.render-dev]
 inherits = "dev"
+
+# 单独检出 SDK 即可开发；存在同级补丁仓时 Cargo 配置仍可显式切换到本地路径。
+[patch.crates-io]
+avian3d = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_anti_alias = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_core_pipeline = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_extract = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+bevy_render = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+dlss_wgpu = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+wgpu-ffx = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
+wgpu-hal = { git = "https://github.com/feathrise/feathrise_patches.git", rev = "5eaec9241a2c1860f8b2f683a80fbe2b150236e8" }
