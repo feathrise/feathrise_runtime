@@ -128,7 +128,11 @@ pub struct NumericInputStepButton {
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NumericInputDisabled;
 
-/// 为公共数字输入增加“中键精确输入、左拖数值、右拖灵敏度”的可选专业编辑行为。
+/// 应用用稳定逻辑键保存拖动速度，实体重建后仍能恢复同一字段的设置。
+#[derive(Component, Clone, Debug)]
+pub struct NumericInputScrubSettingsKey(pub String);
+
+/// 为公共数字输入增加“左键单击输入、左拖数值、右拖速度”的专业编辑行为。
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct NumericInputScrubConfig {
     pub mapping: NumericInputScrubMapping, // 当前字段的线性或指数相对拖动映射。
@@ -138,7 +142,7 @@ pub struct NumericInputScrubConfig {
     pub sensitivity: f32, // 当前字段独立的用户灵敏度倍率。
     pub minimum_sensitivity: f32, // 右拖允许设置的最小倍率。
     pub maximum_sensitivity: f32, // 右拖允许设置的最大倍率。
-    pub drag_threshold_pixels: f32, // 左键超过该物理像素数后才发布实际值变化；短按无动作。
+    pub drag_threshold_pixels: f32, // 超过该物理像素数才拖值；未拖动时左键松开进入精确输入。
     pub sensitivity_pixels_per_octave: f32, // 右拖多少物理像素使灵敏度翻倍或减半。
 }
 

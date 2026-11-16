@@ -130,7 +130,7 @@ impl NumericInputSpec {
             max: None,                        // 默认允许完整i32上界。
             step: Some(NumericValue::I32(1)), // 默认每次步进一个整数单位。
             boundary_mode: NumericInputBoundaryMode::Clamp, // 普通优先级停在边界端点。
-            editable: true, // 默认允许控件约定的精确输入手势；专业数值框使用中键。
+            editable: true, // 默认允许控件约定的精确输入手势；专业数值框在左键无拖动松开时输入。
             show_step_buttons: true, // 保持与u32构造器一致的旧式数值行默认值。
             live_update: false, // 字符编辑默认只在提交时传播。
             replace_on_first_key: false, // 默认延续原数值缓冲而非首键覆盖。
