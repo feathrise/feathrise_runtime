@@ -1,4 +1,4 @@
-//! 工程的不可变路径身份；工程显式提供编译入口，不包含验证DLL的ABI或预检算法。
+//! 工程的不可变路径身份；调用方显式提供工程入口，不包含验证DLL的ABI或预检算法。
 
 use bevy::prelude::Resource;
 use serde_json::Value;
@@ -21,7 +21,7 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
-    /// env!(CARGO_MANIFEST_DIR/PACKAGE_NAME)必须在工程main展开后传入，不能在共享库内展开。
+    /// 调用方提供本次启动的 Cargo 入口目录；包名在工程 main 中取得，不能使用共享库的包身份。
     pub fn load(manifest_dir: &Path, package: &str) -> Result<Self, String> {
         let executable = std::env::current_exe()
             .map_err(|error| format!("工程程序路径不可读：{error}"))?;
@@ -29,7 +29,7 @@ impl ProjectContext {
     }
 
     fn load_with_executable(manifest_dir: &Path, package: &str, executable: &Path) -> Result<Self, String> {
-        // 显式导出标记先于编译路径解析；原源码目录被移动或删除后，完整包仍只使用EXE旁的身份与资产。
+        // 显式导出标记先于开发入口路径解析；原源码目录被移动或删除后，完整包仍只使用EXE旁的身份与资产。
         // 标记一旦存在便成为当前运行来源，损坏或身份不符不能静默回退开发工程。
         if let Some(project) = Self::from_exported_executable(executable, package)? {
             return Ok(project);
