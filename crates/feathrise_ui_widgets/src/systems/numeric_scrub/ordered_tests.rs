@@ -126,6 +126,82 @@ fn numeric_scrub_ordered_return_to_start_preserves_drag_intent_without_a_net_edi
     assert_eq!(messages.business_changed, 0);
     assert_eq!(messages.business_committed.len(), 1);
     assert!(!messages.business_committed[0].changed);
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+}
+
+#[test]
+fn numeric_scrub_ordered_click_enters_edit_only_on_release_and_keeps_mouse_ownership() {
+    let (mut app, root, window) = fixture();
+    cursor(&mut app, window, 100.);
+    button(&mut app, window, ButtonState::Pressed);
+    app.update();
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+    cursor(&mut app, window, 102.); // 小幅抖动仍属于单击。
+    button(&mut app, window, ButtonState::Released);
+    app.update();
+    assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
+    assert!(app.world().resource::<ActiveNumericInputScrub>().owns_mouse());
+    assert!(app.world().resource::<FeedbackMessages>().business_committed.is_empty());
+    assert_eq!(app.world().get::<NumericInputValue>(root).unwrap().0, NumericValue::F32(1.));
+    app.update();
+    assert!(!app.world().resource::<ActiveNumericInputScrub>().owns_mouse());
+}
+
+#[test]
+fn numeric_scrub_ordered_same_frame_click_uses_release_hit_instead_of_final_hover() {
+    for (release_y, expected_edit) in [(100., true), (200., false)] {
+        let (mut app, root, window) = fixture();
+        app.world_mut().entity_mut(root).insert((UiInteraction::None, RelativeCursorPosition::default()));
+        cursor(&mut app, window, 100.);
+        button(&mut app, window, ButtonState::Pressed);
+        app.world_mut().write_message(WindowEvent::CursorMoved(CursorMoved {
+            window, position: Vec2::new(100., release_y), delta: None,
+        }));
+        button(&mut app, window, ButtonState::Released);
+        cursor(&mut app, window, if expected_edit { 200. } else { 100. });
+        app.update();
+        assert_eq!(app.world().resource::<ActiveNumericInput>().entity, expected_edit.then_some(root));
+        assert!(app.world().resource::<FeedbackMessages>().business_committed.is_empty());
+    }
+}
+
+#[test]
+fn numeric_scrub_ordered_repeated_click_preserves_existing_text_buffer() {
+    let (mut app, root, window) = fixture();
+    cursor(&mut app, window, 100.);
+    button(&mut app, window, ButtonState::Pressed);
+    button(&mut app, window, ButtonState::Released);
+    app.update();
+    {
+        let mut edit = app.world_mut().get_mut::<NumericInputEditState>(root).unwrap();
+        edit.buffer = "-".into(); // 允许尚未完成的负号继续输入。
+        edit.edited = true;
+    }
+    button(&mut app, window, ButtonState::Pressed);
+    app.update();
+    button(&mut app, window, ButtonState::Released);
+    app.update();
+    assert_eq!(app.world().get::<NumericInputEditState>(root).unwrap().buffer, "-");
+    assert_eq!(app.world().resource::<ActiveNumericInput>().entity, Some(root));
+    assert!(app.world().resource::<FeedbackMessages>().business_committed.is_empty());
+}
+
+#[test]
+fn numeric_scrub_ordered_middle_and_right_click_do_not_enter_text_edit() {
+    for mouse_button in [MouseButton::Middle, MouseButton::Right] {
+        let (mut app, _, window) = fixture();
+        cursor(&mut app, window, 100.);
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            let event = MouseButtonInput { window, button: mouse_button, state };
+            app.world_mut().write_message(event);
+            app.world_mut().write_message(WindowEvent::MouseButtonInput(event));
+        }
+        app.update();
+        assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
+        let messages = app.world().resource::<FeedbackMessages>();
+        assert!(messages.business_committed.is_empty());
+        assert!(messages.sensitivity_committed.is_empty());
+    }
 }
 
 #[test]

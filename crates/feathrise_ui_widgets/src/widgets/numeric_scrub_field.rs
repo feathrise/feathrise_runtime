@@ -1,7 +1,7 @@
 //! 开箱即用的专业数值属性框：一次生成标签、进度填充、数值、单位和完整输入模型。
 //!
 //! 【功能设计】业务只提供稳定marker、初值、数值规格和拖动规格；公共控件统一拥有
-//! 左键拖实际值、右键拖独立灵敏度、中键进入精确输入的视觉与命中结构。
+//! 左键拖实际值、右键拖独立灵敏度、左键单击进入精确输入的视觉与命中结构。
 
 use crate::UiInteraction;
 use crate::InteractionButton;
@@ -107,7 +107,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
         NumericInputConfig(options.input), // 保存精确输入和边界规格。
         NumericInputEditState::new(value, options.input.replace_on_first_key), // 初始化字符编辑事务状态。
         palette.input,                     // 焦点刷新沿用字段自身的主题。
-        options.scrub,                     // 启用左值、右灵敏度和中键精确输入专业手势。
+        options.scrub,                     // 启用左值、右灵敏度和左键单击精确输入专业手势。
         InteractionButton,                            // 复用公共字段交互与视觉系统。
         UiInteraction::default(),            // 首帧从无交互状态开始。
         RelativeCursorPosition::default(), // 水平相对坐标驱动与帧率无关的总位移拖动。
@@ -164,7 +164,7 @@ pub fn spawn_numeric_scrub_field_with_palette<M: Component>(
             NumericInputDisplayText { root: root_entity }, // 精确输入和拖动只更新这一段数字。
             NumericInputScrubValueText { root: root_entity }, // 右拖倍率另用鼠标旁提示，业务值和原精度继续可见。
             Text::new(display),                               // 首帧立即显示规范化业务值。
-            FocusPolicy::Pass,                                // 数值文字不截获中键或左右拖动。
+            FocusPolicy::Pass,                                // 数值文字不截获左键单击或左右键拖动。
             Pickable::IGNORE,
             TextFont {
                 font: font.clone().into(),               // 复用同一字体资产。

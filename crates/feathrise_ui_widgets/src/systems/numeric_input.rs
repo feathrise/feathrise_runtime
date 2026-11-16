@@ -112,10 +112,10 @@ pub fn numeric_input_system(
     mut state: NumericInputState,
 ) {
     let scrub_frame = process_numeric_input_scrub(&mut interactions, &mut state); // 先区分单击、左拖数值与右拖灵敏度。
-    if scrub_frame.consume_frame {
+    if scrub_frame.consume_frame && scrub_frame.precise_edit_root.is_none() {
         interactions.keyboard_inputs.clear(); // 拖动期间不让同帧数字键污染任何精确输入缓冲。
         sync_numeric_input_field_visuals(
-            state.active.entity,   // 拖动开始时已经提交并释放旧精确输入焦点。
+            state.active.entity,   // 正在编辑同一字段时，短按期间保留现有焦点。
             &state.disabled_query, // 禁用字段继续使用公共暗色视觉。
             state
                 .default_palette
@@ -126,7 +126,7 @@ pub fn numeric_input_system(
         );
         return; // 指针仍被拖动捕获时不再处理步进、单击或键盘编辑。
     }
-    if let Some((root, direction)) =
+    if !scrub_frame.consume_frame && let Some((root, direction)) =
         interactions
             .step_buttons
             .iter()
@@ -158,9 +158,8 @@ pub fn numeric_input_system(
             .field_clicks
             .iter()
             .find_map(|(interaction, button)| {
-                (scrub_frame.suppressed_click_root != Some(button.root)
-                    // 专业字段只能由本次捕获的中键进入文本编辑；翻页后的旧左键松开不能借新布局重新聚焦。
-                    && interactions.scrub_configs.get(button.root).is_err()
+                // 专业字段只接受捕获确认的松键，翻页后的旧点击不能在新布局上聚焦。
+                (interactions.scrub_configs.get(button.root).is_err()
                     && button_released(interaction, &interactions.mouse))
                 .then_some(button.root) // 非专业字段仍保留普通左键精确输入。
             })
@@ -299,6 +298,7 @@ pub fn numeric_input_system(
         if (interactions.mouse.just_pressed(MouseButton::Left)
             || interactions.mouse.just_released(MouseButton::Left))
             && !active_input_hovered
+            && scrub_frame.precise_edit_root != Some(active_root)
         {
             should_finish = true;
         }

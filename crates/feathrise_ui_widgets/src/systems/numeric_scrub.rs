@@ -1,7 +1,7 @@
 //! 公共数字输入的相对拖动扩展：左键改变业务值，右键改变字段独立灵敏度。
 //!
-//! 【功能设计】左键只负责实际值拖动，右键只负责字段灵敏度，中键进入精确输入；
-//! 一旦左键越过阈值，松开只提交一次结果。右拖也只在松开时通知持久化，避免逐帧写设置文件。
+//! 【功能设计】左键在同一字段按下并松开可精确输入；超过水平拖动阈值后只调整数值。
+//! 右键拖动调整字段速度，松开时通知持久化，避免逐帧写设置文件。
 
 use crate::UiInteraction;
 use super::*; // 复用数字输入根查询、格式化、提交消息与显示文本刷新入口。
@@ -12,15 +12,14 @@ use crate::types::{NumericInputBoundaryMode, NumericInputSpec, NumericValue, Num
 mod ordered_pointer;
 pub(super) use ordered_pointer::OrderedPointer;
 
-/// 本帧拖动仲裁结果；数字输入主循环据此跳过拖动帧或抑制松开后的误单击。
+/// 本帧指针仲裁结果；只有本次捕获确认的左键单击可以进入专业字段文本编辑。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct NumericInputScrubFrame {
-    pub(super) consume_frame: bool, // 指针仍被捕获时禁止普通数字输入继续消费同帧事件。
-    pub(super) suppressed_click_root: Option<Entity>, // 左拖结束的根不能再进入精确输入。
-    pub(super) precise_edit_root: Option<Entity>, // 中键命中的专业字段在本帧进入精确输入。
+    pub(super) consume_frame: bool, // 捕获与松键均禁止继续消费普通按钮点击。
+    pub(super) precise_edit_root: Option<Entity>, // 未形成拖动且松回原字段时进入精确输入。
 }
 
-/// 把内部两种持续拖动职责转换为Bevy真实鼠标按键；中键另由一次性精确输入分支处理。
+/// 把内部两种捕获职责转换为Bevy鼠标按键。
 fn mouse_button(button: crate::types::NumericInputScrubButton) -> MouseButton {
     match button {
         crate::types::NumericInputScrubButton::Value => MouseButton::Left, // 左键调整实际值。
@@ -31,7 +30,7 @@ fn mouse_button(button: crate::types::NumericInputScrubButton) -> MouseButton {
 /// 另一枚编辑鼠标键仍在操作或刚发生边沿时拒绝新捕获，避免数值事务与外部作者事务交叉。
 fn has_conflicting_mouse_button(
     mouse: &ButtonInput<MouseButton>, // 本帧完整鼠标电平和按下/释放边沿。
-    requested: MouseButton,           // 当前准备开始的左拖、右拖或中键精确编辑。
+    requested: MouseButton,           // 当前准备捕获的左键或右键。
 ) -> bool {
     [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
         .into_iter()
@@ -185,7 +184,7 @@ fn ui_path_is_interactable(
             || visibility.is_some_and(|value| *value == Visibility::Hidden)
             || inherited.is_some_and(|value| !value.get())
         {
-            return false; // 直接隐藏、父级隐藏和布局隐藏都不能启动三种专业手势。
+            return false; // 直接隐藏、父级隐藏和布局隐藏都不能参与数值编辑。
         }
         let Some(parent) = parent else {
             return true; // 到达仍可见的UI根，整条路径均可交互。
@@ -292,6 +291,9 @@ pub(super) fn process_numeric_input_scrub(
     interactions: &mut NumericInputInteractions<'_, '_>, // 字段命中、鼠标、配置与唯一捕获。
     state: &mut NumericInputState<'_, '_>,               // 数字模型、文本焦点和业务消息出口。
 ) -> NumericInputScrubFrame {
+    if interactions.active_scrub.released_this_frame {
+        interactions.active_scrub.released_this_frame = false;
+    }
     if let Some(button) = interactions.active_scrub.canceled_button {
         interactions.ordered_pointer.discard();
         if !interactions.mouse.pressed(mouse_button(button))
@@ -303,27 +305,6 @@ pub(super) fn process_numeric_input_scrub(
     }
     let ordered = interactions.ordered_pointer.poll();
     if interactions.active_scrub.entity.is_none() {
-        if interactions.mouse.just_pressed(MouseButton::Middle)
-            && !has_conflicting_mouse_button(&interactions.mouse, MouseButton::Middle)
-        {
-            let precise_edit_root =
-                interactions
-                    .scrub_fields
-                    .iter()
-                    .find_map(|(field, interaction, cursor, _)| {
-                        (pointer_targets_field(interaction, cursor)
-                            && ui_path_is_interactable(field.root, &interactions.ui_hierarchy)
-                            && interactions.scrub_configs.get(field.root).is_ok())
-                        .then_some(field.root) // 中键只激活真正命中的专业输入根。
-                    });
-            if precise_edit_root.is_some() {
-                return NumericInputScrubFrame {
-                    consume_frame: false,        // 中键不开始持续拖动捕获，普通主循环负责切换焦点。
-                    suppressed_click_root: None, // 本帧没有左键松开需要抑制。
-                    precise_edit_root,           // 主循环会以公共方式提交旧字段并聚焦新字段。
-                };
-            }
-        }
         let pressed_button = if let Some((_, button, _)) = ordered.start {
             if has_conflicting_mouse_button(&interactions.mouse, mouse_button(button)) {
                 interactions.ordered_pointer.discard();
@@ -364,7 +345,9 @@ pub(super) fn process_numeric_input_scrub(
             interactions.ordered_pointer.discard();
             return NumericInputScrubFrame::default();
         }
-        if let Some(active_root) = state.active.entity {
+        if let Some(active_root) = state.active.entity
+            && (active_root != root || button == crate::types::NumericInputScrubButton::Sensitivity)
+        {
             commit_numeric_input(active_root, false, false, state); // 新拖动先提交旧精确输入，防止两个模式并存。
         }
         let Ok((_, value, _, disabled)) = state.root_query.get_mut(root) else {
@@ -387,12 +370,10 @@ pub(super) fn process_numeric_input_scrub(
         interactions.active_scrub.start_cursor_x = start_cursor_x; // 总位移始终相对按下物理位置。
         interactions.active_scrub.start_value = Some(start_value); // 左拖不逐帧累计误差。
         interactions.active_scrub.start_sensitivity = config.sensitivity; // 右拖倍率同样从按下快照计算。
-        interactions.active_scrub.dragged = false; // 尚未越过四像素时保持短按无动作，不发布数值变化。
-        if !ordered.owned { return NumericInputScrubFrame {
-            consume_frame: true,         // 按下帧由拖动捕获拥有，键盘和普通单击等待松开仲裁。
-            suppressed_click_root: None, // 是否抑制左键单击要等累计位移超过阈值。
-            precise_edit_root: None,     // 左右拖动不会同时进入字符编辑。
-        }; }
+        interactions.active_scrub.dragged = false; // 先捕获按压，达到阈值才开始调整。
+        if !ordered.owned && !interactions.mouse.just_released(mouse_button(button)) {
+            return NumericInputScrubFrame { consume_frame: true, ..default() };
+        }
     }
 
     let root = interactions.active_scrub.entity.expect("已检查活动拖动根"); // 唯一捕获在本分支必然存在。
@@ -401,10 +382,10 @@ pub(super) fn process_numeric_input_scrub(
         .button
         .expect("活动拖动必须保存左右键职责"); // 捕获构造保证按键身份完整。
     if interactions.keyboard.just_pressed(KeyCode::Escape) || ordered.canceled
-        || (ordered.owned && !ordered.released && !interactions.mouse.pressed(mouse_button(button)))
+        || (ordered.owned && ordered.release.is_none() && !interactions.mouse.pressed(mouse_button(button)))
     {
         cancel_drag(root, button, interactions, state);
-        return NumericInputScrubFrame { consume_frame: true, suppressed_click_root: Some(root), ..default() };
+        return NumericInputScrubFrame { consume_frame: true, ..default() };
     }
     let position = if ordered.owned { ordered.position } else { interactions
         .scrub_fields
@@ -415,6 +396,11 @@ pub(super) fn process_numeric_input_scrub(
     if let (Some(current_x), Some(config)) = (position, config) {
         let delta_pixels = current_x - interactions.active_scrub.start_cursor_x; // 只使用总位移，帧率不影响结果。
         if delta_pixels.abs().max(ordered.excursion) >= config.drag_threshold_pixels.max(0.0) {
+            if !interactions.active_scrub.dragged && state.active.entity == Some(root) {
+                // 编辑中的同字段单击保留缓冲。真正开始拖动时才提交缓冲，并从提交值起拖。
+                commit_numeric_input(root, false, false, state);
+                interactions.active_scrub.start_value = state.root_query.get(root).ok().map(|(_, value, _, _)| value.0);
+            }
             interactions.active_scrub.dragged = true; // 越过阈值后回到原点也仍按一次拖动收口。
         }
         if interactions.active_scrub.dragged {
@@ -447,21 +433,35 @@ pub(super) fn process_numeric_input_scrub(
         }
     }
 
-    if if ordered.owned { !ordered.released } else { interactions.mouse.pressed(mouse_button(button)) } {
-        return NumericInputScrubFrame {
-            consume_frame: true,         // 对应按键仍按住时继续独占数字输入指针。
-            suppressed_click_root: None, // 松开前不需要普通输入判断单击。
-            precise_edit_root: None,     // 捕获期间中键不会切换到精确输入。
-        };
+    if if ordered.owned { ordered.release.is_none() } else { interactions.mouse.pressed(mouse_button(button)) } {
+        return NumericInputScrubFrame { consume_frame: true, ..default() };
     }
 
     let dragged = interactions.active_scrub.dragged; // 清空捕获前冻结最终阈值结论。
     let start_value = interactions.active_scrub.start_value; // 左拖提交需要按下值判断净变化。
     let start_sensitivity = interactions.active_scrub.start_sensitivity; // 右拖提交需要一次前后值。
+    let mut precise_edit_root = None;
     match button {
         crate::types::NumericInputScrubButton::Value if dragged => {
             if let Some(start_value) = start_value {
                 finish_value_drag(root, start_value, state); // 松开只形成一条业务提交。
+            }
+        }
+        crate::types::NumericInputScrubButton::Value => {
+            let released_on_field = if ordered.owned {
+                ordered.release.as_ref().is_some_and(|(field, location)| {
+                    interactions.ordered_pointer.release_hits_field(root, *field, location)
+                })
+            } else {
+                interactions.mouse.just_released(MouseButton::Left)
+                    && interactions.scrub_fields.iter().any(|(field, interaction, cursor, _)| {
+                        field.root == root && pointer_targets_field(interaction, cursor)
+                    })
+            };
+            if released_on_field && ui_path_is_interactable(root, &interactions.ui_hierarchy) {
+                precise_edit_root = Some(root);
+            } else if state.active.entity == Some(root) {
+                commit_numeric_input(root, false, false, state); // 拖出字段再松开遵守原文本失焦语义。
             }
         }
         crate::types::NumericInputScrubButton::Sensitivity if dragged => {
@@ -476,14 +476,13 @@ pub(super) fn process_numeric_input_scrub(
                     });
             }
         }
-        _ => {} // 未超过阈值的左键和右键单击都保持无动作。
+        _ => {} // 右键单击不修改速度。
     }
-    *interactions.active_scrub = ActiveNumericInputScrub::default(); // 松开或窗口失焦后释放唯一捕获。
+    // 同一帧按下又松开的手势也需要告知外层鼠标门，避免松键穿透到其他控件。
+    *interactions.active_scrub = ActiveNumericInputScrub { released_this_frame: true, ..default() };
     NumericInputScrubFrame {
-        consume_frame: false, // 松开帧允许普通输入处理真正的左键单击。
-        suppressed_click_root: (button == crate::types::NumericInputScrubButton::Value)
-            .then_some(root), // 专业字段左键只负责实际值，短按也不能误入精确输入。
-        precise_edit_root: None, // 左右键松开不会冒充中键精确输入。
+        consume_frame: true,
+        precise_edit_root,
     }
 }
 
@@ -492,7 +491,9 @@ fn cancel_drag(root: Entity, button: crate::types::NumericInputScrubButton,
     interactions: &mut NumericInputInteractions, state: &mut NumericInputState) {
     match button {
         crate::types::NumericInputScrubButton::Value => {
-            if let Some(before) = interactions.active_scrub.start_value
+            if state.active.entity == Some(root) {
+                commit_numeric_input(root, true, false, state); // 按住尚未开始拖动时，Esc仍取消已在编辑的文本。
+            } else if let Some(before) = interactions.active_scrub.start_value
                 && let Ok((config, mut value, mut edit, _)) = state.root_query.get_mut(root)
             {
                 let changed = value.0 != before;

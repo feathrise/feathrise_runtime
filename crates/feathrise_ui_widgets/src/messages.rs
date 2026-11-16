@@ -23,7 +23,7 @@ pub enum NumericInputCommitOutcome {
 /// 一次提交来自字符编辑、步进按钮还是专业字段拖动；业务层可据此选择事务语义。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumericInputCommitSource {
-    Text,  // 中键单击专业字段（或左键单击普通字段）后的Enter、失焦、Esc或非法缓冲恢复。
+    Text,  // 左键单击专业字段（或左键单击普通字段）后的Enter、失焦、Esc或非法缓冲恢复。
     Step,  // 公共加减按钮形成的一次离散变化。
     Scrub, // 左键相对拖动松开形成的一次事务收口。
 }

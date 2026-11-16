@@ -409,7 +409,7 @@ fn right_feedback_resumes_after_pointer_returns_at_the_same_saturated_multiplier
 }
 
 #[test]
-fn feedback_keeps_left_scrub_single_commit_and_middle_cancel_protocol() {
+fn feedback_keeps_left_scrub_single_commit_and_click_edit_cancel_protocol() {
     let input = NumericInputSpec::f32(3).with_replace_on_first_key(true);
     let (mut app, root) = feedback_fixture(NumericValue::F32(1.0), input, "m");
     let (value_text, feedback, parts) = feedback_entities(&mut app, root);
@@ -457,11 +457,12 @@ fn feedback_keeps_left_scrub_single_commit_and_middle_cancel_protocol() {
     point_feedback(&mut app, root, 0.0);
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Middle);
+        .press(MouseButton::Left);
     tick_feedback(&mut app);
+    assert!(app.world().resource::<ActiveNumericInput>().entity.is_none());
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
-        .release(MouseButton::Middle);
+        .release(MouseButton::Left);
     tick_feedback(&mut app);
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()

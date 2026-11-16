@@ -20,7 +20,7 @@ pub(super) struct Frame {
     pub owned: bool,
     pub start: Option<(Entity, NumericInputScrubButton, f32)>,
     pub position: Option<f32>,
-    pub released: bool,
+    pub release: Option<(Entity, Location)>,
     pub canceled: bool,
     pub excursion: f32,
 }
@@ -64,7 +64,7 @@ impl OrderedPointer<'_, '_> {
                         PointerAction::Move { .. } => self.capture.location = Some(event.location.clone()),
                         PointerAction::Release(button) if Some(button) == self.capture.button => {
                             self.capture.location = Some(event.location.clone());
-                            frame.released = true;
+                            frame.release = Some((field, event.location.clone()));
                         }
                         PointerAction::Cancel => frame.canceled = true,
                         _ => {}
@@ -77,7 +77,7 @@ impl OrderedPointer<'_, '_> {
                     frame.excursion = self.capture.excursion;
                 }
                 if frame.position.is_none() { frame.canceled = true; }
-                if frame.released || frame.canceled { *self.capture = Capture::default(); break; }
+                if frame.release.is_some() || frame.canceled { *self.capture = Capture::default(); break; }
             } else if let PointerAction::Press(button @ (PointerButton::Primary | PointerButton::Secondary)) = event.action {
                 let root = hit(&event.location, self.stack.as_deref(), &self.nodes,
                     &self.fields, &self.cameras, self.primary.single().ok());
@@ -102,6 +102,14 @@ impl OrderedPointer<'_, '_> {
             if frame.position.is_none() { frame.canceled = true; *self.capture = Capture::default(); }
         }
         frame
+    }
+
+    /// 单击由松键事件所在位置裁决，不能使用同帧后续移动产生的悬停状态。
+    pub(super) fn release_hits_field(&self, root: Entity, field: Entity, location: &Location) -> bool {
+        hit(location, self.stack.as_deref(), &self.nodes, &self.fields, &self.cameras,
+            self.primary.single().ok()).is_some_and(|(hit_root, hit_field, _)| {
+                hit_root == root && hit_field == field
+            })
     }
 }
 

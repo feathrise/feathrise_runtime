@@ -24,13 +24,14 @@ pub struct ActiveNumericInputScrub {
     pub(crate) start_value: Option<NumericValue>, // 左拖开始前的规范化数值。
     pub(crate) start_sensitivity: f32, // 右拖开始前的独立灵敏度倍率。
     pub(crate) dragged: bool,   // 是否曾超过四像素阈值；一旦成立，回到原点也仍是拖动。
+    pub(crate) released_this_frame: bool, // 同帧按下并松开也要隔离世界输入。
     pub(crate) canceled_button: Option<NumericInputScrubButton>, // Esc收口后等待原物理按压释放，不能重放迟到移动。
 }
 
 impl ActiveNumericInputScrub {
     /// 数值事务已经取消也仍持有原按压；释放后的静默帧才允许其他鼠标工具接管。
     pub fn owns_mouse(&self) -> bool {
-        self.entity.is_some() || self.canceled_button.is_some()
+        self.entity.is_some() || self.released_this_frame || self.canceled_button.is_some()
     }
 }
 
