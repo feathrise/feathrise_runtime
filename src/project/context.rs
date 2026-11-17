@@ -9,6 +9,8 @@ use std::{
 };
 
 const DESCRIPTOR_LIMIT: u64 = 64 * 1024;
+const TOML_DESCRIPTOR: &str = "feathrise.toml";
+const DESCRIPTOR_NAMES: [&str; 2] = [TOML_DESCRIPTOR, "editor-project.json"];
 const EXPORT_MARKER: &str = "feathrise-export.json";
 const ROOT_LIMIT: usize = 16;
 
@@ -21,6 +23,26 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
+    /// 定位工程根的清单，供 RPG 等调用方沿用同一优先级。实际读取时仍需校验文件归属。
+    pub fn find_descriptor(root: &Path) -> Result<Option<PathBuf>, String> {
+        for name in DESCRIPTOR_NAMES {
+            let path = root.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(_) => return Ok(Some(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                Err(error) => return Err(format!("工程清单不可读：{error}")),
+            }
+        }
+        Ok(None)
+    }
+
+    /// 读同一份工程清单，并复用普通文件与 64 KiB 的校验。
+    pub fn read_descriptor(root: &Path) -> Result<Option<Value>, String> {
+        Self::find_descriptor(root)?
+            .map(|path| read_descriptor_file(&path))
+            .transpose()
+    }
+
     /// 调用方提供本次启动的 Cargo 入口目录；包名在工程 main 中取得，不能使用共享库的包身份。
     pub fn load(manifest_dir: &Path, package: &str) -> Result<Self, String> {
         let executable = std::env::current_exe()
@@ -41,14 +63,12 @@ impl ProjectContext {
         let mut ancestor = Some(compiled.as_path());
         for _ in 0..16 {
             let Some(root) = ancestor else { break };
-            match fs::symlink_metadata(root.join("editor-project.json")) {
-                Ok(_) => return Self::from_descriptor(root, Some(&manifest), package),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-                Err(error) => return Err(format!("工程清单不可读：{error}")),
+            if let Some(descriptor) = Self::find_descriptor(root)? {
+                return Self::from_descriptor(root, &descriptor, Some(&manifest), package);
             }
             ancestor = root.parent();
         }
-        Err("工程编译入口的16层祖先内缺少editor-project.json，拒绝使用SDK或启动目录资产".into())
+        Err("工程编译入口的16层祖先内缺少 feathrise.toml，拒绝使用SDK或启动目录资产".into())
     }
 
     fn from_exported_executable(executable: &Path, package: &str) -> Result<Option<Self>, String> {
@@ -65,7 +85,8 @@ impl ProjectContext {
             return Err("工程导出标记必须声明feathrise-export v1".into());
         }
         let expected_id = text(&marker, "project_id", 128)?;
-        let project = Self::from_descriptor(&root, None, package)?;
+        let descriptor = Self::find_descriptor(&root)?.ok_or("导出包缺少工程清单")?;
+        let project = Self::from_descriptor(&root, &descriptor, None, package)?;
         if project.id != expected_id {
             return Err("工程导出标记与运行描述的工程身份不一致".into());
         }
@@ -76,9 +97,10 @@ impl ProjectContext {
         &self.asset_roots[0]
     }
 
-    fn from_descriptor(root: &Path, manifest: Option<&Path>, package: &str) -> Result<Self, String> {
-        let path = checked_existing(root, Path::new("editor-project.json"), false)?;
-        let value = read_small_json(&path, DESCRIPTOR_LIMIT)?;
+    fn from_descriptor(root: &Path, descriptor: &Path, manifest: Option<&Path>, package: &str) -> Result<Self, String> {
+        let relative = descriptor.strip_prefix(root).map_err(|_| "工程清单不属于当前工程")?;
+        let path = checked_existing(root, relative, false)?;
+        let value = read_descriptor_file(&path)?;
         // 正式入口使用工程格式和saved-world能力版号；旧验证DLL的sdk_abi字段不支配游戏代码装配。
         if value["format"].as_u64() != Some(2)
             || value["game_entry"]["kind"] != "saved-world"
@@ -147,6 +169,16 @@ fn text<'a>(value: &'a Value, key: &str, maximum: usize) -> Result<&'a str, Stri
         .ok_or_else(|| format!("工程字段{key}必须是{maximum}字节内的非空普通文本"))
 }
 
+fn read_descriptor_file(path: &Path) -> Result<Value, String> {
+    if path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("toml")) {
+        let bytes = read_small_file(path, DESCRIPTOR_LIMIT)?;
+        let source = std::str::from_utf8(&bytes).map_err(|error| format!("工程清单不是 UTF-8：{error}"))?;
+        toml::from_str(source).map_err(|error| format!("工程清单 TOML 无效：{error}"))
+    } else {
+        read_small_json(path, DESCRIPTOR_LIMIT)
+    }
+}
+
 pub(crate) fn read_small_json(path: &Path, limit: u64) -> Result<Value, String> {
     let bytes = read_small_file(path, limit)?;
     serde_json::from_slice(&bytes)
@@ -157,7 +189,7 @@ pub(crate) fn read_small_file(path: &Path, limit: u64) -> Result<Vec<u8>, String
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if !ordinary(&metadata) || !metadata.is_file() || metadata.len() > limit {
         return Err(format!(
-            "配置必须是{limit}字节内的普通JSON文件：{}",
+            "配置必须是{limit}字节内的普通配置文件：{}",
             path.display()
         ));
     }
@@ -291,7 +323,7 @@ mod tests {
                 "game_entry":{"kind":"saved-world","version":1},
                 "game_view":"fixed_top_down",
             });
-            fs::write(root.join("editor-project.json"), serde_json::to_vec(&value).unwrap()).unwrap();
+            fs::write(root.join(TOML_DESCRIPTOR), toml::to_string(&value).unwrap()).unwrap();
             value
         }
 
@@ -344,6 +376,9 @@ mod tests {
         let fixture = ExportFixture::new();
         let developer = fixture.0.join("developer");
         let compiled = fixture.developer(&developer);
+        let descriptor = ProjectContext::read_descriptor(&developer).unwrap().unwrap();
+        fs::write(developer.join("editor-project.json"), serde_json::to_vec(&descriptor).unwrap()).unwrap();
+        fs::remove_file(developer.join(TOML_DESCRIPTOR)).unwrap();
         let binary = fixture.0.join("binary");
         fs::create_dir(&binary).unwrap();
         let context = ProjectContext::load_with_executable(&compiled, "game_fixture", &binary.join("game.exe")).unwrap();
@@ -388,7 +423,7 @@ mod tests {
         ] {
             let mut invalid = descriptor.clone();
             invalid[field] = value;
-            fs::write(output.join("editor-project.json"), serde_json::to_vec(&invalid).unwrap()).unwrap();
+            fs::write(output.join(TOML_DESCRIPTOR), toml::to_string(&invalid).unwrap()).unwrap();
             assert!(ProjectContext::load_with_executable(&fixture.0.join("absent"), "game_fixture", &output.join("game.exe")).is_err());
         }
     }

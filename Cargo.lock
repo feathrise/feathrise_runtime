@@ -3468,6 +3468,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "subsecond",
+ "toml",
  "wgpu-hal",
  "windows-sys 0.61.2",
  "winit",

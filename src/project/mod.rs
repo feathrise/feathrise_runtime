@@ -42,7 +42,7 @@ impl GameView {
         }
     }
     pub fn load(project: &ProjectContext) -> Result<Self, String> {
-        let value = context::read_small_json(&project.root.join("editor-project.json"), 64 * 1024)?;
+        let value = ProjectContext::read_descriptor(&project.root)?.ok_or("工程根缺少工程清单")?;
         value
             .get("game_view")
             .map(|v| serde_json::from_value(v.clone()).map_err(|e| format!("工程视角无效：{e}")))
