@@ -72,7 +72,10 @@ jobs:
             $patchRoot = (Resolve-Path -LiteralPath '../feathrise_patches').Path
             $patchRevision = git -C $patchRoot rev-parse HEAD
             if ($LASTEXITCODE -ne 0 -or $patchRevision -ne $env:FEATHRISE_PATCH_REV) { throw '补丁仓检出身份与指定修订不一致。' }
-            $sourceArguments = @('--config', (Join-Path $patchRoot '.cargo/config.toml'))
+            # 用单独的锁验收本地源码，保留公开检出的锁。
+            New-Item -ItemType Directory -Path '.local/sdk' -Force | Out-Null
+            Copy-Item -LiteralPath 'Cargo.lock' -Destination '.local/sdk/Cargo.lock'
+            $sourceArguments = @('--config', (Join-Path $patchRoot '.cargo/config.toml'), '--config', "resolver.lockfile-path='.local/sdk/Cargo.lock'")
             cargo @sourceArguments fetch
             if ($LASTEXITCODE -ne 0) { throw '无法为指定的补丁准备联调锁。' }
           }
@@ -86,3 +89,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '插件接口、预览协议或场景契约测试失败。' }
           cargo build --manifest-path examples/native_plugin/Cargo.toml --target-dir target --lib
           if ($LASTEXITCODE -ne 0) { throw '无编辑器源码的中性插件编译失败。' }
+          git diff --exit-code -- Cargo.lock
+          if ($LASTEXITCODE -ne 0) { throw 'SDK 公开锁被改写，请核对联调锁配置。' }

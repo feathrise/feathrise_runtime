@@ -91,8 +91,14 @@ FSR 帧生成可以显式提供 `FEATHRISE_FSR3_PACKAGE` 指向已有固定原�
 
 ## 本地修改
 
-将 SDK 和 Bevy 0.20.1 配套的 `feathrise_patches` 同级检出后，在 SDK 目录运行 Cargo。SDK 自己的 `.cargo/config.toml` 会加载同级补丁配置。补丁仓在其他位置时，用 `cargo --config <补丁配置路径>` 指定。
+将 SDK 和 Bevy 0.20.1 配套的 `feathrise_patches` 同级检出后，在 SDK 根目录同时指定本地补丁与独立锁。Cargo 只更新已忽略的 `.local/sdk/Cargo.lock`，根目录的 `Cargo.lock` 保持公开 Git 来源。补丁仓在其他位置时，修改第一个配置路径即可。
+
+```powershell
+$localCargo = @('--config', '../feathrise_patches/.cargo/config.toml', '--config', "resolver.lockfile-path='.local/sdk/Cargo.lock'")
+cargo @localCargo fetch
+cargo @localCargo check --locked -p feathrise_runtime
+```
 
 自己的工程可使用 `feathrise_runtime = { version = "0.2.0", path = "../feathrise_runtime" }`，同时锁定 Bevy 0.20.1 并加载同级 `feathrise_patches/.cargo/config.toml` 中的本地补丁。SDK 内部的子库也使用 `version + path`。打包时 Cargo 移除路径、采用 registry 版本。
 
-编辑器的 Cargo 清单声明 SDK 版本。联调本地源码时，将 SDK 自有包和独立补丁仓的八项补丁一并配置到本机 Cargo 的 `[patch.crates-io]`，再通过 `cargo --config .cargo/local-sdk.toml` 使用。公开 CI 分别检出固定版本的 SDK 与补丁仓，并生成本地路径覆盖。
+编辑器联调按[编辑器源码说明](https://github.com/feathrise/feathrise#本地源码联调)配置 SDK 自有包和八项补丁。编辑器自己的联调锁由它的配置选择。公开 CI 分别检出固定版本的 SDK 与补丁仓，并生成本地路径覆盖。

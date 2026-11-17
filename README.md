@@ -67,7 +67,7 @@ Feathrise 的 `sdk-source.toml` 为场景工程选择配套源码。历史工程
 cargo check --locked -p feathrise_runtime
 ```
 
-Windows 构建使用 Rust 1.97.1 或更新版本及 MSVC。SDK 单独检出即可开发，Cargo 会按锁文件取得公开补丁。需要一起修改补丁时，将补丁仓同级检出，执行 `cargo --config ../feathrise_patches/.cargo/config.toml fetch` 解析本地依赖，再用同一配置编译。提交给公开仓的锁文件应保留公开 Git 来源。默认和验收特性的编译工作流见 [CI 说明](docs/ci.md)。测试素材使用库内中性输入。
+Windows 构建使用 Rust 1.97.1 或更新版本及 MSVC。SDK 单独检出即可开发，Cargo 会按锁文件取得公开补丁。需要一起修改补丁时，按[本地修改](docs/crates-io.md#本地修改)同时指定补丁配置和联调锁。默认和验收特性的编译工作流见 [CI 说明](docs/ci.md)。测试素材使用库内中性输入。
 
 FSR 帧生成使用 `FEATHRISE_FSR3_PACKAGE` 指定已有本地 ZIP 时，只校验、解包并链接修订 DLL 与桥接静态库，无需 AMD/Vulkan SDK、CMake 或为 FSR 编译 C++。没有原生包时，可按 [FSR 准备说明](crates/feathrise_fsr3_frame_generation/prebuilt/README.md)用公开包内脚本显式源码构建；这条路径需要对应 SDK 与原生构建工具。运行机器需要适用的 Vulkan 显卡驱动和 Microsoft Visual C++ 2015–2022 x64 运行库。当前 FSR 仍为候选能力，编译检查不代表完整 GPU 和画面验收。可选 DLSS 的 DLSS SDK、LLVM／Clang、Vulkan、MSVC 以及帧生成所需的 Streamline 前提见 [DLSS 构建说明](crates/feathrise_frame_generation/README.md)。
 
