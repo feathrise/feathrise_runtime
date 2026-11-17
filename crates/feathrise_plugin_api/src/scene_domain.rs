@@ -4,9 +4,11 @@ mod visuals;
 pub use visuals::*;
 
 pub const MAX_DOMAIN_BLOB_BYTES: u64 = 64 * 1024 * 1024;
-pub const DOMAIN_CACHE: &str = ".feathrise/native-domain";
-/// 纯准备回执不得修改活动文档；旧场景插件必须显式拒绝，不能沿用有副作用的GroundPatch。
-pub const GROUND_PATCH_PREPARATION_PROTOCOL: u32 = 1;
+/// 场景编辑期间可重建的跨库交换文件归工程 target。
+pub const DOMAIN_CACHE: &str = "target/feathrise/native-domain";
+const LEGACY_DOMAIN_CACHE: &str = ".feathrise/native-domain";
+/// 纯准备回执不得修改活动文档。第 2 版的 Blob 路径使用 target，宿主握手拒绝仍只认旧路径的插件。
+pub const GROUND_PATCH_PREPARATION_PROTOCOL: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -23,7 +25,7 @@ pub struct SceneDomainIdentity {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DomainBlob {
-    /// 相对工程根，只允许DOMAIN_CACHE内、以SHA命名的不可变文件。
+    /// 相对工程根，以 SHA 命名的不可变文件。新文件在 DOMAIN_CACHE，读取兼容旧缓存目录。
     pub path: String,
     pub sha256: String,
     pub bytes: u64,
@@ -229,8 +231,11 @@ fn hash(value: &str) -> bool {
 }
 impl DomainBlob {
     pub fn validate(&self) -> Result<(), String> {
+        let in_cache = [DOMAIN_CACHE, LEGACY_DOMAIN_CACHE].into_iter().any(|root| {
+            self.path.strip_prefix(root).is_some_and(|suffix| suffix.starts_with('/'))
+        });
         if !relative_path(&self.path)
-            || !self.path.starts_with(&format!("{DOMAIN_CACHE}/"))
+            || !in_cache
             || !hash(&self.sha256)
             || self.bytes > MAX_DOMAIN_BLOB_BYTES
             || !self.path.ends_with(&format!("/{}.json", self.sha256))
