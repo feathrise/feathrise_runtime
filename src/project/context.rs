@@ -105,7 +105,12 @@ impl ProjectContext {
         if paths.is_empty() || paths.len() > ROOT_LIMIT {
             return Err("工程必须明确登记1至16个资产根".into());
         }
-        let data = checked_directory(root, Path::new(text(&value, "editor_data", 1024)?), false)?;
+        // 新工程省略作者数据字段，SDK 仍按共同的默认目录检查资产根边界。
+        let data = match value.get("editor_data") {
+            None | Some(Value::Null) => ".feathrise",
+            Some(_) => text(&value, "editor_data", 1024)?,
+        };
+        let data = checked_directory(root, Path::new(data), false)?;
         let mut asset_roots: Vec<PathBuf> = Vec::with_capacity(paths.len());
         for relative in paths {
             let root = checked_directory(
@@ -283,7 +288,7 @@ mod tests {
             let value = serde_json::json!({
                 "format":2,"id":"export-fixture","name":"独立导出 工程","package":"game_fixture",
                 "cargo_manifest":"source/Cargo.toml","asset_roots":["assets","secondary"],
-                "editor_data":".editor","game_entry":{"kind":"saved-world","version":1},
+                "game_entry":{"kind":"saved-world","version":1},
                 "game_view":"fixed_top_down",
             });
             fs::write(root.join("editor-project.json"), serde_json::to_vec(&value).unwrap()).unwrap();
