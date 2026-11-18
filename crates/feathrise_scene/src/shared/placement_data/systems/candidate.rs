@@ -161,7 +161,7 @@ fn spawn_ready_placement(
             feathrise_scene_content::ScenePlacementAssetTarget::Primitive {
                 mesh, primitive, ..
             } => (mesh, primitive),
-            feathrise_scene_content::ScenePlacementAssetTarget::Scene0 | feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { .. } => {
+            feathrise_scene_content::ScenePlacementAssetTarget::Scene { .. } | feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { .. } => {
                 unreachable!("直接primitive句柄必须对应primitive作者目标")
             }
         };
@@ -189,7 +189,7 @@ fn spawn_ready_placement(
             ChildOf(staging_root),
         ));
         let requires_collision = plan.record.building_preset_id.is_some()
-            || plan.record.terrain_patch.is_some() || plan.record.asset_target.has_primitive_collision();
+            || plan.record.terrain_patch.is_some() || plan.record.asset_target.has_gltf_collision();
         if let Some(collision) = building_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)
@@ -293,7 +293,7 @@ fn spawn_placement_batch(
         staging.roots.push(entity); // 采用时不扫描世界，只解除本候选已知根的隔离标记。
         if plan.record.terrain_patch.is_some() {
             staging.terrain_roots.push(entity);
-        } else if plan.record.asset_target.has_primitive_collision() {
+        } else if plan.record.asset_target.has_gltf_collision() {
             staging.primitive_collision_roots.push(entity);
         }
         next_plan += 1; // 根及其全部句柄/observer命令完整建立后才推进游标。

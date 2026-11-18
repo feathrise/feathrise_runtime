@@ -22,6 +22,7 @@ pub(super) struct Capture {
     pub(super) triangles: usize,
     pub(super) matrices: Vec<Mat4>,
     pub(super) mesh_entities: Vec<(Entity, Handle<Mesh>)>,
+    pub(super) scene_collision: bool, // 开启碰撞的普通完整GLB，不包含三维地形。
     pub(super) streamed: bool,
     pub(super) child_cursor: Option<(Entity, usize)>,
 }

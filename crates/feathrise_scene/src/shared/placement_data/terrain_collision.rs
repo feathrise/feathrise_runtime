@@ -1,4 +1,4 @@
-//! 独立三维地形 GLB 的有界捕获、后台 Trimesh 烘焙与完整采用。
+//! 静态 GLB 网格的有界捕获、后台 Trimesh 烘焙与完整采用。
 //!
 //! 避免把高密洞穴交给同步 ColliderConstructorHierarchy。每帧最多复制128 KiB、
 //! 访问64个节点，全域一个捕获和一个CPU槽。候选只保存已完成形状，整批可见时才
@@ -43,6 +43,8 @@ const COPY_BYTES: usize = 128 * 1024;
 const MAX_VERTICES: usize = 262_144;
 const MAX_TRIANGLES: usize = 262_144;
 const MAX_MESHES: usize = 32;
+// Parry 的 BvhNodeData 为子树叶数保留低 30 位，高两位用于变化标记。
+const PARRY_BVH_MAX_LEAVES: usize = (1 << 30) - 1;
 
 pub(super) fn install_ready_collider(
     event: On<Insert<InstallTerrainPatchCollider>>,
@@ -177,7 +179,7 @@ pub(super) fn retire_physics_proxy(
 pub fn terrain_placement_collision(
     record: &feathrise_scene_content::ScenePlacementRecord,
 ) -> Option<(RigidBody, TerrainPatchCollisionRequest)> {
-    if record.terrain_patch.is_none() && !record.asset_target.has_primitive_collision() {
+    if record.terrain_patch.is_none() && !record.asset_target.has_gltf_collision() {
         return None;
     }
     Some((
@@ -280,6 +282,7 @@ fn capture_step(
 ) -> Result<bool, String> {
     let mut bytes = COPY_BYTES;
     let mut nodes = 64;
+    let legacy_limits = !capture.streamed && !capture.scene_collision;
     while bytes > 0 {
         if let Some(current) = capture.current.as_mut() {
             let mesh = meshes
@@ -342,7 +345,7 @@ fn capture_step(
         };
         nodes -= 1;
         capture.nodes += 1;
-        if !capture.streamed && capture.nodes > 1024 {
+        if legacy_limits && capture.nodes > 1024 {
             return Err("三维地形节点超过1024项预算".into());
         }
         if let Ok((handle, transform)) = visuals.get(entity) {
@@ -374,12 +377,29 @@ fn capture_step(
                 .triangles
                 .checked_add(count / 3)
                 .ok_or("三维地形三角数量溢出")?;
-            if !capture.streamed
+            if legacy_limits
                 && (capture.vertices > MAX_VERTICES
                     || capture.triangles > MAX_TRIANGLES
                     || capture.meshes.len() >= MAX_MESHES)
             {
                 return Err("三维地形超过单实例网格/顶点/三角预算，请拆分资产".into());
+            }
+            if capture.scene_collision {
+                if u32::try_from(capture.vertices).is_err() {
+                    return Err("顶点总数超出三角网格的32位索引表示范围".into());
+                }
+                if capture.triangles > PARRY_BVH_MAX_LEAVES {
+                    return Err("三角面总数超出 Parry 碰撞树的叶数表示范围".into());
+                }
+            }
+            let mut vertices = Vec::new();
+            let mut indices = Vec::new();
+            if capture.scene_collision {
+                // 先预留空缓冲，再按帧复制，避免密集资产扩容时搬运此前已捕获的数据。
+                vertices.try_reserve_exact(positions.len())
+                    .map_err(|error| format!("顶点缓冲分配失败：{error}"))?;
+                indices.try_reserve_exact(count)
+                    .map_err(|error| format!("三角索引缓冲分配失败：{error}"))?;
             }
             capture.sources.push(handle.0.id());
             capture.mesh_entities.push((entity, handle.0.clone()));
@@ -388,12 +408,12 @@ fn capture_step(
                 matrix: capture.inverse_root * transform.to_matrix(),
                 vertex_count: positions.len(),
                 index_count: count,
-                vertices: Vec::new(),
-                indices: Vec::new(),
+                vertices,
+                indices,
             });
         }
         if let Ok(children) = children.get(entity) {
-            if !capture.streamed && capture.stack.len() + children.len() > 1024 {
+            if legacy_limits && capture.stack.len() + children.len() > 1024 {
                 return Err("三维地形节点超过1024项预算".into());
             }
             capture.child_cursor = Some((entity, 0));
@@ -618,16 +638,15 @@ pub(super) fn drive_terrain_collision(
         }
         match result.shape {
             Ok((collider, physical)) => {
-                let independent_preview =
-                    roots
-                        .get(result.root)
-                        .is_ok_and(|(_, _, instance, _, _, _, _, _, formal)| {
-                            instance.is_active() && formal.is_none()
-                        });
-                if independent_preview && !deferred.contains(result.root) {
+                let update_active = roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal)| {
+                    instance.is_active()
+                        && (formal.is_none() || (!instance.is_terrain_patch() && instance.asset_target().has_scene_collision()))
+                });
+                // 完整模型热更无需地形拓扑接管，可在新形状准备完成后更新活动代理。
+                if update_active && !deferred.contains(result.root) {
                     let global = *roots.get(result.root).expect("已复验当前根").7;
                     install_physics_proxy(&mut commands, result.root, global, physical.clone());
-                } // 正式根保持旧Collider，全部Ready后由拓扑发布系统同帧换入。
+                }
                 commands
                     .entity(result.root)
                     .remove::<TerrainPatchColliderFailure>()
@@ -696,6 +715,7 @@ pub(super) fn drive_terrain_collision(
             {
                 continue;
             }
+            let scene_collision = !instance.is_terrain_patch() && instance.asset_target().has_scene_collision();
             runtime.capture = Some(Capture {
                 root,
                 generation: request.generation,
@@ -710,10 +730,12 @@ pub(super) fn drive_terrain_collision(
                 nodes: 0,
                 vertices: 0,
                 triangles: 0,
+                scene_collision,
                 streamed: instance.terrain_patch().is_some_and(|p| p.streamed_volume),
                 child_cursor: None,
             });
-            runtime.started = Some((root, request.generation, Instant::now()));
+            // 普通GLB保留分帧进度和同代采用门，持续处理的大网格不受旧地形的累计秒数约束。
+            runtime.started = (!scene_collision).then(|| (root, request.generation, Instant::now()));
             break;
         }
     }
@@ -745,10 +767,10 @@ pub(super) fn drive_terrain_collision(
     match result {
         Ok(false) => {}
         Ok(true) => {
-            let capture = runtime.capture.take().expect("完整捕获已就绪");
+            let mut capture = runtime.capture.take().expect("完整捕获已就绪");
             commands
                 .entity(capture.root)
-                .insert(TerrainMeshSources(capture.sources.clone()));
+                .insert(TerrainMeshSources(std::mem::take(&mut capture.sources)));
             runtime.task = Some(AsyncComputeTaskPool::get().spawn(async move { cook(capture) }));
         }
         Err(error) => {
@@ -761,7 +783,11 @@ pub(super) fn drive_terrain_collision(
                 root_is_pending(capture.root, &state),
                 &mut state,
                 &mut status,
-                format!("三维地形捕获失败：{error}"),
+                if capture.scene_collision {
+                    format!("完整 GLB 碰撞捕获失败：{error}")
+                } else {
+                    format!("三维地形捕获失败：{error}")
+                },
             );
             runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move {
                 drop(capture);

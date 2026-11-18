@@ -213,7 +213,7 @@ impl ScenePlacementInstance {
     }
 
     pub(crate) fn uses_async_mesh_collision(&self) -> bool {
-        self.is_terrain_patch() || self.asset_target.has_primitive_collision()
+        self.is_terrain_patch() || self.asset_target.has_gltf_collision()
     }
 
     pub fn is_terrain_patch(&self) -> bool {

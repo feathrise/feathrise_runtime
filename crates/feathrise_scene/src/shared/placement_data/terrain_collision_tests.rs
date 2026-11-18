@@ -9,7 +9,11 @@ fn installed(world: &World, root: Entity) -> &Collider {
 }
 
 fn wait_ready(app: &mut App, root: Entity) {
-    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    wait_ready_within(app, root, 5);
+}
+
+fn wait_ready_within(app: &mut App, root: Entity, seconds: u64) {
+    let deadline = Instant::now() + std::time::Duration::from_secs(seconds);
     loop {
         app.update();
         let ready = app.world().get::<TerrainPatchColliderReady>(root);
@@ -41,6 +45,84 @@ fn floor(y: f32) -> Mesh {
     );
     mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
     mesh
+}
+
+#[test]
+fn dense_scene0_cooks_and_installs_exact_collision_across_frames() {
+    // 527076点、1051250三角，加上多节点和多个子网格，覆盖原先拦截完整GLB的各项限制。
+    const CELLS: u32 = 725;
+    let mut mesh = floor(-3.0);
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        (0..=CELLS)
+            .flat_map(|z| (0..=CELLS).map(move |x| [x as f32, -3.0, z as f32]))
+            .collect::<Vec<_>>(),
+    );
+    let mut indices = Vec::new();
+    for z in 0..CELLS {
+        for x in 0..CELLS {
+            let a = z * (CELLS + 1) + x;
+            let b = a + CELLS + 1;
+            indices.extend([a, b, a + 1, a + 1, b, b + 1]);
+        }
+    }
+    mesh.insert_indices(Indices::U32(indices));
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .init_resource::<Assets<Mesh>>()
+        .add_message::<AssetEvent<Mesh>>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
+        .add_systems(Update, drive_terrain_collision);
+    super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"dense-model","asset_path":"models/dense.glb",
+        "asset_target":{"kind":"scene0","collision":true},
+        "translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]
+    })).unwrap();
+    let root = app.world_mut().spawn((
+        ScenePlacementInstance::new(&SceneId("SCENE-dense-model".into()), &record),
+        terrain_placement_collision(&record).unwrap(),
+        Transform::IDENTITY,
+        GlobalTransform::IDENTITY,
+        DeferredTerrainPreviewCollider,
+    )).id();
+    let (main, extra) = {
+        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+        (meshes.add(mesh), meshes.add(floor(-6.0)))
+    };
+    app.world_mut().spawn((Mesh3d(main), GlobalTransform::IDENTITY, ChildOf(root)));
+    for offset in 0..MAX_MESHES {
+        let x = -5.0 * (offset + 1) as f32;
+        app.world_mut().spawn((Mesh3d(extra.clone()),
+            GlobalTransform::from(Transform::from_xyz(x, 0.0, -6.0)), ChildOf(root)));
+    }
+    for _ in 0..1024 {
+        app.world_mut().spawn(ChildOf(root));
+    }
+
+    // 先分帧读取所有子节点，再进入第一个密集网格的复制。
+    for _ in 0..32 {
+        app.update();
+        let runtime = app.world().resource::<TerrainCollisionRuntime>();
+        if runtime.capture.as_ref().is_some_and(|capture| capture.current.is_some()) {
+            break;
+        }
+    }
+    let runtime = app.world().resource::<TerrainCollisionRuntime>();
+    let current = runtime.capture.as_ref().unwrap().current.as_ref().unwrap();
+    assert_eq!(current.vertices.len(), COPY_BYTES / 12);
+    assert!(current.indices.is_empty());
+    assert!(runtime.started.is_none()); // 已持续推进的普通GLB不受旧地形的累计超时限制。
+    wait_ready_within(&mut app, root, 30);
+    assert!(app.world().get::<TerrainColliderProxy>(root).is_none());
+    app.world_mut().entity_mut(root).insert(InstallTerrainPatchCollider);
+    app.update();
+    let shape = installed(app.world(), root).shape();
+    let main_ray = avian3d::parry::query::Ray::new(Vec3::new(500.25, 10.0, 501.5), Vec3::NEG_Y);
+    let extra_ray = avian3d::parry::query::Ray::new(Vec3::new(-5.0, 10.0, -6.0), Vec3::NEG_Y);
+    assert_eq!(shape.cast_local_ray(&main_ray, 30.0, false), Some(13.0));
+    assert_eq!(shape.cast_local_ray(&extra_ray, 30.0, false), Some(16.0));
 }
 
 #[test]
@@ -238,6 +320,7 @@ fn cooked_scaled_collider_installs_without_rebuilding_scaled_bvh() {
         nodes: 1,
         vertices: 4,
         triangles: 2,
+        scene_collision: false,
         streamed: false,
         child_cursor: None,
     });
@@ -396,15 +479,20 @@ fn physical_proxy_keeps_unit_scale_and_owned_pose_with_real_physics_hooks() {
 
 #[test]
 fn same_handle_hot_reload_rejects_old_readiness_and_keeps_previous_collider_until_cooked() {
-    check_same_handle_hot_reload(false);
+    check_same_handle_hot_reload(false, false);
 }
 
 #[test]
 fn formal_hot_reload_keeps_old_physics_after_cooking_until_joint_install() {
-    check_same_handle_hot_reload(true);
+    check_same_handle_hot_reload(true, false);
 }
 
-fn check_same_handle_hot_reload(formal: bool) {
+#[test]
+fn scene0_collision_hot_reload_updates_the_active_static_proxy() {
+    check_same_handle_hot_reload(true, true);
+}
+
+fn check_same_handle_hot_reload(formal: bool, scene_collision: bool) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<Assets<Mesh>>()
@@ -420,7 +508,14 @@ fn check_same_handle_hot_reload(formal: bool) {
         .add_observer(unregister_request)
         .add_observer(install_ready_collider)
         .add_systems(Update, drive_terrain_collision);
-    let record:ScenePlacementRecord=serde_json::from_str(r#"{"id":"cave","asset_path":"scenes/cave.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1],"terrain_patch":{}}"#).unwrap();
+    let mut record: ScenePlacementRecord = serde_json::from_str(
+        r#"{"id":"cave","asset_path":"scenes/cave.glb","translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1],"terrain_patch":{}}"#,
+    ).unwrap();
+    if scene_collision {
+        record.terrain_patch = None;
+        assert!(terrain_placement_collision(&record).is_none()); // 旧完整 GLB 保持无隐式碰撞。
+        record.asset_target = feathrise_scene_content::ScenePlacementAssetTarget::Scene { collision: true };
+    }
     let root = app
         .world_mut()
         .spawn((
@@ -508,8 +603,8 @@ fn check_same_handle_hot_reload(formal: bool) {
         Some(13.0)
     );
     wait_ready(&mut app, root);
-    if formal {
-        // 正式模型烘焙完成只产生Ready；旧物理一直保留到整批拓扑采用。
+    if formal && !scene_collision {
+        // 地形模型烘焙完成只产生Ready；旧物理一直保留到整批拓扑采用。
         assert_eq!(
             installed(app.world(), root)
                 .shape()

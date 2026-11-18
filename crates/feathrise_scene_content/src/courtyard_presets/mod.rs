@@ -64,7 +64,7 @@ pub struct CourtyardMemberDescriptor {
     /// 相对 assets 根的 GLB 或 GLTF 模型路径。
     pub asset_path: String,
     /// 完整 Scene0 或明确的静态 primitive；旧式完整目标可省略。
-    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_scene0")]
+    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_default_scene0")]
     pub asset_target: ScenePlacementAssetTarget,
     /// 可选规范建筑预设身份；装饰和全部普通资产保持 None。
     #[serde(default, skip_serializing_if = "Option::is_none")]

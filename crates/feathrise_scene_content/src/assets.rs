@@ -708,12 +708,16 @@ fn placement_terrain_offset_is_zero(value: &f32) -> bool {
 /// 明确选择单个primitive后，则把网格编号和当时的原关联材质编号一并写入场景数据，
 /// 避免保存、撤销或重新进入场景后退化成完整场景或统一白材质。内置立方体保存整数规格，
 /// 不伪造磁盘模型路径，仍沿用同一稳定实例、变换、历史和保存证明。
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScenePlacementAssetTarget {
-    /// 实例化源文件的第零个场景；与历史摆放协议完全一致。
-    #[default]
-    Scene0,
+    /// 实例化源文件的第零个场景；碰撞按整个模型的真实网格生成。
+    #[serde(rename = "scene0")]
+    Scene {
+        /// 旧场景默认仅显示模型。
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        collision: bool,
+    },
     /// 只实例化一个真实`MeshN/PrimitiveN`及其原关联标准材质。
     Primitive {
         /// GLTF根中父网格的稳定数字标签。
@@ -756,7 +760,17 @@ pub enum ScenePlacementAssetTarget {
     },
 }
 
+impl Default for ScenePlacementAssetTarget {
+    fn default() -> Self {
+        Self::Scene0
+    }
+}
+
 impl ScenePlacementAssetTarget {
+    /// 兼容原完整场景的值写法，沿用默认关闭碰撞。
+    #[allow(non_upper_case_globals)]
+    pub const Scene0: Self = Self::Scene { collision: false };
+
     /// 与Blender默认尺寸一致的两米灰色白模，默认带静态盒碰撞。
     pub const DEFAULT_CUBOID: Self = Self::Cuboid {
         size_mm: [2_000; 3],
@@ -773,6 +787,16 @@ impl ScenePlacementAssetTarget {
     /// GLB 节点的碰撞使用实际网格，跟随 Blender 的形状变化。
     pub const fn has_primitive_collision(&self) -> bool {
         matches!(self, Self::Primitive { collision: true, .. })
+    }
+
+    /// 完整GLB实例可独立启用真实网格碰撞，保留源模型的节点变换。
+    pub const fn has_scene_collision(&self) -> bool {
+        matches!(self, Self::Scene { collision: true })
+    }
+
+    /// 完整模型和子网格共用有界后台碰撞准备。
+    pub const fn has_gltf_collision(&self) -> bool {
+        self.has_scene_collision() || self.has_primitive_collision()
     }
 
     /// 固定大小参数在作者预览、保存及正式采用前共用同一合法范围。
@@ -798,15 +822,20 @@ impl ScenePlacementAssetTarget {
         Ok(())
     }
 
-    /// 默认Scene0不写入JSON，保持既有场景文件简洁且无迁移噪音。
+    /// 完整模型始终使用同一个Scene0加载目标。
     pub const fn is_scene0(&self) -> bool {
-        matches!(self, Self::Scene0)
+        matches!(self, Self::Scene { .. })
+    }
+
+    /// 只有历史默认值可省略，已开启的碰撞必须随摆放保存。
+    pub(crate) const fn is_default_scene0(&self) -> bool {
+        matches!(self, Self::Scene { collision: false })
     }
 
     /// 返回当前子资产的精确Bevy Mesh引用；完整场景没有单一网格引用。
     pub fn mesh_reference(&self, source: &str) -> Option<String> {
         match *self {
-            Self::Scene0 | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
+            Self::Scene { .. } | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
             Self::Primitive {
                 mesh, primitive, ..
             } => Some(format!("{source}#Mesh{mesh}/Primitive{primitive}")),
@@ -816,7 +845,7 @@ impl ScenePlacementAssetTarget {
     /// 返回当前子资产原关联的Bevy StandardMaterial引用。
     pub fn material_reference(&self, source: &str) -> Option<String> {
         match *self {
-            Self::Scene0 | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
+            Self::Scene { .. } | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
             Self::Primitive {
                 material: Some(material),
                 ..
@@ -828,7 +857,7 @@ impl ScenePlacementAssetTarget {
     /// 返回作者界面可直接辨认的目标短标签。
     pub fn label(&self) -> String {
         match self {
-            Self::Scene0 => "Scene0".to_owned(),
+            Self::Scene { .. } => "Scene0".to_owned(),
             Self::Cuboid { .. } => "立方体".to_owned(),
             Self::EditableCuboid { .. } | Self::EditableMesh { .. } => "可编辑网格".to_owned(),
             Self::Primitive {
@@ -929,7 +958,7 @@ pub struct ScenePlacementRecord {
     #[serde(default)]
     pub asset_path: String,
     /// 文件内具体摆放目标；旧记录缺失时兼容为完整`Scene0`。
-    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_scene0")]
+    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_default_scene0")]
     pub asset_target: ScenePlacementAssetTarget,
     /// 可选建筑预设规范 ID；模型路径仍独立保存，目录损坏时实例不会消失。
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -188,7 +188,7 @@ pub(super) fn build_glb_surface(
                 Mat4::IDENTITY,
             )?);
         }
-        ScenePlacementAssetTarget::Scene0 => {
+        ScenePlacementAssetTarget::Scene { .. } => {
             let scene = document["scenes"]
                 .as_array()
                 .and_then(|scenes| scenes.first())

@@ -344,7 +344,7 @@ pub(super) fn queue_inserted_placement_collision_ready(
         return; // 防御外部误插标记，普通资产不能改变既有就绪路径。
     }
     match instance.asset_target() {
-        ScenePlacementAssetTarget::Scene0 => queue_candidate_settlement(
+        ScenePlacementAssetTarget::Scene { .. } => queue_candidate_settlement(
             insert.entity,
             pending,
             settlements,

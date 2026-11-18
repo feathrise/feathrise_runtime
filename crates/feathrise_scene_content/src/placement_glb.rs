@@ -515,6 +515,28 @@ mod tests {
     }
 
     #[test]
+    fn referenced_scene0_saves_collision_per_instance() {
+        let mut draft = dock();
+        draft.placements[0].asset_path = "scenes/SCENE-glb/models/floor.glb".to_owned();
+        draft.placements[0].asset_target = ScenePlacementAssetTarget::Scene { collision: true };
+        let mut old = draft.placements[0].clone();
+        old.id = "other-floor".to_owned();
+        old.asset_target = serde_json::from_value(json!({"kind": "scene0"})).unwrap();
+        assert_eq!(old.asset_target, ScenePlacementAssetTarget::Scene0);
+        draft.placements.push(old);
+
+        let bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let (document, bin) = read_chunks(&bytes).unwrap();
+        assert!(bin.is_empty()); // 两项只保存模型引用和各自碰撞状态。
+        let fields = |index: usize| -> Value {
+            serde_json::from_str(document["nodes"][index]["extras"][PLACEMENT_FIELDS].as_str().unwrap()).unwrap()
+        };
+        assert_eq!(fields(1)["asset_target"], json!({"kind": "scene0", "collision": true}));
+        assert!(fields(2).get("asset_target").is_none());
+        assert_eq!(read_scene_placements(&bytes, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
     fn plane_glb_keeps_open_author_geometry_double_sided_material_and_collision() {
         let mut draft = dock();
         draft.placements[0].asset_target = ScenePlacementAssetTarget::EditableMesh {

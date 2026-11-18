@@ -200,7 +200,7 @@ pub struct BuildingPresetDescriptor {
     /// 相对 assets 根的 GLB 或 GLTF 路径。
     pub asset_path: String,
     /// 文件内的完整 Scene0 或静态 primitive 目标。
-    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_scene0")]
+    #[serde(default, skip_serializing_if = "ScenePlacementAssetTarget::is_default_scene0")]
     pub asset_target: ScenePlacementAssetTarget,
     /// 房屋实体占地；不包含门前净空。
     pub footprint: BuildingFootprintRect,

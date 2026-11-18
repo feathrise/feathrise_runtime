@@ -135,7 +135,7 @@ fn safe_scene_asset_path(value: &str) -> bool {
 /// 目录只能声明已知目标形状与有界 GLTF 编号；静态性在实际资产加载时检查。
 fn valid_asset_target(target: &ScenePlacementAssetTarget) -> bool {
     match *target {
-        ScenePlacementAssetTarget::Scene0 => true, // 完整场景目标无额外编号。
+        ScenePlacementAssetTarget::Scene { .. } => true, // 完整场景目标无额外编号。
         ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => target.validate().is_ok(), // 内置成员复用相同几何与材质边界。
         ScenePlacementAssetTarget::Primitive {
             mesh,

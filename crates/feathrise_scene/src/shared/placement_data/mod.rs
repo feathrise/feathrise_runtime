@@ -78,7 +78,7 @@ pub(crate) use systems::{
 pub fn building_placement_collision(
     record: &ScenePlacementRecord,
 ) -> Option<(RigidBody, ColliderConstructorHierarchy)> {
-    if record.building_preset_id.is_none() || record.asset_target.has_primitive_collision() {
+    if record.building_preset_id.is_none() || record.asset_target.has_gltf_collision() {
         return None; // 普通资产保持既有无隐式碰撞语义；三维地形必须保留真实空腔。
     }
     Some((
