@@ -19,6 +19,7 @@ use crate::shared::placement_data::resources::{
     PendingPlacementRevision, PlacementSceneLoadTracker,
 }; // 新修订取消测试通过唯一写侧资源进行。 // 候选夹具携带“已完成但无建筑”的正式净空快照。
 
+const LARGE_SCENE_FIXTURE_COUNT: usize = 8_320;
 const TEST_BUILDING_PRESET_REVISION: u64 = 17; // 所有规划阶段固定到同一份空建筑目录。
 
 fn empty_building_registry() -> BuildingPresetRegistry {
@@ -150,7 +151,7 @@ fn eight_thousand_records_are_planned_across_frames_with_fixed_budgets() {
     let document = ScenePlacementsAsset {
         schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,      // 规划阶段不重复解释loader已接纳的schema。
         scene_id: scene_id.clone(), // 文档必须与当前场景匹配。
-        placements: (0..planning::MAX_PLACEMENTS_PER_SCENE).map(record).collect(), // 精确命中八千一百九十二项闭区间上限。
+        placements: (0..LARGE_SCENE_FIXTURE_COUNT).map(record).collect(), // 覆盖超过旧上限的合法场景。
     };
     let mut work = planning::begin_planning(
         7,                                                         // 测试代次。
@@ -186,10 +187,10 @@ fn eight_thousand_records_are_planned_across_frames_with_fixed_budgets() {
 
     assert_eq!(
         frames,
-        planning::MAX_PLACEMENTS_PER_SCENE / planning::PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME,
+        LARGE_SCENE_FIXTURE_COUNT / planning::PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME,
     ); // 八千一百九十二项必须用六十四帧，不得在首帧全扫。
-    assert_eq!(work.plans.len(), planning::MAX_PLACEMENTS_PER_SCENE); // 完成后计划不丢记录。
-    assert_eq!(handle_requests, planning::MAX_PLACEMENTS_PER_SCENE); // 一条记录对应一个强Scene0句柄请求。
+    assert_eq!(work.plans.len(), LARGE_SCENE_FIXTURE_COUNT); // 完成后计划不丢记录。
+    assert_eq!(handle_requests, LARGE_SCENE_FIXTURE_COUNT); // 一条记录对应一个强Scene0句柄请求。
     assert_eq!(work.scene_ids.len(), 1); // 加载门按唯一GLB去重，不重复轮询八千次。
     assert_eq!(work.scene_checks.len(), 1); // 首轮依赖检查队列同样只有一个ID。
 }
@@ -404,12 +405,12 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
         asset_id::<SceneManifestAsset>(31),                        // 测试清单身份。
         asset_id::<ScenePlacementsAsset>(32),                      // 测试摆放身份。
         Rect::from_corners(Vec2::splat(-1.0), Vec2::splat(1.0)), // 本测试不再推进记录，仅保留合法冻结范围。
-        planning::MAX_PLACEMENTS_PER_SCENE,                        // 最大合法记录总量。
+        LARGE_SCENE_FIXTURE_COUNT,                        // 大场景夹具记录总量。
     );
-    work.plans = (0..planning::MAX_PLACEMENTS_PER_SCENE)
+    work.plans = (0..LARGE_SCENE_FIXTURE_COUNT)
         .map(pending_plan)
         .collect(); // 模拟已完成八千一百九十二条的计划前缀。
-    work.ids = (0..planning::MAX_PLACEMENTS_PER_SCENE)
+    work.ids = (0..LARGE_SCENE_FIXTURE_COUNT)
         .map(|index| format!("placement-{index}"))
         .collect(); // 重复ID门已持有同规模稳定身份集合。
 
@@ -425,7 +426,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
             .expect("旧规划进入唯一退役槽")
             .plans
             .len(),
-        planning::MAX_PLACEMENTS_PER_SCENE,
+        LARGE_SCENE_FIXTURE_COUNT,
     ); // O(1)移交帧尚未同步析构任何计划项。
 
     let mut app = App::new(); // 独立运行生产固定预算清理系统。
@@ -443,7 +444,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
         retired_planning.plans.len() + usize::from(retired_planning.current_plan.is_some()); // 下一个计划可O(1)移入游标，但未计费前仍属于未释放总数。
     assert_eq!(
         remaining_plans,
-        planning::MAX_PLACEMENTS_PER_SCENE - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
+        LARGE_SCENE_FIXTURE_COUNT - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
     ); // 单帧绝不能多释放第一个一百二十八项计划。
 
     let mut frames = 1usize; // 已经执行首个退役帧。
@@ -457,7 +458,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
         frames += 1; // 统计完整释放所需帧数。
         assert!(frames <= 130); // 防御回归：游标必须持续前进而非卡住。
     }
-    assert_eq!(frames, 128); // 8192计划和8192稳定ID共16384个顶层条目，每帧严格释放128个。
+    assert_eq!(frames, (2 * LARGE_SCENE_FIXTURE_COUNT).div_ceil(retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME)); // 计划和稳定 ID 都按原定帧预算退役。
 }
 
 #[test]
@@ -472,14 +473,14 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
         building_preset_revision: TEST_BUILDING_PRESET_REVISION, // 退役夹具仍保留候选目录身份。
         building_clearances: BuildingVegetationClearanceState::empty_regions(), // 无建筑也表示完整净空快照。
         building_clearance_floor_heights: Default::default(),
-        plans: (0..planning::MAX_PLACEMENTS_PER_SCENE)
+        plans: (0..LARGE_SCENE_FIXTURE_COUNT)
             .map(pending_plan)
             .collect(), // 最大合法候选含八千一百九十二个强句柄计划。
     };
     let tracker = PlacementSceneLoadTracker {
         generation: 9, // Scene跟踪身份与候选一致。
         revision: 7,   // Scene跟踪身份与候选一致。
-        placement_ids: (0..planning::MAX_PLACEMENTS_PER_SCENE)
+        placement_ids: (0..LARGE_SCENE_FIXTURE_COUNT)
             .map(|index| format!("placement-{index}"))
             .collect(), // 规划唯一性集合不得在采用帧整表析构。
         scene_ids: HashSet::new(), // 本测试聚焦最大placement集合。
@@ -500,7 +501,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
             .expect("强计划仍由退役槽持有")
             .plans
             .len(),
-        planning::MAX_PLACEMENTS_PER_SCENE,
+        LARGE_SCENE_FIXTURE_COUNT,
     ); // 采用调用本身没有同步析构大Vec。
     assert_eq!(
         retired
@@ -509,7 +510,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
             .expect("Scene跟踪器与计划同代退役")
             .placement_ids
             .len(),
-        planning::MAX_PLACEMENTS_PER_SCENE,
+        LARGE_SCENE_FIXTURE_COUNT,
     ); // 稳定ID集合同样完整转移。
 
     let mut app = App::new(); // 使用生产清理系统验证采用后的退役预算。
@@ -527,7 +528,7 @@ fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
         retired_candidate.plans.len() + usize::from(retired_candidate.current_plan.is_some()); // O(1)取出的下一计划仍由嵌套游标完整持有。
     assert_eq!(
         remaining_plans,
-        planning::MAX_PLACEMENTS_PER_SCENE - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
+        LARGE_SCENE_FIXTURE_COUNT - retirement::PLACEMENT_PLAN_RETIRE_BUDGET_PER_FRAME,
     ); // 最坏候选采用后每帧只释放一百二十八条计划。
 }
 
@@ -611,7 +612,7 @@ fn nested_water_strings_obey_the_shared_byte_budget() {
 
 #[test]
 fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
-    let ids = (1..=planning::MAX_PLACEMENTS_PER_SCENE)
+    let ids = (1..=LARGE_SCENE_FIXTURE_COUNT)
         .map(|index| asset_id::<WorldAsset>(1_000 + index as u128))
         .collect::<Vec<_>>(); // 最坏情况下每条placement引用不同GLB。
     let mut tracker = PlacementSceneLoadTracker {
@@ -633,7 +634,7 @@ fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
         loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
     ); // 首帧精确只查一百二十八项。
     assert_eq!(calls, loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME); // 闭包证明没有隐藏第二遍。
-    assert_eq!(tracker.scene_checks.len(), planning::MAX_PLACEMENTS_PER_SCENE); // Waiting轮转不丢ID，也不同帧缩短全队列。
+    assert_eq!(tracker.scene_checks.len(), LARGE_SCENE_FIXTURE_COUNT); // Waiting轮转不丢ID，也不同帧缩短全队列。
 
     let mut frames = 0usize; // 所有ID变成Ready必须跨足够多帧。
     while tracker.ready_scene_ids.len() < tracker.scene_ids.len() {
@@ -645,7 +646,7 @@ fn scene_load_polling_never_scans_the_full_plan_in_one_frame() {
     }
     assert_eq!(
         frames,
-        planning::MAX_PLACEMENTS_PER_SCENE / loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
+        LARGE_SCENE_FIXTURE_COUNT / loading::PLACEMENT_SCENE_LOAD_CHECK_BUDGET_PER_FRAME,
     ); // 八千一百九十二个唯一Scene同样需要六十四帧。
     assert!(tracker.scene_checks.is_empty()); // 全Ready后稳定帧不再轮询任何ID。
 }

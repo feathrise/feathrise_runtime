@@ -16,7 +16,7 @@ pub(super) struct Capture {
     pub(super) stack: VecDeque<Entity>,
     pub(super) current: Option<MeshCapture>,
     pub(super) meshes: Vec<(Vec<Vec3>, Vec<u32>)>,
-    pub(super) sources: Vec<AssetId<Mesh>>,
+    pub(super) sources: HashSet<AssetId<Mesh>>,
     pub(super) nodes: usize,
     pub(super) vertices: usize,
     pub(super) triangles: usize,

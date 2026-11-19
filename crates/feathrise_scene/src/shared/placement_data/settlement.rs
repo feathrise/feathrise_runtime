@@ -11,7 +11,7 @@ use feathrise_scene_content::ScenePlacementAssetTarget; // 直接primitive碰撞
 
 use crate::shared::large_scene::DynamicWaterMeshOverrideStatus; // 水体接管是候选原子采用的显式必要条件。
 use crate::shared::world_asset_lifecycle::{
-    WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated, WorldAssetRootRegistration,
+    WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated,
 }; // 同InstanceId热重载仍用资产epoch撤销旧WorldReady。
 
 use super::components::{
@@ -20,7 +20,7 @@ use super::components::{
     PlacementWorldInstanceReady,
 }; // 本模块独占实例完成门标记的写入与消费。
 use super::resources::{
-    MAX_PLACEMENT_SETTLEMENT_ROOTS, PlacementSettlementEnqueueResult, PlacementSettlementQueue,
+    PlacementSettlementQueue,
     PlacementWorldAssetInvalidations,
 }; // 固定容量FIFO消除稳定帧全原型扫描，换代票据阻断旧Ready回流。
 use super::resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus}; // 联合门按根撤销或登记当前候选Ready信用。
@@ -169,44 +169,25 @@ pub(super) fn on_placement_instance_ready(
     if let Some(mut collision_generation) = collision_generation {
         collision_generation.world_ready = collision_generation.world_ready.wrapping_add(1).max(1); // 首载与每次真实热更各推进一代，零值只保留给尚未完成。
     }
-    let epoch = match asset_index.mark_world_ready(ready.entity, world_asset.0.id()) {
-        Ok(epoch) => epoch,
-        Err(WorldAssetRootRegistration::Full) => {
-            fail_revision(
-                state,
-                status,
-                "显式实例WorldAsset根索引超过固定上限".to_owned(),
-            );
-            return;
-        }
-        Err(_) => unreachable!("mark_world_ready只会返回容量失败"),
-    };
+    let epoch = asset_index.mark_world_ready(ready.entity, world_asset.0.id());
     commands
         .entity(ready.entity)
         .insert(PlacementWorldInstanceReady(epoch)); // 下一Update只接受同一资产epoch的最终水状态。
     status.advance_progress(); // 当前候选取得了新的World实例完成证据。
 } // 结束World实例完成观察。
 
-/// 把一个生命周期变化根加入固定容量结算FIFO，异常爆量时整份修订失败关闭。
+/// 把当前修订的变化根加入去重 FIFO，由结算系统分帧消费。
 fn queue_candidate_settlement(
     entity: Entity,                             // 只定位发生World/水状态变化的精确根。
-    pending: &PlacementPendingRevision,         // 入队前核对当前候选修订，避免无关根占用容量。
+    pending: &PlacementPendingRevision,         // 入队前核对当前候选修订。
     settlements: &mut PlacementSettlementQueue, // 同根事件风暴只保留一个双向FIFO席位。
-    state: &mut ScenePlacementRuntimeState,       // 队列满时拒绝当前正式候选。
-    status: &mut ScenePlacementRuntimeStatus,     // 公开队列硬门诊断。
+    state: &ScenePlacementRuntimeState,
 ) {
     let matches_current = state.staging.as_ref().is_some_and(|staging| {
         staging.generation == pending.generation && staging.revision == pending.revision
-    }); // 迟到代次不得进入当前队列。
-    if !matches_current {
-        return; // 已采用、退役或换代根不产生待结算工作。
-    }
-    if settlements.enqueue(entity) == PlacementSettlementEnqueueResult::Full {
-        fail_revision(
-            state,  // 超额事件不能截断后继续假装完整。
-            status, // F3/F12获得明确硬门诊断。
-            format!("显式实例联合结算根超过{MAX_PLACEMENT_SETTLEMENT_ROOTS}项固定上限"), // 固定容量与实现常量一致。
-        );
+    });
+    if matches_current {
+        settlements.enqueue(entity);
     }
 }
 
@@ -349,7 +330,6 @@ pub(super) fn queue_inserted_placement_collision_ready(
             pending,
             settlements,
             state,
-            status,
         ),
         ScenePlacementAssetTarget::Primitive { .. }
             if collision_ready.0 == collision_generation.collision_ready =>
@@ -412,24 +392,16 @@ pub(super) fn queue_inserted_placement_world_ready(
     insert: On<Insert<PlacementWorldInstanceReady>>, // 首次Add和同根重写都统一触发Insert。
     context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // 只读取事件实体。
-    mut settlements: InstanceResMut<PlacementSettlementQueue>, // 固定容量、按Entity去重。
-    mut state: InstanceResMut<ScenePlacementRuntimeState>,     // 只用于当前修订与溢出失败门。
-    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,   // 溢出时发布原子失败。
+    mut settlements: InstanceResMut<PlacementSettlementQueue>,
+    state: InstanceRes<ScenePlacementRuntimeState>,
 ) {
     let instance_scope = context.instance(insert.entity);
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
-    let Some(state) = state.for_instance_mut(instance_scope) else { return; };
-    let Some(status) = status.for_instance_mut(instance_scope) else { return; };
+    let Some(state) = state.for_instance(instance_scope) else { return; };
     let Ok(pending) = roots.get(insert.entity) else {
         return; // 已采用、退役或非placement实体不进入队列。
     };
-    queue_candidate_settlement(
-        insert.entity,
-        pending,
-        settlements,
-        state,
-        status,
-    ); // 延后到Update读取同帧最终水状态，消除observer注册顺序依赖。
+    queue_candidate_settlement(insert.entity, pending, settlements, state); // 调度到 Update 读取同帧最终水状态。
 }
 
 /// 水体Pending/Ready/Failed整组件写入时只唤醒已经取得World完成门的候选根。
@@ -444,23 +416,15 @@ pub(super) fn queue_inserted_placement_water_status(
         ),
     >, // World尚未ready时由后续门Insert负责入队，不保存无效中间事件。
     mut settlements: InstanceResMut<PlacementSettlementQueue>,  // 同根多次状态写入只占一个席位。
-    mut state: InstanceResMut<ScenePlacementRuntimeState>,        // 核对当前候选修订。
-    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,      // 队列溢出时失败关闭。
+    state: InstanceRes<ScenePlacementRuntimeState>,
 ) {
     let instance_scope = context.instance(insert.entity);
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
-    let Some(state) = state.for_instance_mut(instance_scope) else { return; };
-    let Some(status) = status.for_instance_mut(instance_scope) else { return; };
+    let Some(state) = state.for_instance(instance_scope) else { return; };
     let Ok(pending) = roots.get(insert.entity) else {
         return; // 普通正式根、F12预览或尚未World ready根不属于候选结算。
     };
-    queue_candidate_settlement(
-        insert.entity,
-        pending,
-        settlements,
-        state,
-        status,
-    ); // 结算系统将读取本帧最终枚举值而不是observer触发时的旧值。
+    queue_candidate_settlement(insert.entity, pending, settlements, state); // 结算系统读取本帧最终水状态。
 }
 
 /// 仅在World实例和该根的整批赋水都成功后，按固定预算结算定向候选实例。

@@ -165,6 +165,7 @@ pub(crate) fn collect_terrain_topology(
                 && staging.verification_epoch == staging.eligibility_epoch
                 && staging.blocked_scene_assets.is_empty()
                 && state.world_asset_events_caught_up
+                && state.collision_mesh_events_caught_up
                 && containers.get(staging.root).is_ok()
             // 在撤掉高度承托前证明新可见容器确实仍存在。
         )

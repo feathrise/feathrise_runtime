@@ -14,15 +14,27 @@ fn asset_id(value: u128) -> AssetId<WorldAsset> {
 }
 
 #[test]
+fn shared_root_index_tracks_beyond_the_former_three_batch_limit() {
+    let mut index = WorldAssetLifecycleIndex::default();
+    let asset = asset_id(79);
+    for raw in 1..=24_577 {
+        let root = Entity::from_raw_u32(raw).unwrap();
+        assert_eq!(index.mark_world_ready(root, asset), 0);
+        assert_eq!(index.current_ready_epoch(root, asset), Some(0));
+    }
+    let first = Entity::from_raw_u32(1).unwrap();
+    let last = Entity::from_raw_u32(24_577).unwrap();
+    index.unregister(first);
+    assert_eq!(index.current_ready_epoch(first, asset), None);
+    assert_eq!(index.current_ready_epoch(last, asset), Some(0));
+}
+
+#[test]
 fn suppressed_modified_restores_previous_ready_with_bounded_root_step() {
     let mut index = WorldAssetLifecycleIndex::default();
     let root = Entity::from_raw_u32(81).expect("测试根必须合法");
     let asset_id = asset_id(81);
-    assert_eq!(
-        index.register(root, asset_id),
-        WorldAssetRootRegistration::Registered
-    );
-    assert_eq!(index.mark_world_ready(root, asset_id), Ok(0));
+    assert_eq!(index.mark_world_ready(root, asset_id), 0);
 
     assert_eq!(
         index.begin_modified_invalidation(asset_id, None, 10),
@@ -50,10 +62,10 @@ fn confirmed_modified_uses_world_ready_instead_of_reader_frame_debounce_guess() 
     let root = Entity::from_raw_u32(82).expect("测试根必须合法");
     let asset_id = asset_id(82);
     index.register(root, asset_id);
-    index.mark_world_ready(root, asset_id).unwrap();
+    index.mark_world_ready(root, asset_id);
 
     index.begin_modified_invalidation(asset_id, None, 20);
-    assert_eq!(index.mark_world_ready(root, asset_id), Ok(1)); // 模拟同帧SpawnScene真实重生完成。
+    assert_eq!(index.mark_world_ready(root, asset_id), 1); // 模拟同帧SpawnScene真实重生完成。
     index.resolve_provisional_modifications(21, 1);
     assert!(matches!(
         index.next_invalidation(),
@@ -68,7 +80,7 @@ fn event_129_blocks_old_and_new_ready_credit_until_reader_catches_up() {
     let root = Entity::from_raw_u32(83).expect("测试根必须合法");
     let asset_id = asset_id(83);
     index.register(root, asset_id);
-    index.mark_world_ready(root, asset_id).unwrap();
+    index.mark_world_ready(root, asset_id);
 
     let backlog = index
         .begin_event_collection(
@@ -77,7 +89,7 @@ fn event_129_blocks_old_and_new_ready_credit_until_reader_catches_up() {
         )
         .expect("第129项必须建立保守积压代");
     assert!(!index.events_caught_up());
-    index.mark_world_ready(root, asset_id).unwrap(); // 即使浅工作已看到Ready，全局消息门仍关闭。
+    index.mark_world_ready(root, asset_id); // 即使浅工作已看到Ready，全局消息门仍关闭。
     let (epoch, _) = index.begin_modified_invalidation(asset_id, Some(backlog), 30);
     let Some(WorldAssetInvalidationStep::Root(promoted)) = index.next_invalidation() else {
         panic!("积压期新Ready必须由定向根步骤追授当前epoch");

@@ -38,7 +38,7 @@ pub(crate) struct TerrainPatchColliderReady {
 }
 
 #[derive(Component, Default)]
-pub(in crate::shared::placement_data) struct TerrainMeshSources(pub(super) Vec<AssetId<Mesh>>);
+pub(in crate::shared::placement_data) struct TerrainMeshSources(pub(super) HashSet<AssetId<Mesh>>);
 
 #[derive(Component)]
 pub(in crate::shared::placement_data) struct TerrainWorldReady;

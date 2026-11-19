@@ -313,7 +313,7 @@ pub(super) fn finish_placement_candidate(
     building_clearances: &mut BuildingVegetationClearanceState,
     container_visibilities: &mut InstanceQuery<&mut Visibility, With<PlacementStagingRoot>>,
 ) {
-    let world_asset_events_caught_up = state.world_asset_events_caught_up; // 先冻结全局消息门，避免与候选可变借用重叠。
+    let asset_events_caught_up = state.world_asset_events_caught_up && state.collision_mesh_events_caught_up;
     let Some(staging) = state.staging.as_mut() else {
         return;
     };
@@ -338,7 +338,7 @@ pub(super) fn finish_placement_candidate(
         || staging.roots.len() != staging.total_instances
         || staging.ready_roots.len() != staging.total_instances
         || !staging.blocked_scene_assets.is_empty()
-        || !world_asset_events_caught_up
+        || !asset_events_caught_up
     {
         staging.verification_cursor = 0; // 尚未全Ready时不保留旧轮次的前缀信用。
         staging.verification_epoch = staging.eligibility_epoch;

@@ -239,18 +239,12 @@ pub(crate) fn rebuild_data_driven_placements(
             return; // 等待Bevy资产管线完成IO，不在主线程同步读文件。
         };
         let invalid_identity = manifest.id != scene_id || document.scene_id != scene_id; // 清单、JSON与当前场景必须属于同一身份。
-        let invalid_count = document.placements.len() > planning::MAX_PLACEMENTS_PER_SCENE; // Vec长度O(1)硬门早于任何单条拷贝。
         let bounds = manifest.world_bounds(); // 世界范围只在启动帧转换一次。
-        if invalid_identity || invalid_count || bounds.is_none() {
+        if invalid_identity || bounds.is_none() {
             begin_placement_revision(&mut state, &mut status); // 确定格式失败也必须推进公开尝试修订。
             state.dirty = false;
             let detail = if invalid_identity {
                 format!("场景{scene_id}的清单或摆放文件ID不一致")
-            } else if invalid_count {
-                format!(
-                    "场景{scene_id}显式实例超过{}项；海量内容必须使用植被密度层",
-                    planning::MAX_PLACEMENTS_PER_SCENE,
-                )
             } else {
                 format!("场景{scene_id}世界范围无效")
             };

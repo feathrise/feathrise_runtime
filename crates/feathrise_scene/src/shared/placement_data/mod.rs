@@ -131,7 +131,7 @@ impl Plugin for ScenePlacementDataPlugin {
             )
             .init_instance_resource::<crate::BuildingVegetationClearanceState>() // 正式placement与F12草稿共享完整净空快照。
             .init_instance_resource::<ScenePlacementRuntimeStatus>()
-            .init_instance_resource::<resources::PlacementSettlementQueue>() // 生命周期事件只把真实变化根写入8192项去重FIFO。
+            .init_instance_resource::<resources::PlacementSettlementQueue>() // 生命周期事件只把真实变化根写入去重FIFO。
             .init_instance_resource::<resources::PlacementWorldAssetInvalidations>() // 资产根换代间隙拒绝旧InstanceId迟到Ready。
             .add_message::<ScenePlacementRebuildRequest>() // 原样保存重试不修改资产内容，只请求同一正式链路再建候选。
             .add_observer(settlement::invalidate_discarded_candidate_world_asset) // WorldAssetRoot替换当下撤销旧联合Ready信用。

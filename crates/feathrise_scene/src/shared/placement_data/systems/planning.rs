@@ -12,7 +12,7 @@ use bevy::world_serialization::WorldAsset; // 规划为每条记录建立强Worl
 use feathrise_scene_content::{
     BuildingPresetRegistry, BuildingWorldQuad, MAX_SCENE_PLACEMENT_WATER_NAME_CHARS,
     MAX_SCENE_PLACEMENT_WATER_NODE_PATH_CHARS, MAX_SCENE_PLACEMENT_WATER_NODE_PATH_DEPTH,
-    MAX_SCENE_PLACEMENTS_PER_SCENE, SceneId, ScenePlacementRecord, ScenePlacementWaterSurface,
+    SceneId, ScenePlacementRecord, ScenePlacementWaterSurface,
     ScenePlacementsAsset, valid_building_preset_id,
 }; // 运行时与编辑器复用同一水体格式与数量硬门。
 
@@ -21,12 +21,9 @@ use super::super::resources::{
     PlacementRecordPlanning, PlacementSceneLoadTracker,
 }; // 规划游标存入唯一运行时事务。
 
-pub(super) const MAX_PLACEMENTS_PER_SCENE: usize = MAX_SCENE_PLACEMENTS_PER_SCENE; // 运行时与F12复制动作共享同一显式实例硬门。
 pub(super) const PLACEMENT_PLAN_RECORD_BUDGET_PER_FRAME: usize = 128; // 普通记录的校验、拷贝和句柄请求不得超过本额度。
 pub(super) const PLACEMENT_PLAN_WATER_BUDGET_PER_FRAME: usize = 64; // 复杂节点路径校验独立限流，避免一百二十八根各扫六十四项。
 
-const MAX_PLACEMENT_ID_BYTES: usize = 1_024; // 稳定ID足以容纳中文作者命名，同时阻断单条异常大字符串。
-const MAX_PLACEMENT_ASSET_PATH_BYTES: usize = 4_096; // AssetServer相对路径在小写化和诊断前先受O(1)字节长度门限。
 const MAX_UTF8_BYTES_PER_CHAR: usize = 4; // 合法Unicode标量值最多四字节，用字节前置门保证后续chars扫描有界。
 
 /// 本帧增量规划实际推进的小型证据。
@@ -45,16 +42,14 @@ impl PlacementPlanningAdvance {
     }
 }
 
-/// 相对assets根的GLB/GLTF路径在任何分配和小写化之前先通过长度门。
+/// 使用场景资产根内的相对 GLB/GLTF 路径，并直接比较扩展名以避免复制路径。
 pub(super) fn validate_asset_path(path: &str) -> bool {
-    if path.is_empty() || path.len() > MAX_PLACEMENT_ASSET_PATH_BYTES {
-        return false; // 空路径和异常大输入都不进入后续线性扫描。
-    }
-    let lower = path.to_ascii_lowercase(); // 路径已受四KiB硬门，小写化不会产生无界单项分配。
     !path.starts_with('/')
         && !path.contains("..")
         && !path.contains('\\')
-        && (lower.ends_with(".glb") || lower.ends_with(".gltf"))
+        && path.rsplit_once('.').is_some_and(|(_, extension)| {
+            extension.eq_ignore_ascii_case("glb") || extension.eq_ignore_ascii_case("gltf")
+        })
 }
 
 /// 校验单条摆放的非水字段，不拷贝整条记录。
@@ -63,15 +58,14 @@ fn validate_record_transform(
     scene_id: &SceneId,              // 诊断与范围冻结所属场景。
     bounds: Rect,                // 规划启动时已校验的世界XZ范围。
 ) -> Result<Transform, String> {
-    if record.id.len() > MAX_PLACEMENT_ID_BYTES
-        || record.id.trim().is_empty()
+    if record.id.trim().is_empty()
         || !(if record.asset_target.is_builtin() { record.asset_path.is_empty() } else { validate_asset_path(&record.asset_path) })
         || record
             .building_preset_id
             .as_deref()
             .is_some_and(|id| !valid_building_preset_id(id))
     {
-        return Err(format!("实例{}的ID、模型路径或建筑预设ID无效", record.id)); // 过长值与路径越界同样失败关闭。
+        return Err(format!("实例{}的ID、模型路径或建筑预设ID无效", record.id));
     }
     record.validated_transform(scene_id, bounds) // 公共入口保证F12、保存预检和运行时不存在边界分叉。
 }

@@ -39,8 +39,7 @@ pub struct ScenePlacementRuntimeStatus {
     pub attempt_revision: u64,
     /// 当前运行时发生真实有界推进时单调增加；稳定轮询和诊断文字刷新不得续命。
     ///
-    /// 保存交接以本值实现“连续三十秒无进展”超时，因此候选规划、生成游标、
-    /// World/水体联合门和最终复验游标都必须只在确实前进时调用`advance_progress`。
+    /// 场景加载与保存交接用本值观察候选推进。规划、生成、联合结算和复验只在实际前进时更新。
     pub progress_revision: u64,
     pub placement_count: usize,
     pub detail: String,
@@ -51,17 +50,6 @@ impl ScenePlacementRuntimeStatus {
     pub(crate) fn advance_progress(&mut self) {
         self.progress_revision = self.progress_revision.saturating_add(1);
     }
-}
-
-/// World/整网格水联合门最多缓存的去重候选根数；覆盖一张合法场景8192项placement上限。
-pub(super) const MAX_PLACEMENT_SETTLEMENT_ROOTS: usize = 8_192;
-
-/// 生命周期observer提交一个定向候选根时的确定结果。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PlacementSettlementEnqueueResult {
-    Queued,    // 新根进入FIFO，等待固定预算结算。
-    Coalesced, // 同根多次World/水状态变化合并为一次最终状态读取。
-    Full,      // 队列达到硬门，调用方必须拒绝整份候选修订。
 }
 
 /// 一个候选根在可O(1)取消的双向FIFO中的邻接身份。
@@ -80,13 +68,10 @@ pub(super) struct PlacementSettlementQueue {
 }
 
 impl PlacementSettlementQueue {
-    /// 把根加入固定容量FIFO；同帧World ready与水状态写入只保留一个席位。
-    pub(super) fn enqueue(&mut self, entity: Entity) -> PlacementSettlementEnqueueResult {
+    /// 一个候选根只留一个待结算席位，处理速度由消费系统每帧控制。
+    pub(super) fn enqueue(&mut self, entity: Entity) {
         if self.links.contains_key(&entity) {
-            return PlacementSettlementEnqueueResult::Coalesced; // 处理时读取组件最终值，不保存中间状态。
-        }
-        if self.links.len() >= MAX_PLACEMENT_SETTLEMENT_ROOTS {
-            return PlacementSettlementEnqueueResult::Full; // 不丢弃旧根，也不突破固定内存上限。
+            return; // 处理时读取组件最终值，不保存中间状态。
         }
         let previous = self.tail; // 当前队尾成为新项的前驱。
         self.links.insert(
@@ -105,7 +90,6 @@ impl PlacementSettlementQueue {
             self.head = Some(entity); // 第一项同时成为队首。
         }
         self.tail = Some(entity); // 无论是否为空，新项都是唯一队尾。
-        PlacementSettlementEnqueueResult::Queued // 返回真实入队供调用方推进诊断。
     }
 
     /// 弹出一个仍有效的定向根，稳定空帧只执行一次Option检查。
@@ -368,7 +352,7 @@ pub(crate) struct PlacementStaging {
     pub(crate) building_clearance_floor_heights: Arc<[f32]>, // 与候选净空在同一采用点发布。
     pub(crate) next_plan: usize,
     /// 仅收录当前代次/修订且最新一次World实例化后整网格水已Ready的根。
-    pub(crate) ready_roots: HashSet<Entity>, // 容量被全图8192 placement硬门封顶，重复事件不增长。
+    pub(crate) ready_roots: HashSet<Entity>, // 每个本批候选根最多授信一次，重复事件不增长。
     /// 相关Scene事件先按AssetId全局阻止采用，根级旧信用随后由共享索引按128项/帧撤销。
     pub(crate) blocked_scene_assets: HashMap<AssetId<WorldAsset>, u64>,
     pub(crate) total_instances: usize,
@@ -447,6 +431,8 @@ pub(crate) struct ScenePlacementRuntimeState {
     pub(crate) failure_logged_revision: Option<u32>,
     /// 共享WorldAsset读者存在未消费积压时，全局拒绝候选采用；未读Modified可能已在本帧SpawnScene重生。
     pub(crate) world_asset_events_caught_up: bool,
+    /// Mesh换代的分帧撤销尚未扫到全部根时，旧碰撞Ready不能完成整个候选。
+    pub(crate) collision_mesh_events_caught_up: bool,
 }
 
 impl Default for ScenePlacementRuntimeState {
@@ -473,6 +459,7 @@ impl Default for ScenePlacementRuntimeState {
             asset_retry_requested: false,
             failure_logged_revision: None,
             world_asset_events_caught_up: true,
+            collision_mesh_events_caught_up: true,
         }
     }
 }

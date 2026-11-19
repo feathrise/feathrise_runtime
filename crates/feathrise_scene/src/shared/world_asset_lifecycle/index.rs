@@ -6,17 +6,6 @@ use bevy::asset::AssetId;
 use bevy::prelude::*;
 use bevy::world_serialization::WorldAsset;
 
-/// 活动批、隐藏候选和F12预览最多各占一张合法8192根场景。
-pub(super) const MAX_INDEXED_WORLD_ASSET_ROOTS: usize = 24_576;
-
-/// 根登记失败必须由调用方失败关闭，绝不能遗漏后继续发布Ready。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WorldAssetRootRegistration {
-    Registered,
-    AlreadyRegistered,
-    Full,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 enum AssetSweepMode {
     /// 先撤销旧信用；积压期已经见到的新Ready可直接追授当前epoch。
@@ -109,19 +98,13 @@ impl Default for WorldAssetLifecycleIndex {
 }
 
 impl WorldAssetLifecycleIndex {
-    pub(crate) fn register(
-        &mut self,
-        entity: Entity,
-        asset_id: AssetId<WorldAsset>,
-    ) -> WorldAssetRootRegistration {
+    /// 每个活着的根只占一个登记项，根的失效分帧处理。
+    pub(crate) fn register(&mut self, entity: Entity, asset_id: AssetId<WorldAsset>) {
         if let Some(existing) = self.roots.get(&entity).copied() {
             if existing.asset_id == asset_id {
-                return WorldAssetRootRegistration::AlreadyRegistered;
+                return;
             }
             self.unregister(entity);
-        }
-        if self.roots.len() >= MAX_INDEXED_WORLD_ASSET_ROOTS {
-            return WorldAssetRootRegistration::Full;
         }
         let bucket = self.assets.entry(asset_id).or_default();
         let bucket_index = bucket.roots.len();
@@ -136,7 +119,6 @@ impl WorldAssetLifecycleIndex {
                 settled_sweep_serial: bucket.sweep_serial,
             },
         );
-        WorldAssetRootRegistration::Registered
     }
 
     pub(crate) fn unregister(&mut self, entity: Entity) {
@@ -298,16 +280,8 @@ impl WorldAssetLifecycleIndex {
     }
 
     /// `WorldInstanceReady`即使复用相同InstanceId，也会把根授信推进到当前资产epoch。
-    pub(crate) fn mark_world_ready(
-        &mut self,
-        entity: Entity,
-        asset_id: AssetId<WorldAsset>,
-    ) -> Result<u64, WorldAssetRootRegistration> {
-        match self.register(entity, asset_id) {
-            WorldAssetRootRegistration::Full => return Err(WorldAssetRootRegistration::Full),
-            WorldAssetRootRegistration::Registered
-            | WorldAssetRootRegistration::AlreadyRegistered => {}
-        }
+    pub(crate) fn mark_world_ready(&mut self, entity: Entity, asset_id: AssetId<WorldAsset>) -> u64 {
+        self.register(entity, asset_id);
         let ready_backlog_generation = self.active_backlog_generation;
         let entry = self.roots.get_mut(&entity).expect("根登记成功后必须存在");
         let bucket = self
@@ -328,7 +302,7 @@ impl WorldAssetLifecycleIndex {
         {
             provisional.confirmed_by_world_ready = true;
         }
-        Ok(bucket.epoch)
+        bucket.epoch
     }
 
     pub(crate) fn current_ready_epoch(

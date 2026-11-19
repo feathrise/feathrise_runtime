@@ -7,8 +7,6 @@ use bevy::prelude::*; // Rect、Transform与向量转换保持和正式场景完
 
 use crate::{SceneId, ScenePlacementRecord}; // 公共记录和场景身份共同生成可定位诊断。
 
-/// 单个场景允许的显式实例上限；海量重复内容必须继续使用植被后端。
-pub const MAX_SCENE_PLACEMENTS_PER_SCENE: usize = 8_192;
 /// 单轴缩放允许的闭区间下界；零或负缩放不得进入场景层级。
 pub const MIN_SCENE_PLACEMENT_SCALE: f32 = 0.001;
 /// 单轴缩放允许的闭区间上界；阻止损坏数据制造异常世界包围盒。

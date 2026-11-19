@@ -6,8 +6,10 @@
 
 use super::{
     ScenePlacementInstance,
+    components::{PlacementPendingInstance, PlacementPendingRevision, PlacementWorldInstanceReady},
     resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus},
 };
+use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
 use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, RigidBody, TrimeshFlags};
 use bevy::world_serialization::WorldInstanceReady;
 use bevy::{
@@ -17,7 +19,8 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    ops::Bound::{Excluded, Unbounded},
     time::Instant,
 };
 
@@ -37,9 +40,11 @@ pub(crate) use components::TerrainPhysicsProxy;
 use components::{TerrainMeshSources, TerrainWorldReady};
 pub(crate) use resources::TerrainCollisionGarbage;
 pub(super) use resources::TerrainCollisionRuntime;
+use resources::MeshChangeSweep;
 use types::{Capture, Cooked, MeshCapture};
 
 const COPY_BYTES: usize = 128 * 1024;
+const ROOTS_PER_FRAME: usize = 128; // 分帧查询预算，只控制一次推进的工作量。
 const MAX_VERTICES: usize = 262_144;
 const MAX_TRIANGLES: usize = 262_144;
 const MAX_MESHES: usize = 32;
@@ -126,30 +131,45 @@ fn install_physics_proxy(
     });
 }
 
+/// 按实体顺序跨帧轮转，已完成项或者暂时未就绪项都不能挡住后续根。
+fn poll_roots(registered: &BTreeSet<Entity>, cursor: Option<Entity>) -> impl Iterator<Item = Entity> + '_ {
+    registered
+        .range((cursor.map_or(Unbounded, Excluded), Unbounded))
+        .chain(registered.iter())
+        .take(registered.len().min(ROOTS_PER_FRAME))
+        .copied()
+}
+
 /// 活动作者预览只同步已烘焙形状的位姿；缩放或资产换代仍等待后台完整结果。
-/// 扫描登记的至多128根，避免普通8192项摆放进入逐帧碰撞查询。
 pub(super) fn sync_preview_physics_pose(
     runtime: Res<TerrainCollisionRuntime>,
+    mut cursor: Local<Option<Entity>>,
     roots: Query<
         (
             &TerrainPatchColliderReady,
             &TerrainPatchCollisionRequest,
             &GlobalTransform,
             &ScenePlacementInstance,
-            Option<&FormalTerrainPatchCollider>,
             Option<&TerrainColliderProxy>,
         ),
-        Without<DeferredTerrainPreviewCollider>,
+        (
+            Without<DeferredTerrainPreviewCollider>,
+            Without<FormalTerrainPatchCollider>,
+            Without<PlacementPendingInstance>,
+        ),
     >,
     mut commands: Commands,
 ) {
-    for &root in &runtime.registered {
-        let Ok((ready, request, global, instance, formal, proxy)) = roots.get(root) else {
+    if roots.is_empty() {
+        return;
+    }
+    for root in poll_roots(&runtime.registered, *cursor) {
+        *cursor = Some(root);
+        let Ok((ready, request, global, instance, proxy)) = roots.get(root) else {
             continue;
         };
         if !instance.is_active()
             || !instance.uses_async_mesh_collision()
-            || formal.is_some()
             || !ready.matches(request)
             || ready.scale != global.scale()
         {
@@ -237,7 +257,7 @@ pub(super) fn retire_installed_shape(
     }
 }
 
-/// 旧三维根最多32项，采用边界立即撤销物理和请求，不等待8192项树回收游标。
+/// 采用边界立即撤销旧物理和请求，实体树回收随后分帧完成。
 pub(super) fn retire_formal_terrain(commands: &mut Commands, roots: &[Entity]) {
     for &root in roots {
         commands
@@ -249,17 +269,8 @@ pub(super) fn retire_formal_terrain(commands: &mut Commands, roots: &[Entity]) {
 pub(super) fn register_request(
     event: On<Add<TerrainPatchCollisionRequest>>,
     mut runtime: ResMut<TerrainCollisionRuntime>,
-    mut commands: Commands,
 ) {
-    if runtime.registered.len() < 128 {
-        runtime.registered.insert(event.entity);
-    } else {
-        // 异常作者预览不能突破捕获根预算，正式保存另以全图32项预算拒绝。
-        commands
-            .entity(event.entity)
-            .remove::<TerrainPatchCollisionRequest>();
-        error!("三维地形碰撞根超过128项并存预算");
-    }
+    runtime.registered.insert(event.entity);
 }
 
 pub(super) fn unregister_request(
@@ -401,7 +412,7 @@ fn capture_step(
                 indices.try_reserve_exact(count)
                     .map_err(|error| format!("三角索引缓冲分配失败：{error}"))?;
             }
-            capture.sources.push(handle.0.id());
+            capture.sources.insert(handle.0.id());
             capture.mesh_entities.push((entity, handle.0.clone()));
             capture.current = Some(MeshCapture {
                 handle: handle.0.clone(),
@@ -546,43 +557,53 @@ pub(super) fn drive_terrain_collision(
     mut state: ResMut<ScenePlacementRuntimeState>,
     mut status: ResMut<ScenePlacementRuntimeStatus>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
+    world_assets: Option<Res<WorldAssetLifecycleIndex>>,
+    pending_roots: Query<&PlacementPendingRevision>,
     deferred: Query<(), With<DeferredTerrainPreviewCollider>>,
     uploading: Query<(), With<super::terrain_mesh_upload::TerrainMeshUpload>>,
     fields: Query<&crate::VolumeSurfaceFields>,
 ) {
-    let root_ids: Vec<_> = runtime.registered.iter().copied().collect(); // 固定128项上限，消息与任务共享同一快照。
-    if events.len() > 128 {
-        // 事件风暴先取消全部有限请求，避免未读尾部丢失后采用混合新旧Mesh。
-        for root in &root_ids {
-            if let Ok((_, mut request, _, _, _, _, _, _, _)) = roots.get_mut(*root) {
-                request.generation = request.generation.wrapping_add(1).max(1);
-                invalidate_candidate(*root, &mut state, &mut commands);
+    let mesh_events_caught_up = {
+        let runtime = &mut *runtime;
+        // Bevy消息只有短寿命，先合并真实换代ID，再分帧撤销受影响根的旧就绪证明。
+        runtime.pending_mesh_changes.extend(events.read().filter_map(|event| match event {
+            AssetEvent::Modified { id } | AssetEvent::Removed { id } => Some(*id),
+            _ => None,
+        }));
+        if runtime.mesh_sweep.is_none() && !runtime.pending_mesh_changes.is_empty() {
+            runtime.mesh_sweep = Some(MeshChangeSweep {
+                changed: std::mem::take(&mut runtime.pending_mesh_changes),
+                cursor: None,
+            });
+        }
+        if let Some(sweep) = &mut runtime.mesh_sweep {
+            let mut remaining = runtime.registered.range((sweep.cursor.map_or(Unbounded, Excluded), Unbounded));
+            for &root in remaining.by_ref().take(ROOTS_PER_FRAME) {
+                sweep.cursor = Some(root);
+                let Ok((_, mut request, _, world, _, _, sources, _, _)) = roots.get_mut(root) else { continue; };
+                let source_changed = sources.is_some_and(|sources| !sources.0.is_disjoint(&sweep.changed));
+                let capture_changed = runtime.capture.as_ref().is_some_and(|capture| {
+                    capture.root == root && !capture.sources.is_disjoint(&sweep.changed)
+                });
+                if source_changed || capture_changed {
+                    request.generation = request.generation.wrapping_add(1).max(1);
+                    let world_epoch = world.and_then(|world| {
+                        world_assets.as_ref()?.current_ready_epoch(root, world.0.id())
+                    });
+                    invalidate_candidate(root, &mut state, &mut commands, &pending_roots, world_epoch);
+                }
+            }
+            if remaining.next().is_none() {
+                runtime.mesh_sweep = None;
             }
         }
-        events.clear();
+        runtime.mesh_sweep.is_none() && runtime.pending_mesh_changes.is_empty()
+    };
+    if state.collision_mesh_events_caught_up != mesh_events_caught_up {
+        state.collision_mesh_events_caught_up = mesh_events_caught_up;
     }
-    for event in events.read().take(128) {
-        if let AssetEvent::Modified { id } | AssetEvent::Removed { id } = event {
-            for root in &root_ids {
-                let Ok((root, mut request, _, _, _, _, sources, _, _)) = roots.get_mut(*root)
-                else {
-                    continue;
-                };
-                if sources.is_some_and(|sources| sources.0.contains(id)) {
-                    request.generation = request.generation.wrapping_add(1).max(1);
-                    invalidate_candidate(root, &mut state, &mut commands);
-                }
-            }
-            if let Some(capture) = runtime
-                .capture
-                .as_ref()
-                .filter(|capture| capture.sources.contains(id))
-            {
-                if let Ok((_, mut request, _, _, _, _, _, _, _)) = roots.get_mut(capture.root) {
-                    request.generation = request.generation.wrapping_add(1).max(1);
-                }
-            }
-        }
+    if !mesh_events_caught_up {
+        return; // 队尾根还可能持有旧形状，暂不继续捕获或采用后台完成值。
     }
     if let Some((root, generation, started)) = runtime.started
         && started.elapsed().as_secs() >= 30
@@ -595,13 +616,12 @@ pub(super) fn drive_terrain_collision(
     {
         runtime.failed.insert(root, generation);
         reject(
-            root_is_pending(root, &state),
+            root_is_pending(root, &state, &pending_roots),
             &mut state,
             &mut status,
             "三维地形碰撞准备超过30秒，保留上一完整形状".into(),
         );
     }
-    runtime.failed.retain(|root, _| roots.get(*root).is_ok());
     if runtime
         .release
         .as_mut()
@@ -619,6 +639,7 @@ pub(super) fn drive_terrain_collision(
         }));
         return;
     } // 同域单飞释放槽，不为每根创建任务。
+    let mut completed_root = None;
     if let Some(result) = runtime.task.as_mut().and_then(check_ready) {
         runtime.task = None;
         runtime.started = None;
@@ -638,6 +659,7 @@ pub(super) fn drive_terrain_collision(
         }
         match result.shape {
             Ok((collider, physical)) => {
+                completed_root = Some(result.root); // Ready命令尚未应用，本帧无需把刚完成的根再次排队。
                 let update_active = roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal)| {
                     instance.is_active()
                         && (formal.is_none() || (!instance.is_terrain_patch() && instance.asset_target().has_scene_collision()))
@@ -661,7 +683,7 @@ pub(super) fn drive_terrain_collision(
                 commands.trigger(ColliderConstructorHierarchyReady {
                     entity: result.root,
                 });
-                if root_is_pending(result.root, &state) {
+                if root_is_pending(result.root, &state, &pending_roots) {
                     status.advance_progress();
                 }
             }
@@ -671,7 +693,7 @@ pub(super) fn drive_terrain_collision(
                     .entity(result.root)
                     .insert(TerrainPatchColliderFailure(error.clone()));
                 reject(
-                    root_is_pending(result.root, &state),
+                    root_is_pending(result.root, &state, &pending_roots),
                     &mut state,
                     &mut status,
                     format!("三维地形碰撞失败：{error}"),
@@ -699,9 +721,14 @@ pub(super) fn drive_terrain_collision(
         return;
     }
     if runtime.capture.is_none() {
-        for root in &root_ids {
+        let runtime = &mut *runtime;
+        for root in poll_roots(&runtime.registered, runtime.capture_cursor) {
+            runtime.capture_cursor = Some(root);
+            if completed_root == Some(root) {
+                continue;
+            }
             let Ok((root, request, instance, world, world_ready, ready, _, transform, _)) =
-                roots.get(*root)
+                roots.get(root)
             else {
                 continue;
             };
@@ -724,7 +751,7 @@ pub(super) fn drive_terrain_collision(
                 stack: VecDeque::from([root]),
                 current: None,
                 meshes: Vec::new(),
-                sources: Vec::new(),
+                sources: HashSet::new(),
                 matrices: Vec::new(),
                 mesh_entities: Vec::new(),
                 nodes: 0,
@@ -761,7 +788,7 @@ pub(super) fn drive_terrain_collision(
             .map(|mesh| mesh.vertices.len() + mesh.indices.len()),
         capture.meshes.len(),
     );
-    if before != after && root_is_pending(capture.root, &state) {
+    if before != after && root_is_pending(capture.root, &state, &pending_roots) {
         status.advance_progress();
     }
     match result {
@@ -780,7 +807,7 @@ pub(super) fn drive_terrain_collision(
                 .entity(capture.root)
                 .insert(TerrainPatchColliderFailure(error.clone()));
             reject(
-                root_is_pending(capture.root, &state),
+                root_is_pending(capture.root, &state, &pending_roots),
                 &mut state,
                 &mut status,
                 if capture.scene_collision {
@@ -796,30 +823,38 @@ pub(super) fn drive_terrain_collision(
     }
 }
 
-fn root_is_pending(root: Entity, state: &ScenePlacementRuntimeState) -> bool {
-    state
-        .staging
-        .as_ref()
-        .is_some_and(|staging| staging.terrain_roots.contains(&root) || staging.primitive_collision_roots.contains(&root))
+fn root_is_pending(
+    root: Entity,
+    state: &ScenePlacementRuntimeState,
+    pending_roots: &Query<&PlacementPendingRevision>,
+) -> bool {
+    let Some(staging) = &state.staging else { return false; };
+    pending_roots.get(root).is_ok_and(|pending| {
+        pending.generation == staging.generation && pending.revision == staging.revision
+    })
 }
 
 fn invalidate_candidate(
     root: Entity,
     state: &mut ScenePlacementRuntimeState,
     commands: &mut Commands,
+    pending_roots: &Query<&PlacementPendingRevision>,
+    world_epoch: Option<u64>,
 ) {
-    if let Some(staging) = state
-        .staging
-        .as_mut()
-        .filter(|staging| staging.terrain_roots.contains(&root) || staging.primitive_collision_roots.contains(&root))
-    {
-        staging.ready_roots.remove(&root);
-        staging.eligibility_epoch = staging.eligibility_epoch.wrapping_add(1);
-        commands
-            .entity(root)
-            .remove::<super::components::PlacementBuildingCollisionReady>();
-        state.asset_retry_requested = true;
+    if !root_is_pending(root, state, pending_roots) {
+        return;
     }
+    let staging = state.staging.as_mut().expect("已核对当前候选根所属修订");
+    staging.ready_roots.remove(&root);
+    staging.eligibility_epoch = staging.eligibility_epoch.wrapping_add(1);
+    commands
+        .entity(root)
+        .remove::<super::components::PlacementBuildingCollisionReady>();
+    if let Some(epoch) = world_epoch {
+        // 只有Mesh改动时World仍就绪，重新授予同代证据供下一份碰撞参加联合结算。
+        commands.entity(root).insert(PlacementWorldInstanceReady(epoch));
+    }
+    state.asset_retry_requested = true;
 }
 
 fn reject(

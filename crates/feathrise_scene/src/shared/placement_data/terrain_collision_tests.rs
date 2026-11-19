@@ -314,7 +314,7 @@ fn cooked_scaled_collider_installs_without_rebuilding_scaled_bvh() {
             ],
             vec![0, 1, 2, 0, 2, 3],
         )],
-        sources: Vec::new(),
+        sources: HashSet::new(),
         matrices: vec![Mat4::IDENTITY],
         mesh_entities: Vec::new(),
         nodes: 1,
@@ -490,6 +490,98 @@ fn formal_hot_reload_keeps_old_physics_after_cooking_until_joint_install() {
 #[test]
 fn scene0_collision_hot_reload_updates_the_active_static_proxy() {
     check_same_handle_hot_reload(true, true);
+}
+
+#[test]
+fn scene0_collision_registers_beyond_old_limit_and_rejects_stale_pending_cook() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .init_resource::<Assets<Mesh>>()
+        .add_message::<AssetEvent<Mesh>>()
+        .init_resource::<WorldAssetLifecycleIndex>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
+        .add_systems(Update, drive_terrain_collision);
+    super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
+
+    let scene = SceneId("SCENE-many-colliders".into());
+    let mut record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"shared","asset_path":"models/shared.glb",
+        "asset_target":{"kind":"scene0","collision":true},
+        "translation":[0,0,0],"yaw_degrees":0,"scale":[1,1,1]
+    })).unwrap();
+    let (shared, edited) = {
+        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+        (meshes.add(floor(-3.0)), meshes.add(floor(-2.0)))
+    };
+    let old_roots: Vec<_> = (0..128).map(|index| {
+        record.id = format!("shared-{index}");
+        let root = app.world_mut().spawn((
+            ScenePlacementInstance::new(&scene, &record),
+            terrain_placement_collision(&record).unwrap(),
+            GlobalTransform::IDENTITY,
+        )).id();
+        app.world_mut().spawn((Mesh3d(shared.clone()), GlobalTransform::IDENTITY, ChildOf(root)));
+        root
+    }).collect();
+    for &root in &old_roots {
+        wait_ready_within(&mut app, root, 15);
+        app.world_mut().entity_mut(root).insert(FormalTerrainPatchCollider);
+    }
+
+    let old_root = old_roots[0];
+    let old_generation = app.world().get::<TerrainPatchCollisionRequest>(old_root).unwrap().generation;
+    for _ in 0..(ROOTS_PER_FRAME + 1) {
+        app.world_mut().write_message(AssetEvent::<Mesh>::Added { id: edited.id() });
+    }
+    app.update();
+    assert_eq!(app.world().get::<TerrainPatchCollisionRequest>(old_root).unwrap().generation, old_generation);
+
+    // 保留旧活动根，隐藏候选同时登记。候选烘焙期间换代，旧结果不能取得Ready或进入物理世界。
+    let container = app.world_mut().spawn_empty().id();
+    let mut state = super::super::terrain_topology_test_support::closing_candidate(scene.clone(), container);
+    let staging = state.staging.as_mut().unwrap();
+    record.id = "new-candidate".to_owned();
+    let world = Handle::<bevy::world_serialization::WorldAsset>::default();
+    let world_id = world.id();
+    let candidate = app.world_mut().spawn((
+        ScenePlacementInstance::new_pending(&scene, &record, staging.gate.clone()),
+        PlacementPendingRevision { generation: staging.generation, revision: staging.revision },
+        terrain_placement_collision(&record).unwrap(),
+        GlobalTransform::IDENTITY,
+        WorldAssetRoot(world),
+        TerrainWorldReady,
+    )).id();
+    app.world_mut().spawn((Mesh3d(edited.clone()), GlobalTransform::IDENTITY, ChildOf(candidate)));
+    let world_epoch = app.world_mut().resource_mut::<WorldAssetLifecycleIndex>().mark_world_ready(candidate, world_id);
+    staging.primitive_collision_roots.push(candidate);
+    staging.roots.push(candidate);
+    staging.total_instances = 1;
+    app.insert_resource(state);
+
+    for _ in 0..2 {
+        app.update();
+        if app.world().resource::<TerrainCollisionRuntime>().task.is_some() {
+            break;
+        }
+    }
+    let runtime = app.world().resource::<TerrainCollisionRuntime>();
+    assert_eq!(runtime.registered.len(), old_roots.len() + 1);
+    assert!(runtime.task.is_some());
+    app.world_mut().resource_mut::<Assets<Mesh>>().insert(edited.id(), floor(-6.0)).unwrap();
+    app.world_mut().write_message(AssetEvent::<Mesh>::Modified { id: edited.id() });
+    app.update();
+    assert!(!app.world().resource::<ScenePlacementRuntimeState>().collision_mesh_events_caught_up);
+    assert!(app.world().get::<TerrainPatchColliderReady>(candidate).is_none());
+    assert!(app.world().get::<TerrainColliderProxy>(candidate).is_none());
+
+    wait_ready_within(&mut app, candidate, 15);
+    assert_eq!(app.world().get::<PlacementWorldInstanceReady>(candidate).unwrap().0, world_epoch);
+    let ray = avian3d::parry::query::Ray::new(Vec3::new(0.0, 10.0, 0.0), Vec3::NEG_Y);
+    let cooked = app.world().get::<TerrainPatchColliderReady>(candidate).unwrap();
+    assert_eq!(cooked.collider.shape().cast_local_ray(&ray, 30.0, false), Some(16.0));
+    assert!(app.world().get::<TerrainColliderProxy>(candidate).is_none());
+    assert_eq!(installed(app.world(), old_root).shape().cast_local_ray(&ray, 30.0, false), Some(13.0));
 }
 
 fn check_same_handle_hot_reload(formal: bool, scene_collision: bool) {

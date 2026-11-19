@@ -12,19 +12,20 @@ use bevy::ecs::message::{MessageCursor, Messages};
 use bevy::ecs::schedule::ApplyDeferred;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
+use std::collections::VecDeque;
 
-use crate::shared::large_scene::{DynamicWaterMeshOverrideStatus, DynamicWaterMeshOverrides};
+use crate::shared::large_scene::DynamicWaterMeshOverrides;
 use crate::shared::placement_data::{
     ScenePlacementRuntimeState, ScenePlacementRuntimeStatus, complete_world_asset_invalidation,
     observe_world_asset_event, world_asset_event_is_relevant,
 };
 
 use index::WorldAssetInvalidationStep;
-pub(crate) use index::{WorldAssetLifecycleIndex, WorldAssetRootRegistration};
+pub(crate) use index::WorldAssetLifecycleIndex;
 
 /// 单帧最多分发的精确根失效数；与placement生成/结算预算一致。
 pub(crate) const WORLD_ASSET_ROOT_INVALIDATION_BUDGET_PER_FRAME: usize = 128;
-/// 单帧最多读取的Scene资产消息；超额项留在`MessageReader`并全局阻止旧工作采用。
+/// 单帧最多结算的 Scene 资产消息。尚未结算的事件继续阻止旧工作采用。
 pub(crate) const WORLD_ASSET_EVENT_BUDGET_PER_FRAME: usize = 128;
 /// 单帧最多确认的临时Modified资产数；以真实WorldReady而非消息读取帧镜像Bevy debounce。
 pub(crate) const WORLD_ASSET_MODIFICATION_RESOLUTION_BUDGET_PER_FRAME: usize = 128;
@@ -68,6 +69,7 @@ fn synchronize_placement_message_gate(
 /// 唯一WorldAsset消息读者同时驱动水体epoch和候选Scene加载状态，避免两个游标双重换代。
 fn collect_world_asset_lifecycle_events(
     mut cursor: Local<MessageCursor<AssetEvent<WorldAsset>>>,
+    mut pending: Local<VecDeque<AssetEvent<WorldAsset>>>,
     messages: Res<Messages<AssetEvent<WorldAsset>>>,
     frame_count: Res<FrameCount>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
@@ -77,7 +79,7 @@ fn collect_world_asset_lifecycle_events(
     let missed = cursor.missed_messages(&messages);
     if missed != 0 && index.record_missed_messages(missed) {
         error!(
-            "WorldAsset生命周期消息丢失{missed}条：固定预算读者落后于Messages双缓冲，整网格水与placement采用已永久失败关闭"
+            "WorldAsset生命周期消息丢失{missed}条：在接收入队前已被 Bevy 回收"
         );
         if let Some(state) = placement_state.as_deref_mut() {
             state.world_asset_events_caught_up = false;
@@ -85,22 +87,27 @@ fn collect_world_asset_lifecycle_events(
         if let Some(status) = placement_status.as_deref_mut() {
             status.phase = crate::shared::placement_data::ScenePlacementRuntimePhase::Failed;
             status.detail = format!(
-                "WorldAsset生命周期消息丢失{missed}条；请重启编辑器后减少同帧Scene热更突发"
+                "WorldAsset生命周期消息丢失{missed}条，无法确认当前实例版本。请重新打开工程"
             );
             status.advance_progress();
         }
     }
+    // Bevy 只短期保留消息。先转移实际相关的事件，再分帧推进资产代次，避免突发加载丢事件。
+    pending.extend(cursor.read(&messages).copied().filter(|event| {
+        let asset_id = event_asset_id(event);
+        index.contains_asset(asset_id)
+            || placement_state.as_deref().is_some_and(|state| world_asset_event_is_relevant(state, asset_id))
+    }));
     let backlog_generation =
-        index.begin_event_collection(cursor.len(&messages), WORLD_ASSET_EVENT_BUDGET_PER_FRAME);
+        index.begin_event_collection(pending.len(), WORLD_ASSET_EVENT_BUDGET_PER_FRAME);
     if let Some(state) = placement_state.as_deref_mut()
         && !index.events_caught_up()
     {
         state.world_asset_events_caught_up = false; // 必须早于本帧水工作和候选采用关闭全局门。
     }
-    for event in cursor
-        .read(&messages)
-        .take(WORLD_ASSET_EVENT_BUDGET_PER_FRAME)
-    {
+    let count = pending.len().min(WORLD_ASSET_EVENT_BUDGET_PER_FRAME);
+    for event in pending.drain(..count) {
+        let event = &event;
         let asset_id = event_asset_id(event);
         let placement_relevant = placement_state
             .as_deref()
@@ -127,7 +134,7 @@ fn collect_world_asset_lifecycle_events(
             observe_world_asset_event(event, asset_id, invalidation, state, status);
         }
     }
-    let caught_up = cursor.is_empty(&messages); // `take`只推进固定项，绝不clear丢弃尚未归属的Modified。
+    let caught_up = pending.is_empty();
     index.finish_event_collection(caught_up);
     if let Some(state) = placement_state.as_deref_mut() {
         let changed = synchronize_placement_message_gate(&index, state); // missed即使游标已空也保持false。
@@ -181,16 +188,11 @@ fn register_inserted_mesh_override_root(
     insert: On<Insert<DynamicWaterMeshOverrides>>,
     roots: Query<&WorldAssetRoot>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
-    mut commands: Commands,
 ) {
     let Ok(root) = roots.get(insert.entity) else {
         return;
     };
-    fail_registration_if_full(
-        insert.entity,
-        index.register(insert.entity, root.0.id()),
-        &mut commands,
-    );
+    index.register(insert.entity, root.0.id());
 }
 
 /// `WorldAssetRoot`后插入或替换时把既有覆盖组件迁到新资产桶。
@@ -198,34 +200,11 @@ fn register_inserted_world_asset_root(
     insert: On<Insert<WorldAssetRoot>>,
     roots: Query<&WorldAssetRoot, Or<(With<DynamicWaterMeshOverrides>, With<crate::shared::placement_data::PlacementPendingInstance>, With<crate::shared::placement_data::ScenePlacementInstance>)>>,
     mut index: ResMut<WorldAssetLifecycleIndex>,
-    mut commands: Commands,
 ) {
     let Ok(root) = roots.get(insert.entity) else {
         return;
     };
-    fail_registration_if_full(
-        insert.entity,
-        index.register(insert.entity, root.0.id()),
-        &mut commands,
-    );
-}
-
-fn fail_registration_if_full(
-    entity: Entity,
-    result: WorldAssetRootRegistration,
-    commands: &mut Commands,
-) {
-    if result != WorldAssetRootRegistration::Full {
-        return;
-    }
-    let detail = format!(
-        "WorldAsset整网格水根索引超过{}项固定上限",
-        index::MAX_INDEXED_WORLD_ASSET_ROOTS,
-    );
-    error!("{detail}：root={entity:?}");
-    commands
-        .entity(entity)
-        .try_insert(DynamicWaterMeshOverrideStatus::Failed(detail));
+    index.register(insert.entity, root.0.id());
 }
 
 fn unregister_discarded_world_asset_root(

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    MAX_SCENE_PLACEMENTS_PER_SCENE, SCENE_SCHEMA_VERSION, SceneId, ScenePlacementAssetTarget,
+    SCENE_SCHEMA_VERSION, SceneId, ScenePlacementAssetTarget,
     ScenePlacementRecord, ScenePlacementsAsset,
 };
 
@@ -73,9 +73,6 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
                 return Err(format!("场景 {scene_id} 的摆放 ID {} 重复", record.id));
             }
             placements.push(record);
-            if placements.len() > MAX_SCENE_PLACEMENTS_PER_SCENE {
-                return Err(format!("场景 {scene_id} 超过摆放对象上限"));
-            }
         }
     }
     let result = ScenePlacementsAsset { schema_version: SCENE_SCHEMA_VERSION, scene_id, placements };

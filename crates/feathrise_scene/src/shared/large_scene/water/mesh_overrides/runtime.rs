@@ -3,7 +3,7 @@
 use super::*; // 子模块复用父模块的私有预算、快照、编码与公开根类型。
 use crate::shared::placement_data::ScenePlacementProgressPulse; // 候选保存门只接收真实游标或阶段推进脉冲。
 use crate::shared::world_asset_lifecycle::{
-    WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated, WorldAssetRootRegistration,
+    WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated,
 }; // 同InstanceId原地热重载必须用资产epoch撤销并重新授信。
 
 mod height_offset; // 世界Y米制高度沿局部父链有界反算，不读取可能尚未传播的GlobalTransform。
@@ -177,18 +177,7 @@ pub(in crate::shared::large_scene::water) fn initialize_dynamic_water_mesh_overr
     if !work_state.accept_world_instance(ready.entity, ready.instance_id) {
         return; // WorldAssetRoot刚替换但WorldInstance尚未换票时，旧Ready不得回流成新请求。
     }
-    let ready_epoch = match asset_index.mark_world_ready(ready.entity, world_asset.0.id()) {
-        Ok(epoch) => epoch,
-        Err(WorldAssetRootRegistration::Full) => {
-            commands
-                .entity(ready.entity)
-                .insert(DynamicWaterMeshOverrideStatus::Failed(
-                    "WorldAsset整网格水根索引超过固定上限".to_owned(),
-                ));
-            return;
-        }
-        Err(_) => unreachable!("mark_world_ready只会返回容量失败"),
-    };
+    let ready_epoch = asset_index.mark_world_ready(ready.entity, world_asset.0.id());
     commands
         .entity(ready.entity)
         .insert(DynamicWaterMeshOverrideInstanceIdentity {

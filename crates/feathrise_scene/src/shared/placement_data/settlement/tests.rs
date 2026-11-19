@@ -257,12 +257,8 @@ fn stale_building_collision_generation_cannot_authorize_reloaded_world() {
         false,
         gate,
     ));
-    assert_eq!(
-        app.world_mut()
-            .resource_mut::<PlacementSettlementQueue>()
-            .enqueue(candidate),
-        PlacementSettlementEnqueueResult::Queued
-    ); // 模拟新World完成后根已定向入队。
+    app.world_mut().resource_mut::<PlacementSettlementQueue>()
+        .enqueue(candidate); // 模拟新World完成后根已定向入队。
 
     app.update(); // 旧碰撞代次必须保持候选未授信。
     assert!(
@@ -353,28 +349,20 @@ fn failed_latest_water_keeps_credit_revoked_and_fails_revision() {
 }
 
 #[test]
-fn settlement_fifo_covers_8192_legal_roots_and_has_o1_cancellation() {
-    let mut queue = PlacementSettlementQueue::default(); // 纯队列测试不创建任何ECS根组件。
-    let mut roots = Vec::with_capacity(MAX_PLACEMENT_SETTLEMENT_ROOTS); // 保存合法Entity供中间项取消。
-    for raw in 1..=MAX_PLACEMENT_SETTLEMENT_ROOTS {
-        let entity = Entity::from_raw_u32(raw as u32).expect("测试Entity索引必须合法"); // 每项拥有不同代次内索引。
-        roots.push(entity); // 后续精确取消中间根。
-        assert_eq!(
-            queue.enqueue(entity),
-            PlacementSettlementEnqueueResult::Queued
-        ); // 上限内全部入队。
+fn settlement_fifo_covers_more_than_8192_roots_and_cancels_precisely() {
+    let mut queue = PlacementSettlementQueue::default();
+    let roots: Vec<_> = (1..=8_193).map(|raw| Entity::from_raw_u32(raw).unwrap()).collect();
+    for &root in &roots {
+        queue.enqueue(root);
+        queue.enqueue(root); // 同一个候选的多次生命周期通知只占一位。
     }
-    let overflow = Entity::from_raw_u32(9_001).expect("溢出测试Entity必须合法"); // 不与上限内根重复。
-    assert_eq!(
-        queue.enqueue(overflow),
-        PlacementSettlementEnqueueResult::Full
-    ); // 第8193个唯一根失败关闭。
-    assert!(queue.cancel(roots[MAX_PLACEMENT_SETTLEMENT_ROOTS / 2])); // 双向链允许O(1)取消任意中间项。
-    assert_eq!(
-        queue.enqueue(overflow),
-        PlacementSettlementEnqueueResult::Queued
-    ); // 释放一个席位后可精确接纳新根。
-    assert_eq!(queue.len(), MAX_PLACEMENT_SETTLEMENT_ROOTS); // 内存硬门始终不变。
+    assert_eq!(queue.len(), roots.len());
+    let canceled = roots[roots.len() / 2];
+    assert!(queue.cancel(canceled));
+    for root in roots.into_iter().filter(|&root| root != canceled) {
+        assert_eq!(queue.pop_front(), Some(root));
+    }
+    assert!(queue.pop_front().is_none());
 }
 
 #[test]
@@ -416,12 +404,8 @@ fn removing_world_asset_root_cancels_queued_settlement_and_fails_current_candida
         false,
         gate,
     )); // 根移除必须影响这份当前事务。
-    assert_eq!(
-        app.world_mut()
-            .resource_mut::<PlacementSettlementQueue>()
-            .enqueue(candidate),
-        PlacementSettlementEnqueueResult::Queued
-    ); // 模拟根已有一个待结算生命周期事件。
+    app.world_mut().resource_mut::<PlacementSettlementQueue>()
+        .enqueue(candidate); // 模拟根已有一个待结算生命周期事件。
 
     app.world_mut()
         .entity_mut(candidate)
@@ -490,10 +474,7 @@ fn cancelled_candidate_retires_stale_settlements_at_128_per_frame() {
     {
         let mut queue = app.world_mut().resource_mut::<PlacementSettlementQueue>(); // 生命周期observer因无当前staging没有自动入队。
         for entity in roots {
-            assert_eq!(
-                queue.enqueue(entity),
-                PlacementSettlementEnqueueResult::Queued
-            ); // 手动模拟取消前已经积累的事件。
+            queue.enqueue(entity); // 手动模拟取消前已经积累的事件。
         }
     }
 
