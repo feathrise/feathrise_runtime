@@ -6,4 +6,4 @@
 
 此处的合成几何与目录用于验证公共协议和执行链。
 
-材质引用使用 Bevy 0.19 的 `#Material0/std` 标准 PBR 子资产；`#Material0` 本身是 glTF 材质描述，不能作为 `StandardMaterial` 加载。场景回归使用真实 `PbrPlugin` 转换，并核对转换后的颜色与粗糙度。
+夹具通过 `#Material0/std` 加载 Bevy 生成的 `StandardMaterial`。`#Material0` 指向原始 glTF 材质描述。场景回归使用真实的 `PbrPlugin` 进行转换，并核对生成材质的颜色和粗糙度。

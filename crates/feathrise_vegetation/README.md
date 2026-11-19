@@ -1,7 +1,7 @@
 # feathrise_vegetation
 
-`feathrise_vegetation` 是 Bevy 0.19 的内容无关种植与空间竞争库。它不区分草、麦、
-树、灌木或岩石，而是把内容拆成候选分布、密度、竞争、足迹、实现策略和渲染后端。
+`feathrise_vegetation` 是基于 Bevy 0.20.1 的通用种植与空间竞争库。草、麦、树、
+灌木和岩石共用候选分布、密度、竞争、足迹、实现策略与渲染后端。
 
 核心特性：
 
@@ -46,12 +46,12 @@ RGBA字节对照CPU参考。布局处理中、Shader或资源等待、字节差�
 的总层数没有因此受限。`VegetationBladeValidationLayers`可在不创建可见窗口的情况
 下请求指定层走同一候选、Mip与逐字节采用门，便于工程切换前做后台对等。
 
-crates.io 版本发布后可使用下面的配置；发布前源码接入及配套补丁见
-[SDK 接入说明](../../docs/crates-io.md)。
+以下配置使用同级检出的 SDK 源码。配套补丁见 [SDK 本地开发配置](../../docs/crates-io.md#本地修改)。
 
 ```toml
 [dependencies.feathrise_vegetation]
-version = "=0.1.0"
+version = "=0.2.0"
+path = "../feathrise_runtime/crates/feathrise_vegetation"
 features = ["blade", "mesh"]
 ```
 

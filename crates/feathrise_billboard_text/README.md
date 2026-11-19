@@ -1,6 +1,6 @@
 # feathrise_billboard_text
 
-通用「离屏烘焙文字 Billboard」插件，面向 [Bevy](https://bevyengine.org) 0.19。
+通用「离屏烘焙文字 Billboard」插件，面向 [Bevy](https://bevyengine.org) 0.20.1。
 
 把任意文字（可叠加彩色底盘装饰）烘焙到离屏纹理，再以**世界空间 3D Billboard** 显示在某个实体头顶或固定世界坐标：
 
@@ -37,11 +37,13 @@ Text2d (+ 装饰圆盘 Mesh2d) ─┤
 
 ## 快速开始
 
+以下配置使用同级检出的 SDK 源码。配套补丁见 [SDK 本地开发配置](../../docs/crates-io.md#本地修改)。
+
 ```toml
 # Cargo.toml
 [dependencies]
-bevy = "0.19"
-feathrise_billboard_text = "0.1"
+bevy = "=0.20.1"
+feathrise_billboard_text = { version = "=0.2.0", path = "../feathrise_runtime/crates/feathrise_billboard_text" }
 ```
 
 ```rust

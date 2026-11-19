@@ -1,12 +1,14 @@
 # feathrise_runtime
 
+**简体中文** · [English](README.en.md)
+
 Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供场景、资源、渲染、地形、水域、植被、物理和公共数据格式。工程通过自己的插件提供玩法、角色、内容预设、界面和存档策略。
 
 自有源码采用 [MIT](LICENSE-MIT) 或 [Apache-2.0](LICENSE-APACHE)，由使用者任选其一。第三方组件继续遵循 [各自原许可](THIRD_PARTY_NOTICES.md)。
 
 ## 使用与入口
 
-场景版源码沿用 Cargo 包版本 `0.2.0`，使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。源码接入使用同级补丁仓。 [快速开始](docs/quickstart.md) · [已发布版本接入](docs/crates-io.md)
+场景版源码沿用 Cargo 包版本 `0.2.0`，使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。 [快速开始](docs/quickstart.md) · [已发布版本接入](docs/crates-io.md)
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
