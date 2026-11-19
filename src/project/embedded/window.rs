@@ -493,6 +493,7 @@ fn update_native(
         if runtime.hello && runtime.native_child && !runtime.ready {
             let build_identity = runtime.transport.build_identity.clone();
             let mut capabilities: Vec<String> = CAPABILITIES.iter().map(|value| (*value).into()).collect();
+            capabilities.push(super::scene_tree::CAPABILITY.into());
             if runtime.hotpatch_available { capabilities.push(feathrise_editor_protocol::FUNCTION_HOTPATCH_CAPABILITY.into()); }
             runtime.transport.send(Message::Ready { pid: std::process::id(), hwnd: hwnd as u64, world_id, build_identity, capabilities })?;
             runtime.ready = true;

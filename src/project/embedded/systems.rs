@@ -135,6 +135,7 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
                     break;
                 }
                 Inbound::Preview(value) => super::preview::receive(world, runtime, value)?,
+                Inbound::SceneTree(request) => runtime.scene_tree.request(request),
                 Inbound::Control(message) => {
                     let terminal = matches!(message, Message::ApplyCodePatch { .. } | Message::Stop);
                     receive_control(world, runtime, message)?;
@@ -175,6 +176,7 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
         })?;
         runtime.last_status = Instant::now();
     }
+    runtime.scene_tree.advance(world, &mut runtime.transport, runtime.ready && runtime.pending.is_none())?;
     Ok(())
 }
 

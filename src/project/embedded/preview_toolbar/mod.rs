@@ -32,6 +32,7 @@ pub(super) fn install(app: &mut App) {
             .before(bevy::transform::TransformSystems::Propagate));
 }
 
+pub(super) use components::ToolbarCamera;
 pub(super) use systems::{mode_changed, take_return_request};
 #[cfg(feature = "validation")]
 pub(super) use validation::{RuntimeEvidence, RuntimeEvidenceQuery, runtime_evidence};

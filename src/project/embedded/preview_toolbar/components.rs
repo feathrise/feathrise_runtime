@@ -6,7 +6,7 @@ use bevy::prelude::*;
 pub(super) struct ToolbarRoot;
 
 #[derive(Component)]
-pub(super) struct ToolbarCamera;
+pub(in crate::project::embedded) struct ToolbarCamera;
 
 #[derive(Component)]
 pub(super) struct ToolbarPointer;

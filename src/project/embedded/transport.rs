@@ -1,14 +1,14 @@
 //! 专用匿名管道的有界后台收发；日志保持 stdout/stderr，控制帧绝不混入游戏日志。
 
-use super::snapshot::{PreparedSnapshot, prepare};
+use super::{scene_tree, snapshot::{PreparedSnapshot, prepare}};
 use feathrise_editor_protocol::{
-    Disposition, Envelope, Limits, Message, SessionGuard, SessionIdentity,
+    Disposition, Envelope, Limits, Message, PreviewKind, SessionGuard, SessionIdentity,
 };
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
     io::Read,
-    sync::mpsc::{self, Receiver, SyncSender},
+    sync::{Arc, mpsc::{self, Receiver, SyncSender, TrySendError}},
     thread,
 };
 
@@ -76,6 +76,7 @@ pub(super) enum Inbound {
     Control(Message),
     Snapshot(PreparedSnapshot),
     Preview(super::preview::PreparedPreview),
+    SceneTree(scene_tree::Request),
     Rejected {
         transaction: u64,
         generation: u64,
@@ -95,10 +96,18 @@ pub(super) struct Transport {
 
 impl Transport {
     pub(super) fn send(&mut self, message: Message) -> Result<(), String> {
-        self.sequence = self.sequence.checked_add(1).ok_or("控制顺序号已耗尽")?;
-        self.outgoing
-            .try_send(Envelope::new(self.identity.clone(), self.sequence, message))
-            .map_err(|error| format!("控制回执通道繁忙或断开：{error}"))
+        self.try_send(message, None)?.then_some(()).ok_or_else(|| "控制回执通道繁忙".into())
+    }
+
+    pub(super) fn try_send(&mut self, message: Message, payload: Option<Arc<Vec<u8>>>) -> Result<bool, String> {
+        let sequence = self.sequence.checked_add(1).ok_or("控制顺序号已耗尽")?;
+        let mut frame = Envelope::new(self.identity.clone(), sequence, message);
+        frame.payload = payload;
+        match self.outgoing.try_send(frame) {
+            Ok(()) => { self.sequence = sequence; Ok(true) }
+            Err(TrySendError::Full(_)) => Ok(false),
+            Err(TrySendError::Disconnected(_)) => Err("控制回执通道已断开".into()),
+        }
     }
 }
 
@@ -180,6 +189,15 @@ pub(super) fn start(
                     }
                     let generation = envelope.identity.generation;
                     let input = match envelope.message {
+                        Message::Preview { kind: PreviewKind::AuthorDomain, sequence, scene_id, format }
+                            if format == scene_tree::REQUEST => {
+                            if selected_scene.as_deref().unwrap_or(scene_tree::EMPTY_SCENE) != scene_id {
+                                return Err("工程场景树查询不属于当前场景".into());
+                            }
+                            let query = serde_json::from_slice(envelope.payload.as_deref().ok_or("工程场景树查询缺少正文")?)
+                                .map_err(|error| format!("工程场景树查询无效：{error}"))?;
+                            Inbound::SceneTree(scene_tree::Request { id: sequence, generation, scene_id, query })
+                        }
                         Message::Preview { kind, sequence, scene_id, format } => {
                             if selected_scene.as_deref() != Some(&scene_id) {
                                 return Err("实时预览必须属于已选择场景".into());

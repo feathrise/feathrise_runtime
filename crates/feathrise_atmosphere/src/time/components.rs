@@ -10,9 +10,9 @@ pub(crate) enum CelestialVisualKind {
     Moon,    // 十八至次日六点沿独立月亮轨迹显示。
 }
 
-/// 标记动态场景运行时生成的可见太阳核心、太阳柔光或月亮圆盘。
+/// 标记动态场景生成的太阳核心、柔光和月亮圆盘，供工程场景树识别环境派生实体。
 #[derive(Component, Clone, Copy, Debug)] // 三个轻量实体逐帧跟随当前玩法或F12透视相机。
-pub(crate) struct CelestialVisual {
+pub struct CelestialVisual {
     pub(crate) kind: CelestialVisualKind, // 三层共享网格，但使用独立材质、缩放、轨迹和显隐时段。
 }
 

@@ -15,6 +15,7 @@ mod preview_toolbar;
 #[cfg(feature = "validation")]
 mod preview_validation;
 mod resources;
+mod scene_tree;
 mod snapshot;
 mod source_readiness;
 mod systems;
