@@ -6,6 +6,7 @@ use bevy::{
     tasks::futures_lite::io::{AsyncRead, AsyncSeek},
 };
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     io::{Error, ErrorKind, SeekFrom},
     path::{Component, Path},
@@ -41,12 +42,12 @@ pub(crate) struct AssetOverlay(pub(super) Arc<Mutex<Publication>>);
 impl AssetOverlay {
     /// Assets 的异步 reader 调用；锁内只共享一个字节 Arc，不做读取、解码或扫描。
     pub(crate) fn read(&self, path: &Path) -> Option<ArcReader> {
-        let path = path.to_str()?.replace('\\', "/");
+        let path = source_key(path)?;
         let current = self.0.lock().ok()?;
-        if let Some(evidence) = current.reads.get(&path) {
+        if let Some(evidence) = current.reads.get(path.as_ref()) {
             evidence.read.store(true, Ordering::Release);
         }
-        let bytes = current.files.get(&path)?.clone();
+        let bytes = current.files.get(path.as_ref())?.clone();
         Some(ArcReader { bytes, position: 0 })
     }
 
@@ -56,6 +57,16 @@ impl AssetOverlay {
             Err(_) => Err(files), // 主线程从不等 AssetReader；下一帧再试。
         }
     }
+}
+
+/// 读者和 Bevy 回执都用快照的斜杠键，常见的规范路径直接借用。
+pub(super) fn source_key(path: &Path) -> Option<Cow<'_, str>> {
+    let path = path.to_str()?;
+    Some(if path.contains('\\') {
+        Cow::Owned(path.replace('\\', "/"))
+    } else {
+        Cow::Borrowed(path)
+    })
 }
 
 pub(super) fn valid_path(value: &str) -> bool {

@@ -155,6 +155,166 @@ fn only_a_genuinely_empty_initial_world_can_bypass_scene_readiness() {
 }
 
 #[test]
+fn scene_tree_queries_wait_for_the_new_scene_to_be_active() {
+    use super::{
+        scene_tree,
+        snapshot::PreparedSnapshot,
+        systems::{HeightSources, drive},
+        tool_brush::HeightSourceBindings,
+        transport::Inbound,
+    };
+    use bevy::{asset::AssetPlugin, state::state::StateTransition};
+    use feathrise_editor_protocol::{Message, PreviewKind};
+    use feathrise_scene::{
+        DynamicSceneRuntimePhase, DynamicSceneRuntimeStatus, ScenePlacementRuntimePhase,
+        ScenePlacementRuntimeStatus,
+    };
+    use feathrise_scene_content::{ActiveDynamicScene, SceneId};
+    use feathrise_scene_core::{input::EditorInputState, state::ScenePhase};
+    use std::time::{Duration, Instant};
+
+    let (mut runtime, input, output) = super::transport::test_runtime();
+    runtime.ready = true;
+    // 保留真实发布的退役通道，允许下次查询继续消费。
+    let (retire, _retired) = std::sync::mpsc::sync_channel(1);
+    runtime.transport.retire = retire;
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        bevy::state::app::StatesPlugin,
+        AssetPlugin {
+            watch_for_changes_override: Some(false),
+            ..default()
+        },
+    ))
+    .init_state::<ScenePhase>()
+    .init_resource::<ActiveDynamicScene>()
+    .init_resource::<AssetOverlay>()
+    .init_resource::<EditorInputState>()
+    .init_resource::<HeightSources>()
+    .init_resource::<feathrise_portal::PortalDestination>()
+    .insert_resource(crate::project::ProjectViewOrigin(Vec3::ZERO))
+    .insert_resource(EmbeddedProjectState {
+        mode: Mode::Editing,
+        world_id: 123,
+        revision: 0,
+        transitioning: false,
+    })
+    .insert_non_send(runtime);
+    let world = app.world_mut();
+    let old_camera = world.spawn(Camera3d::default()).id();
+
+    let query = |id, generation, scene_id: &str, revision| {
+        input
+            .try_send(Inbound::SceneTree(scene_tree::Request {
+                id,
+                generation,
+                scene_id: scene_id.into(),
+                query: serde_json::from_value(serde_json::json!({"revision": revision})).unwrap(),
+            }))
+            .unwrap();
+    };
+    let reply = |world: &mut World, id, generation, revision| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            // 分开推进控制帧与 Bevy StateTransition，复现回执已到但状态尚未切换的窗口。
+            drive(world);
+            for frame in output.try_iter() {
+                if let Message::Preview { kind, sequence, .. } = frame.message {
+                    assert_eq!(kind, PreviewKind::AuthorDomain);
+                    assert_eq!(sequence, id);
+                    assert_eq!(frame.identity.generation, generation);
+                    let payload: serde_json::Value =
+                        serde_json::from_slice(frame.payload.as_deref().unwrap()).unwrap();
+                    assert_eq!(payload["world_id"], 123);
+                    assert_eq!(payload["revision"], revision);
+                    return payload;
+                }
+            }
+            std::thread::yield_now();
+        }
+        panic!("场景树查询 {id} 未结清");
+    };
+    let complete_scene = |world: &mut World, scene_id: &SceneId| {
+        world.insert_resource(DynamicSceneRuntimeStatus {
+            scene_id: Some(scene_id.clone()),
+            phase: DynamicSceneRuntimePhase::Ready,
+            ..default()
+        });
+        world.insert_resource(ScenePlacementRuntimeStatus {
+            scene_id: Some(scene_id.clone()),
+            phase: ScenePlacementRuntimePhase::Ready,
+            ..default()
+        });
+        world.resource_mut::<HeightSources>().ready = true;
+        world.resource_mut::<NextState<ScenePhase>>().set(ScenePhase::Active);
+        world.run_schedule(StateTransition);
+    };
+
+    query(1, 1, scene_tree::EMPTY_SCENE, 0);
+    let empty_world = reply(world, 1, 1, 0);
+    assert_eq!(empty_world["rows"][0]["index"], old_camera.index_u32());
+
+    // 旧查询已经进入采样，换代后只能由当前代次响应。
+    let old = SceneId("TREE-OLD".into());
+    world.resource_mut::<ActiveDynamicScene>().select(old.clone());
+    world.resource_mut::<EmbeddedProjectState>().revision = 1;
+    complete_scene(world, &old);
+    query(2, 1, old.as_str(), 1);
+    drive(world);
+
+    let next = SceneId("TREE-NEW".into());
+    input
+        .try_send(Inbound::Snapshot(PreparedSnapshot {
+            transaction: 2,
+            revision: 2,
+            generation: 2,
+            scene_id: next.clone(),
+            name: "新场景".into(),
+            spawn: [0.0; 3],
+            files: default(),
+            paths: default(),
+            reload_paths: default(),
+            reads: default(),
+            heights: default(),
+            height_overrides: default(),
+            height_bindings: HeightSourceBindings::new(next.clone(), 2),
+            placements: None,
+            clear_vegetation: false,
+            clear_water: false,
+        }))
+        .unwrap();
+    drive(world);
+    drive(world);
+    let applied = output
+        .try_iter()
+        .find(|frame| !matches!(frame.message, Message::Status { .. }))
+        .unwrap();
+    assert_eq!(applied.identity.generation, 2);
+    assert!(matches!(applied.message, Message::SnapshotApplied { transaction: 2, revision: 2 }));
+    assert_eq!(*world.resource::<State<ScenePhase>>().get(), ScenePhase::Active);
+    assert_eq!(world.resource::<ActiveDynamicScene>().scene_id.as_ref(), Some(&next));
+    query(3, 2, next.as_str(), 2);
+    let queued = reply(world, 3, 2, 2);
+    assert!(queued["version"].is_null() && queued["rows"].is_null());
+
+    world.run_schedule(StateTransition);
+    assert_eq!(*world.resource::<State<ScenePhase>>().get(), ScenePhase::Loading);
+    query(4, 2, next.as_str(), 2);
+    let loading = reply(world, 4, 2, 2);
+    assert!(loading["version"].is_null() && loading["rows"].is_null());
+
+    world.despawn(old_camera);
+    let camera = world.spawn((Name::new("新场景相机"), Camera3d::default())).id();
+    complete_scene(world, &next);
+    query(5, 2, next.as_str(), 2);
+    let active = reply(world, 5, 2, 2);
+    assert!(active["version"].is_u64());
+    assert_eq!(active["rows"][0]["index"], camera.index_u32());
+    assert_eq!(active["rows"][0]["name"], "新场景相机");
+}
+
+#[test]
 fn returning_to_edit_releases_the_game_cursor_and_clears_pressed_inputs() {
     use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
     let mut world = World::new();

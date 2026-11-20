@@ -2,7 +2,10 @@
 
 use bevy::{
     camera::RenderTarget,
-    ecs::{archetype::Archetype, component::ComponentId, entity_disabling::Disabled},
+    ecs::{
+        archetype::Archetype, component::ComponentId, entity::EntityHashMap,
+        entity_disabling::Disabled,
+    },
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
@@ -14,7 +17,7 @@ use feathrise_scene::{
 use feathrise_scene_core::view::PrimarySceneView;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{HashMap, LinkedList},
     hash::{DefaultHasher, Hash, Hasher},
     sync::Arc,
     time::{Duration, Instant},
@@ -103,7 +106,8 @@ struct Scan {
     archetype: usize,
     row: usize,
     bytes: usize,
-    entries: BTreeMap<Entity, Entry>,
+    // 每帧追加自己的采样块，跨帧不会搬动已收集的整表。
+    chunks: LinkedList<Vec<(Entity, Entry)>>,
 }
 
 impl SceneTreeCapture {
@@ -146,7 +150,7 @@ impl SceneTreeCapture {
                     result => Work::Encode(AsyncComputeTaskPool::get().spawn(async move {
                         // 过期采样与超额采样也在同一后台槽释放，不占用工程帧处理整表。
                         if result == Some(Ok(true)) {
-                            encode(scan.entries, world_id, revision, known)
+                            encode(scan.into_entries(), world_id, revision, known)
                         } else {
                             None
                         }
@@ -200,28 +204,35 @@ impl Scan {
             archetype: 0,
             row: 0,
             bytes: 0,
-            entries: BTreeMap::new(),
+            chunks: LinkedList::new(),
         }
+    }
+
+    fn into_entries(self) -> EntityHashMap<Entry> {
+        // 实体跨帧换原型后可能再次被采样，后台按采样顺序采用最后一条记录。
+        self.chunks.into_iter().flatten().collect()
     }
 
     fn step(&mut self, world: &World) -> Result<bool, ()> {
         // 这里只读取 ECS；排序、层级修剪和编码都交给后台。按实时时间让出帧，不限制对象数量。
         let deadline = Instant::now() + Duration::from_micros(250);
-        while self.archetype < self.limit && Instant::now() < deadline {
+        let mut chunk = Vec::new();
+        'frame: while self.archetype < self.limit && Instant::now() < deadline {
             let archetype = world.archetypes().iter().nth(self.archetype).unwrap();
-            if let Some(kind) = classify(world, archetype) {
+            // ECS 保留空原型，重复刷新时可直接跳过这部分组件类型查询。
+            if !archetype.is_empty() && let Some(kind) = classify(world, archetype) {
                 while let Some(row) = archetype.entities().get(self.row) {
                     if Instant::now() >= deadline {
-                        return Ok(false);
+                        break 'frame;
                     }
                     self.row += 1;
                     let entity = world.entity(row.id());
-                    // 工程树列出窗口视角，离屏烘焙、遮挡和其他渲染辅助相机不单列。
+                    // 离屏相机不占行，其下的有效场景对象仍挂到最近的可见父级。
                     let kind = if matches!(kind, EntryKind::Object(Kind::Camera))
                         && entity.get::<RenderTarget>().is_some_and(|target| !matches!(target, RenderTarget::Window(_)))
                     {
                         if !entity.contains::<Children>() { continue; }
-                        EntryKind::Excluded
+                        EntryKind::Parent
                     } else {
                         kind
                     };
@@ -241,20 +252,24 @@ impl Scan {
                     // 同一 IPC 字节预算也约束采样内存，超额时保留编辑器上次的完整层级。
                     self.bytes += size_of::<(Entity, Entry)>() + name.map_or(0, str::len);
                     if self.bytes > MAX_PREVIEW_BYTES {
+                        self.chunks.push_back(chunk);
                         return Err(());
                     }
-                    self.entries.insert(
+                    chunk.push((
                         row.id(),
                         Entry {
                             parent: entity.get::<ChildOf>().map(ChildOf::parent),
                             name: name.map(str::to_owned),
                             kind,
                         },
-                    );
+                    ));
                 }
             }
             self.archetype += 1;
             self.row = 0;
+        }
+        if !chunk.is_empty() {
+            self.chunks.push_back(chunk);
         }
         Ok(self.archetype == self.limit)
     }
@@ -298,7 +313,7 @@ fn classify(world: &World, archetype: &Archetype) -> Option<EntryKind> {
     Some(EntryKind::Object(kind))
 }
 
-fn project(entries: BTreeMap<Entity, Entry>) -> Vec<SceneTreeNode> {
+fn project(entries: EntityHashMap<Entry>) -> Vec<SceneTreeNode> {
     let mut children = HashMap::<Option<Entity>, Vec<Entity>>::new();
     for (&id, entry) in &entries {
         children
@@ -364,7 +379,7 @@ fn project(entries: BTreeMap<Entity, Entry>) -> Vec<SceneTreeNode> {
 }
 
 fn encode(
-    entries: BTreeMap<Entity, Entry>,
+    entries: EntityHashMap<Entry>,
     world_id: u64,
     revision: u64,
     known: Option<u64>,
@@ -405,10 +420,50 @@ fn encode(
 mod tests {
     use super::*;
 
-    fn collect(world: &World) -> BTreeMap<Entity, Entry> {
+    fn collect(world: &World) -> EntityHashMap<Entry> {
         let mut scan = Scan::new(world);
         while !scan.step(world).unwrap() {}
-        scan.entries
+        scan.into_entries()
+    }
+
+    #[test]
+    fn scene_tree_uses_latest_sample_and_sorts_equal_names_by_entity() {
+        let mut world = World::new();
+        let group = world.spawn_empty().id();
+        let mut siblings = [world.spawn_empty().id(), world.spawn_empty().id()];
+        siblings.sort_unstable();
+        let [first, second] = siblings;
+        let mesh = |parent| Entry {
+            parent,
+            name: Some("同名模型".into()),
+            kind: EntryKind::Object(Kind::Mesh),
+        };
+        let mut scan = Scan::new(&world);
+        // 父项晚于子项被采样，同名对象的顺序仍按实体区分。
+        scan.chunks
+            .push_back(vec![(second, mesh(Some(group))), (first, mesh(None))]);
+        scan.chunks.push_back(vec![
+            (first, mesh(Some(group))),
+            (
+                group,
+                Entry {
+                    parent: None,
+                    name: Some("分组".into()),
+                    kind: EntryKind::Object(Kind::Node),
+                },
+            ),
+        ]);
+        let rows = project(scan.into_entries());
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.index, row.depth))
+                .collect::<Vec<_>>(),
+            [
+                (group.index_u32(), 0),
+                (first.index_u32(), 1),
+                (second.index_u32(), 1),
+            ],
+        );
     }
 
     #[test]
@@ -416,12 +471,17 @@ mod tests {
         let mut world = World::new();
         let unnamed_parent = world.spawn_empty().id();
         let group = world.spawn((Name::new("角色组"), Transform::default(), ChildOf(unnamed_parent))).id();
+        let offscreen = world.spawn((
+            Name::new("离屏烘焙"),
+            Camera3d::default(),
+            RenderTarget::None { size: UVec2::ONE },
+            ChildOf(group),
+        )).id();
         let model = world
-            .spawn((Name::new("角色模型"), Mesh3d(default()), ChildOf(group)))
+            .spawn((Name::new("角色模型"), Mesh3d(default()), ChildOf(offscreen)))
             .id();
         let light = world.spawn((Name::new("命名灯光"), PointLight::default(), ChildOf(model))).id();
         let current_camera = world.spawn((Camera3d::default(), PrimarySceneView)).id();
-        world.spawn((Name::new("离屏烘焙"), Camera3d::default(), RenderTarget::None { size: UVec2::ONE }));
         world.spawn(Mesh3d(default()));
         world.spawn((Name::new("辅助变换"), Transform::default()));
         let staging_group = world.spawn((Name::new("候选分组"), Transform::default())).id();

@@ -227,14 +227,17 @@ mod tests {
         };
         app.insert_resource(preferences);
 
-        // 第二个来源是普通文件，失败后连已经验证过的第一项也不能登记。
-        let mut invalid = project.clone();
-        invalid
-            .asset_roots
-            .push(project.asset_root().join("scenes/catalog.scene_catalog.json"));
-        assert!(prepare_project(&mut app, &invalid).is_err());
-        assert!(!app.world().contains_resource::<AssetSourceBuilders>());
-        assert!(!app.world().contains_resource::<ProjectContext>());
+        // 命名根必须是工程内目录。校验失败后，已经验证的默认源也不能登记。
+        for invalid_root in [
+            project.asset_root().join("scenes/catalog.scene_catalog.json"),
+            project.root.parent().unwrap().to_path_buf(),
+        ] {
+            let mut invalid = project.clone();
+            invalid.asset_roots.push(invalid_root);
+            assert!(prepare_project(&mut app, &invalid).is_err());
+            assert!(!app.world().contains_resource::<AssetSourceBuilders>());
+            assert!(!app.world().contains_resource::<ProjectContext>());
+        }
 
         let assets = prepare_project(&mut app, &project).unwrap();
         assert_eq!(app.world().id(), world_id);

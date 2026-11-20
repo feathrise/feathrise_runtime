@@ -176,7 +176,12 @@ fn drive_inner(world: &mut World, runtime: &mut Runtime) -> Result<(), String> {
         })?;
         runtime.last_status = Instant::now();
     }
-    runtime.scene_tree.advance(world, &mut runtime.transport, runtime.ready && runtime.pending.is_none())?;
+    // SnapshotApplied 先确认来源表。场景树只采样已通过真实就绪门的当前场景。
+    let tree_ready = runtime.ready
+        && runtime.pending.is_none()
+        && runtime.sources_ready
+        && scene_ready(world);
+    runtime.scene_tree.advance(world, &mut runtime.transport, tree_ready)?;
     Ok(())
 }
 
@@ -415,7 +420,8 @@ fn poll_source_readiness(world: &World, runtime: &mut Runtime) {
             break;
         };
         if let Some(handle) = server.get_handle_untyped(path) {
-            if let Some(source) = runtime.source_reads.get(path) {
+            let source = runtime.source_reads.get(path);
+            if let Some(source) = source {
                 if source.failed.load(std::sync::atomic::Ordering::Acquire) {
                     runtime.source_failed = true;
                     runtime.readiness_cursor += 1;
@@ -426,7 +432,13 @@ fn poll_source_readiness(world: &World, runtime: &mut Runtime) {
                 }
             }
             if !server.is_loaded_with_dependencies(handle.id()) {
-                return;
+                // 当前根已采用后才读取依赖终态，避免上一版热重载失败抢先结束本次来源。
+                if source.is_none()
+                    || !crate::app::scene_loading::has_failed_asset(server, std::slice::from_ref(&handle))
+                {
+                    return;
+                }
+                runtime.source_failed = true;
             }
         }
         runtime.readiness_cursor += 1;

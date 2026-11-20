@@ -1,6 +1,6 @@
 //! 工程运行时的资产来源；沿用Bevy文件读取与监听，仅校验当前工程来源，不套原型内容预算。
 
-use crate::project::ProjectContext;
+use crate::project::{ProjectContext, context::checked_existing};
 use bevy::{
     asset::{
         AssetApp, AssetMode, AssetPlugin,
@@ -14,7 +14,8 @@ use bevy::{
 };
 use std::{
     fs,
-    path::{Component, Path, PathBuf},
+    path::{Component, Path},
+    sync::Arc,
 };
 
 /// 每个工程的 Bevy App 固定自身资产来源；嵌入会话可在默认根覆盖完整作者快照，普通运行只读工程文件。
@@ -24,16 +25,18 @@ pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPl
     let first = project.asset_roots.first().ok_or("工程未登记默认资产根")?;
     let mut sources = Vec::with_capacity(project.asset_roots.len());
     for (index, root) in project.asset_roots.iter().enumerate() {
-        let root = root
-            .canonicalize()
-            .map_err(|error| format!("工程资产根不可访问：{}：{error}", root.display()))?;
-        checked_location(&root, Path::new(""))
-            .map_err(|error| format!("工程资产根不可用：{error}"))?;
+        // 沿清单登记路径检查每级目录，避免把更换后的链接目标当作原资产根。
+        let relative = root
+            .strip_prefix(&project.root)
+            .map_err(|_| format!("工程资产根不属于当前工程：{}", root.display()))?;
+        let root = checked_existing(&project.root, relative, true)
+            .map_err(|error| format!("工程资产根不可用：{}：{error}", root.display()))?;
+        let root = Arc::<Path>::from(root);
         // 保留生产FileWatcher，替换的reader只负责来源归属，不再检查图片尺寸/GLB节点/文件容量。
         let overlay = (index == 0).then(|| overlay.clone()).flatten();
         let mut source = AssetSourceBuilder::platform_default(&root.to_string_lossy(), None)
             .with_reader(move || Box::new(ProductionProjectReader { root: root.clone(),
-                inner: FileAssetReader::new(&root), overlay: overlay.clone() }));
+                inner: FileAssetReader::new(root.as_ref()), overlay: overlay.clone() }));
         source.writer = None;
         let id = if index == 0 {
             AssetSourceId::Default
@@ -55,13 +58,14 @@ pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPl
 }
 
 struct ProductionProjectReader {
-    root: PathBuf,
+    root: Arc<Path>,
     inner: FileAssetReader,
     overlay: Option<crate::project::embedded::asset_overlay::AssetOverlay>,
 }
 
 impl ProductionProjectReader {
     async fn check(&self, path: &Path) -> Result<(), AssetReaderError> {
+        // 登记根在 App 生命周期内固定，各次 IO 校验共享这份路径。
         let root = self.root.clone();
         let path = path.to_owned();
         // 文件系统归属检查放在IO池；正式解码、格式支持和资源大小仍由生产loader与GPU决定。
@@ -151,6 +155,7 @@ mod tests {
         render::render_resource::{Extent3d, TextureDimension, TextureFormat},
         tasks::{TaskPoolBuilder, block_on},
     };
+    use std::path::PathBuf;
 
     struct Fixture(PathBuf);
     impl Fixture {
