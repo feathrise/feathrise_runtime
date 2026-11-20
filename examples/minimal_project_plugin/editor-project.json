@@ -1,0 +1,11 @@
+{
+  "format": 2,
+  "id": "b3d4311d-26cc-459f-b6a1-8982d362ecb8",
+  "name": "最小工程（Plugin 入口）",
+  "package": "minimal_project_plugin",
+  "cargo_manifest": "Cargo.toml",
+  "game_entry": { "kind": "saved-world", "version": 1 },
+  "game_view": "third_person",
+  "asset_roots": ["assets"],
+  "editor_data": ".feathrise"
+}

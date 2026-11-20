@@ -22,6 +22,7 @@ use std::{
 pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPlugin, String> {
     let overlay = app.world().get_resource::<crate::project::embedded::asset_overlay::AssetOverlay>().cloned();
     let first = project.asset_roots.first().ok_or("工程未登记默认资产根")?;
+    let mut sources = Vec::with_capacity(project.asset_roots.len());
     for (index, root) in project.asset_roots.iter().enumerate() {
         let root = root
             .canonicalize()
@@ -39,6 +40,10 @@ pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPl
         } else {
             AssetSourceId::from(format!("root{index}"))
         };
+        sources.push((id, source));
+    }
+    // 全部来源通过校验才登记，后续资产根失效时可在同一个 App 内重试。
+    for (id, source) in sources {
         app.register_asset_source(id, source);
     }
     Ok(AssetPlugin {

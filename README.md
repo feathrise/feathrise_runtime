@@ -12,7 +12,7 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。
 
-先运行 [最小工程示例](docs/quickstart.md)：`cargo run --locked --example minimal_project`。它通过公共入口启动自定义 Plugin，显示旋转方块与默认中文文字，不需要编辑器或外部工程素材。
+进入 `examples/minimal_project/` 可查看 `run()` 接入，进入 `examples/minimal_project_plugin/` 可查看自建 Bevy App 的插件接入。每个目录都是一个 Cargo 工程，执行 `cargo run --locked` 即可启动。[示例用法](docs/quickstart.md)
 
 本地开发可以通过路径依赖使用 SDK：
 
@@ -29,7 +29,9 @@ Feathrise 的 `sdk-source.toml` 为场景工程选择配套源码。历史工程
 
 编辑器的源码联调配置见 [SDK 本地开发](docs/crates-io.md#本地修改)。
 
-根入口提供 `run(project, project_plugin)`、`ProjectContext`、`GameView`、`validate_saved_scene` 和可取消的 `validate_saved_scene_with_check`。`project` 模块对应工程入口库，`app` 模块提供运行装配。`game_plugins::SceneRuntimePlugin` 装配场景、环境与渲染，场景生命周期使用 `ScenePhase`。
+工程可用 `prepare_project` 和 `ProjectRuntimePlugin` 接入自己创建的 Bevy `App`。先准备工程资产源，再安装返回的 `AssetPlugin` 和运行时插件。窗口、渲染设备、任务池和 `App::run` 由工程入口决定。`run(project, project_plugin)` 提供含编辑器预览支持的默认启动。见[最小工程](docs/quickstart.md)。
+
+根入口也提供 `ProjectContext`、`GameView`、`validate_saved_scene` 和可取消的 `validate_saved_scene_with_check`。`game_plugins::SceneRuntimePlugin` 装配场景、环境与渲染，场景生命周期使用 `ScenePhase`。
 
 - `project::ProjectViewOrigin`：本次已保存场景的出生参考点。
 - `project::SceneRuntimeObserver`：附近物理与流送使用的观察锚点。
@@ -91,7 +93,11 @@ feathrise_runtime/
   src/                        公共 API、工程启动与运行装配
     project/                  工程上下文、启动、预览和编辑器通信
     app/                      公共场景装配、字体和呈现保护
-  examples/minimal_project.rs  可直接运行的 SDK 最小工程
+  examples/
+    minimal_project/           通过 run 启动的工程
+    minimal_project_plugin/    自建 App 并加入运行时插件的工程
+    support/                   共用演示代码与发布包验收素材
+    native_plugin/             编辑器原生插件示例
   crates/                     22 个独立子库
     feathrise_scene_core/      constants、view、state、input、residency 场景基础模块
     feathrise_fsr3_frame_generation/

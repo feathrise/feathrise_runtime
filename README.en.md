@@ -12,7 +12,7 @@ The scene-based SDK uses Cargo package version `0.2.0`, Bevy 0.20.1, wgpu 30.0.1
 
 `feathrise_plugin_api` is published separately from this repository. Its default feature set provides just the protocol and works independently of the editor and Bevy. You can develop plugins with the API package alone. [Standalone Plugin API and Examples](docs/native-plugins.md)
 
-Start with `cargo run --locked --example minimal_project`. This example uses the public entry point to launch a custom `Plugin` and displays a rotating cube with Chinese text rendered in the default font. It runs independently of the editor and external project assets. [Minimal Project Example](docs/quickstart.md)
+Open `examples/minimal_project/` for SDK-managed startup or `examples/minimal_project_plugin/` for a Bevy app that adds the runtime plugin. Each directory is a Cargo project. Run `cargo run --locked` from its directory. [Example Guide](docs/quickstart.md)
 
 For local development, add the SDK as a path dependency.
 
@@ -29,7 +29,9 @@ Feathrise uses `sdk-source.toml` to select the source for scene projects. For ol
 
 The editor can use a local SDK source checkout. [Local SDK Development](docs/crates-io.md#本地修改)
 
-The crate root exposes `run(project, project_plugin)`, `ProjectContext`, `GameView`, `validate_saved_scene`, and the cancellable `validate_saved_scene_with_check`. The `project` module provides the project entry point, and `app` assembles the runtime. `game_plugins::SceneRuntimePlugin` sets up scenes, environment, and rendering. The scene lifecycle uses `ScenePhase`.
+Use `prepare_project` and `ProjectRuntimePlugin` to integrate the SDK into your own Bevy `App`. Register the project's asset sources first, then add the returned `AssetPlugin` and the runtime plugin. Your entry point configures the window, renderer, and task pools and calls `App::run`. `run(project, project_plugin)` provides the default launcher with editor preview support. See the [minimal project](docs/quickstart.md).
+
+The crate root also exposes `ProjectContext`, `GameView`, `validate_saved_scene`, and the cancellable `validate_saved_scene_with_check`. `game_plugins::SceneRuntimePlugin` sets up scenes, environment, and rendering. The scene lifecycle uses `ScenePhase`.
 
 - `project::ProjectViewOrigin` marks the spawn reference point in the saved scene being loaded.
 - `project::SceneRuntimeObserver` is the anchor for nearby physics and streaming.
@@ -91,7 +93,11 @@ feathrise_runtime/
   src/                        Public API, project startup, and runtime setup
     project/                  Project context, startup, previews, and editor communication
     app/                      Shared scene setup, fonts, and presentation safeguards
-  examples/minimal_project.rs  Runnable minimal SDK project
+  examples/
+    minimal_project/           Project started with run
+    minimal_project_plugin/    Hosted App with the runtime plugin
+    support/                   Shared demo code and package validation assets
+    native_plugin/             Editor native plugin example
   crates/                     22 library crates
     feathrise_scene_core/      Core scene modules for constants, view, state, input, and residency
     feathrise_fsr3_frame_generation/

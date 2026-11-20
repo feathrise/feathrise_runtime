@@ -16,7 +16,7 @@ mod validation_height_source;
 pub use validation_height_source::validation_height_fingerprint;
 mod startup;
 
-pub use app::run;
+pub use app::{ProjectRuntimePlugin, prepare_project, run};
 pub use context::ProjectContext;
 pub use author_preview::{AuthorRuntimePreview, AuthorRuntimePreviewScene, AuthorRuntimePreviewEvidence,
     AuthorRuntimePreviewStatus, AUTHOR_RUNTIME_PREVIEW_LAYER};

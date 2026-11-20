@@ -70,7 +70,13 @@ test_panel = ["dep:feathrise_raytracing"]
 
 [workspace]
 resolver = "3"
-members = [".", "crates/*", "tests/workspace"]
+members = [
+    ".",
+    "crates/*",
+    "examples/minimal_project",
+    "examples/minimal_project_plugin",
+    "tests/workspace",
+]
 default-members = ["."]
 
 [workspace.dependencies]

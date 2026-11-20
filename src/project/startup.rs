@@ -114,8 +114,9 @@ fn read_catalog(
     project: &ProjectContext,
     check: &mut impl FnMut() -> Result<(), String>,
 ) -> Result<SceneCatalogAsset, String> {
+    let root = project.asset_roots.first().ok_or("工程未登记默认资产根")?;
     let path = context::checked_existing(
-        project.asset_root(),
+        root,
         Path::new(SCENE_CATALOG_ASSET_PATH),
         false,
     )?;

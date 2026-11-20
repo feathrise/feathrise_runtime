@@ -18,6 +18,10 @@ pub struct GraphicsSettingsPlugin;
 
 impl Plugin for GraphicsSettingsPlugin {
     fn build(&self, app: &mut App) {
+        // 宿主显式接管呈现模式时不注册同步系统，窗口可沿用完整的 Bevy 配置。
+        if !app.world().contains_resource::<HostManagedPresentMode>() {
+            app.add_systems(PostUpdate, graphics::apply_vsync);
+        }
         graphics::configure_render_scale(app); // 先注册提取与 RenderApp 管线，主世界系统随后只维护强类型视图组件。
         graphics::configure_texture_filtering(app); // 分批接管 PBR 线性纹理采样器，并在材质准备前完成绑定刷新。
         graphics::configure_dlss(app); // 初始化结构化状态，并在正式特性下维护独立 SR 所有权。
@@ -45,7 +49,6 @@ impl Plugin for GraphicsSettingsPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    graphics::apply_vsync,                 // 应用主窗口垂直同步。
                     graphics::apply_shadow_filtering,      // 应用窗口目标 3D 相机阴影滤波。
                     graphics::apply_bloom,                 // 应用 Bloom 并管理 HDR 所有权。
                     graphics::apply_exposure_compensation, // 相对作者基线应用窗口 3D 曝光补偿。
@@ -108,8 +111,9 @@ pub use graphics::{
 pub use resources::{
     DEFAULT_EXPOSURE_COMPENSATION, DisplaySettingsInputSet, DlssRuntimeBlocker, DlssRuntimePath,
     DlssRuntimeStatus, EnvironmentPreviewSettings, Fsr3RuntimeBlocker, Fsr3RuntimeStatus,
-    MAX_EXPOSURE_COMPENSATION, MIN_EXPOSURE_COMPENSATION, RaytracingSceneCoverage, RenderSettings,
-    RuntimeSettingsSyncSet, SceneDisplaySettings, StartupDisplayPreferences, StartupWindowPolicy,
+    HostManagedPresentMode, MAX_EXPOSURE_COMPENSATION, MIN_EXPOSURE_COMPENSATION,
+    RaytracingSceneCoverage, RenderSettings, RuntimeSettingsSyncSet, SceneDisplaySettings,
+    StartupDisplayPreferences, StartupWindowPolicy,
     sanitize_exposure_compensation,
 };
 pub use types::{

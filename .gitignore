@@ -3,7 +3,9 @@
 /target/
 /.cargo/local-sdk.toml
 /.local/
-# 示例独立解析依赖，本机锁文件与 Python 缓存不属于 SDK 源码。
+# 原生插件示例单独解析依赖；运行时示例共用 SDK 工作区的锁。
 /examples/native_plugin/Cargo.lock
+/examples/minimal_project*/target/
+/examples/minimal_project*/.feathrise/.local/
 __pycache__/
 *.py[cod]

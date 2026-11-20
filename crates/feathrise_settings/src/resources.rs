@@ -111,6 +111,10 @@ pub struct StartupWindowPolicy {
     pub force_windowed: bool,
 }
 
+/// 宿主管理主窗口呈现模式，画质插件保留相机和灯光等共享设置系统。
+#[derive(Resource)]
+pub struct HostManagedPresentMode;
+
 #[cfg(test)]
 mod tests {
     use super::*;

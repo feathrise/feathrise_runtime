@@ -115,7 +115,7 @@ jobs:
             cargo @sourceArguments fetch
             if ($LASTEXITCODE -ne 0) { throw '无法为指定的补丁准备联调锁。' }
           }
-          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_runtime', '-p', 'feathrise_scene_core', '-p', 'feathrise_scene_content', '-p', 'feathrise_scene', '-p', 'feathrise_environment', '-p', 'feathrise_fps_display', '-p', 'feathrise_plugin_api', '-p', 'feathrise_sdk_workspace_tests', '--tests', '--examples')
+          $cargoArguments = $sourceArguments + @('check', '--locked', '-p', 'feathrise_runtime', '-p', 'feathrise_scene_core', '-p', 'feathrise_scene_content', '-p', 'feathrise_scene', '-p', 'feathrise_environment', '-p', 'feathrise_fps_display', '-p', 'feathrise_plugin_api', '-p', 'feathrise_sdk_workspace_tests', '-p', 'minimal_project', '-p', 'minimal_project_plugin', '--tests', '--examples')
           if ($env:CHECK_VARIANT -eq 'validation') { $cargoArguments += @('--features', 'feathrise_runtime/validation') }
           elseif ($env:CHECK_VARIANT -ne 'default') { throw '未知检查组合。' }
           # 这里检查 Rust 目标并运行静态链接的契约测试，省掉 Bevy 第三方依赖的高优化编译。

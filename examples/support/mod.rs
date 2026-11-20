@@ -1,38 +1,25 @@
-//! SDK 最小工程：公共 run 装配运行时，工程的 Plugin 提供自己的几何、视图、文字与交互。
-//! 运行 cargo run --example minimal_project；空格暂停旋转，Esc 退出。
+//! 两个 SDK 示例共用工程数据、演示场景和交互，方便单独比较启动方式。
 
-#[path = "minimal_project/capture.rs"]
 mod capture;
 
-use bevy::{
-    prelude::*,
-    window::{PrimaryWindow, WindowMode},
-};
+use bevy::prelude::*;
 use feathrise_runtime::{
     ProjectContext,
     project::{PrimarySceneView, SceneRuntimeObserver},
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn main() -> Result<(), String> {
+pub(super) fn load() -> Result<(ProjectContext, MinimalProjectPlugin), String> {
     let capture = capture::parse_arguments()?;
-    // Cargo example 共用 SDK 的清单，不伪造第二份游戏 Cargo.toml 或编辑器工程描述。
-    // 此路径只属于随源码运行的示例；真实工程应在自己的入口调用 ProjectContext::load。
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/minimal_project")
-        .canonicalize()
-        .map_err(|error| format!("示例数据目录不可读：{error}"))?;
-    let project = ProjectContext {
-        asset_roots: vec![root.join("assets")],
-        root,
-        id: "feathrise-minimal-example".into(),
-        name: "Feathrise 最小工程".into(),
-    };
-    feathrise_runtime::run(project, MinimalProjectPlugin { capture })
+    // 与普通工程使用同一个运行时加载入口，按当前目录和 Cargo 包名核对工程归属。
+    let directory =
+        std::env::current_dir().map_err(|error| format!("工程启动目录不可读：{error}"))?;
+    let project = ProjectContext::load(&directory, env!("CARGO_PKG_NAME"))?;
+    Ok((project, MinimalProjectPlugin { capture }))
 }
 
 /// SDK 保持通用；工程的 Plugin 决定看到什么、如何交互。
-struct MinimalProjectPlugin {
+pub(super) struct MinimalProjectPlugin {
     capture: Option<PathBuf>,
 }
 
@@ -41,14 +28,6 @@ struct RotatingCube;
 
 impl Plugin for MinimalProjectPlugin {
     fn build(&self, app: &mut App) {
-        // run 已注册 WindowPlugin；在 Winit 真正创建窗口前设置，避免先全屏再切回窗口。
-        let world = app.world_mut();
-        let mut windows = world.query_filtered::<&mut Window, With<PrimaryWindow>>();
-        if let Ok(mut window) = windows.single_mut(world) {
-            window.title = "Feathrise · Minimal project".into();
-            window.mode = WindowMode::Windowed;
-            window.resolution.set(960.0, 640.0);
-        }
         app.add_systems(Startup, setup)
             .add_systems(Update, rotate_and_handle_input);
         if let Some(path) = &self.capture {
@@ -96,7 +75,7 @@ fn setup(
     ));
     commands.spawn((SceneRuntimeObserver, Transform::default()));
 
-    // 不指定 TextFont.font，直接展示 run 自动安装的 SDK 默认中文字体。
+    // 不指定 TextFont.font，直接展示运行时插件安装的 SDK 默认中文字体。
     // 关闭 default_font 时使用 Bevy 自带字体和 ASCII 文案；该字体不保证包含中点等标点。
     let message = if cfg!(feature = "default_font") {
         "羽立 · 最小工程\nSDK 运行时 + 自定义 Plugin\n空格：暂停 / 继续旋转    Esc：退出"

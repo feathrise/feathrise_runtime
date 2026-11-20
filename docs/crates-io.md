@@ -15,10 +15,10 @@
 当前 Bevy 0.20.1 源码要求 Rust 和 Cargo 1.97.1 或更新版本。以下命令在 SDK 根目录检查整个待发布集合。
 
 ```powershell
-cargo package --workspace --exclude feathrise_sdk_workspace_tests --registry crates-io --no-verify --locked
+cargo package --workspace --exclude feathrise_sdk_workspace_tests --exclude minimal_project --exclude minimal_project_plugin --registry crates-io --no-verify --locked
 ```
 
-Cargo 按依赖关系为 23 个公开包生成归档。测试工作区保持 `publish = false`。归档阶段用 `--no-verify` 跳过重复编译，解包后的消费编译单独执行。尚有未提交改动时，预检可追加 `--allow-dirty`。参数见 [Cargo 打包说明](https://doc.rust-lang.org/cargo/commands/cargo-package.html)。
+Cargo 按依赖关系为 23 个公开包生成归档。测试包和两个示例工程使用 `publish = false`。归档阶段用 `--no-verify` 跳过重复编译，解包后的消费编译单独执行。尚有未提交改动时，预检可追加 `--allow-dirty`。参数见 [Cargo 打包说明](https://doc.rust-lang.org/cargo/commands/cargo-package.html)。
 
 源码编译另行检查，例如默认与验收组合：
 
@@ -34,7 +34,7 @@ cargo check --locked -p feathrise_runtime --features validation
 安排发行并确定包版本后，在干净的 SDK 检出中执行。工作区批量发布使用 crates.io 的直接索引，按依赖顺序处理 23 个 SDK 包。字体继续使用已发布的 `feathrise_font = "=0.1.1"`。
 
 ```powershell
-cargo publish --workspace --exclude feathrise_sdk_workspace_tests --registry crates-io --locked --no-verify
+cargo publish --workspace --exclude feathrise_sdk_workspace_tests --exclude minimal_project --exclude minimal_project_plugin --registry crates-io --locked --no-verify
 ```
 
 预检阶段已单独进行解包编译时可使用 `--no-verify`，省去发布阶段再次构建每个包。正式命令需要对这 23 个包有发布权限的 crates.io 凭据。参见 [Cargo 发布说明](https://doc.rust-lang.org/cargo/commands/cargo-publish.html)。

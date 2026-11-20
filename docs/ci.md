@@ -10,7 +10,7 @@
 $env:CARGO_INCREMENTAL = '0'
 $env:CARGO_PROFILE_DEV_DEBUG = '0'
 $ciProfile = @('--config', 'profile.dev.package."*".opt-level=0')
-cargo @ciProfile check --locked -p feathrise_runtime -p feathrise_scene_core -p feathrise_scene_content -p feathrise_scene -p feathrise_environment -p feathrise_fps_display -p feathrise_plugin_api -p feathrise_sdk_workspace_tests --tests --examples
+cargo @ciProfile check --locked -p feathrise_runtime -p feathrise_scene_core -p feathrise_scene_content -p feathrise_scene -p feathrise_environment -p feathrise_fps_display -p feathrise_plugin_api -p feathrise_sdk_workspace_tests -p minimal_project -p minimal_project_plugin --tests --examples
 cargo @ciProfile test --locked -p feathrise_plugin_api -p feathrise_editor_protocol -p feathrise_scene_content -p feathrise_scene_core --all-features --lib
 cargo build --manifest-path examples/native_plugin/Cargo.toml --target-dir target --lib
 ```

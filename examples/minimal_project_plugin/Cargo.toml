@@ -1,0 +1,15 @@
+[package]
+name = "minimal_project_plugin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["dynamic_linking"] }
+feathrise_runtime = { path = "../..", default-features = false }
+
+[features]
+default = ["raytracing", "default_font"]
+raytracing = ["feathrise_runtime/raytracing"]
+default_font = ["feathrise_runtime/default_font"]
+function_hotpatch = ["feathrise_runtime/function_hotpatch"]

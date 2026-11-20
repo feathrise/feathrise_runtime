@@ -3,6 +3,7 @@
 use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, ScreenshotCaptured},
+    window::PrimaryWindow,
 };
 use std::{fs::OpenOptions, path::PathBuf};
 
@@ -14,29 +15,25 @@ struct Capture {
 
 pub(super) fn parse_arguments() -> Result<Option<PathBuf>, String> {
     let mut args = std::env::args_os().skip(1);
-    match args.next() {
-        None => Ok(None),
-        Some(flag) if flag == "--capture" => {
-            let path = args.next().ok_or("--capture 后需要 PNG 输出路径")?;
-            if args.next().is_some() {
-                return Err(
-                    "用法：cargo run --example minimal_project -- [--capture 输出.png]".into(),
-                );
-            }
-            // run 会切换到工程目录，输出路径提前绑定调用者的 cwd；不往示例资产目录写验收文件。
-            let path = std::path::absolute(path).map_err(|error| error.to_string())?;
-            if path.extension().is_none_or(|extension| extension != "png")
-                || !path.parent().is_some_and(|parent| parent.is_dir())
-            {
-                return Err("截图需要已有目录内的 .png 文件路径".into());
-            }
-            if path.exists() {
-                return Err("截图文件已存在，请指定新的文件名，避免覆盖已有结果".into());
-            }
-            Ok(Some(path))
-        }
-        Some(_) => Err("用法：cargo run --example minimal_project -- [--capture 输出.png]".into()),
+    // 只处理示例的截图参数，其余启动参数交给所选的 SDK 入口处理。
+    if !args.next().is_some_and(|flag| flag == "--capture") {
+        return Ok(None);
     }
+    let path = args.next().ok_or("--capture 后需要 PNG 输出路径")?;
+    if args.next().is_some() {
+        return Err("用法：cargo run -- --capture 输出.png".into());
+    }
+    // 输出路径以启动目录为基准，示例资产目录仅提供运行数据。
+    let path = std::path::absolute(path).map_err(|error| error.to_string())?;
+    if path.extension().is_none_or(|extension| extension != "png")
+        || !path.parent().is_some_and(|parent| parent.is_dir())
+    {
+        return Err("截图需要已有目录内的 .png 文件路径".into());
+    }
+    if path.exists() {
+        return Err("截图文件已存在，请指定新的文件名，避免覆盖已有结果".into());
+    }
+    Ok(Some(path))
 }
 
 pub(super) fn install(app: &mut App, path: PathBuf) {
@@ -72,6 +69,7 @@ fn request_capture(
 fn finish_capture(
     event: On<ScreenshotCaptured>,
     capture: Res<Capture>,
+    windows: Query<&Window, With<PrimaryWindow>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     // 回读完成不等于文件保存成功；单个观察者检查编码与写入结果，再决定退出状态。
@@ -98,10 +96,11 @@ fn finish_capture(
     };
     match save() {
         Ok(()) => {
-            info!(
-                width = event.image.width(),
-                height = event.image.height(),
-                "FEATHRISE_MINIMAL_CAPTURED"
+            println!(
+                "FEATHRISE_MINIMAL_CAPTURED width={} height={} present_mode={:?}",
+                event.image.width(),
+                event.image.height(),
+                windows.single().ok().map(|window| window.present_mode),
             );
             exit.write(AppExit::Success);
         }
