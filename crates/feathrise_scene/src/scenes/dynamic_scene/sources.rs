@@ -18,6 +18,14 @@ pub struct SceneRuntimeCatalog<'w> {
     active: Res<'w, ActiveDynamicScene>,
     container: Option<Res<'w, ContainerSource>>,
 }
+
+impl SceneRuntimeCatalog<'_> {
+    /// 同目录作者资产沿登记清单查找。容器清单是没有资产路径的内存投影。
+    pub(crate) fn registered_manifest(&self, scene: &SceneId) -> Option<&Handle<SceneManifestAsset>> {
+        self.registry.handles(scene).map(|handles| &handles.manifest)
+    }
+}
+
 impl std::ops::Deref for SceneRuntimeCatalog<'_> {
     type Target = SceneContentRegistry;
     fn deref(&self) -> &Self::Target {
@@ -63,4 +71,53 @@ fn prepare(active: Res<ActiveDynamicScene>, registry: Res<SceneContentRegistry>,
     if !independent_water { handles.water = None; }
     state.registry = Some(SceneContentRegistry { catalog: registry.catalog.clone(), revision: registry.revision,
         scenes: std::collections::BTreeMap::from([(id.clone(), handles)]), last_error: None });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{asset::{AssetPlugin, io::{AssetSourceBuilder, AssetSourceId, memory::{Dir, MemoryAssetReader}}},
+        ecs::system::RunSystemOnce};
+    use feathrise_scene_content::{SceneContentHandles, SceneContentPlugin, SceneMotionAsset, SCENE_SCHEMA_VERSION};
+
+    #[test]
+    fn scene_motion_resolves_the_registered_source_after_terrain_projection() {
+        const PATH: &str = "custom/scenes/lift/scene.scene_manifest.json";
+        let scene = SceneId::parse("SCENE-lift").unwrap();
+        let json = serde_json::json!({
+            "schema_version":SCENE_SCHEMA_VERSION, "id":scene, "display_name":"带独立地形的场景",
+            "runtime_scene":"data_driven", "world_min":[0,0], "world_max":[10,10],
+            "default_spawn":[0,0,0], "terrains":[]
+        });
+        let files = Dir::default();
+        files.insert_asset(std::path::Path::new(PATH), serde_json::to_vec(&json).unwrap());
+        let mut app = App::new();
+        app.register_asset_source(AssetSourceId::from("mounted"), AssetSourceBuilder::new(move || {
+            Box::new(MemoryAssetReader { root: files.clone() })
+        }))
+        .add_plugins((TaskPoolPlugin::default(), AssetPlugin {
+            watch_for_changes_override: Some(false), ..default()
+        }, SceneContentPlugin))
+        .init_resource::<ContainerSource>();
+        let world = app.world_mut();
+        let manifest = world.resource::<AssetServer>().load::<SceneManifestAsset>(format!("mounted://{PATH}"));
+        world.resource_mut::<Assets<SceneManifestAsset>>()
+            .insert(manifest.id(), serde_json::from_value(json).unwrap()).unwrap();
+        world.insert_resource(ActiveDynamicScene { scene_id: Some(scene.clone()) });
+        world.insert_resource(SceneContentRegistry {
+            scenes: std::collections::BTreeMap::from([(scene.clone(), SceneContentHandles {
+                manifest: manifest.clone(), portals: default(), placements: default(), characters_path: None,
+                surface: None, vegetation: None, water: None, boundaries: None,
+            })]),
+            ..default()
+        });
+
+        world.run_system_once(prepare).unwrap();
+        world.run_system_once(move |view: SceneRuntimeCatalog| {
+            assert!(view.handles(&scene).unwrap().manifest.path().is_none());
+            let source = view.registered_manifest(&scene).unwrap();
+            assert_eq!(source, &manifest);
+            assert_eq!(SceneMotionAsset::path(source).unwrap().to_string(), format!("mounted://{PATH}#SceneMotion"));
+        }).unwrap();
+    }
 }

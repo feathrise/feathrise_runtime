@@ -50,10 +50,11 @@ fn matches_request(world: &World, root: Entity, target: &ScenePlacementAssetTarg
     })
 }
 
-pub(super) fn request(world: &mut World, root: Entity, request: Request) {
+pub(super) fn request(world: &mut World, root: Entity, mut request: Request) {
     if !matches_request(world, root, &request.target) {
         return; // 旧命令不能触碰已经移除、退役或更换来源的根。
     }
+    request.collision &= world.get::<super::super::motion::MotionPlatform>(root).is_none();
     world.init_resource::<Preparation>();
     let large = needs_worker(&request.geometry);
     if large && builtin_placement_visual_ready(world, root) {

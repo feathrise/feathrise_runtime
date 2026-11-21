@@ -12,7 +12,7 @@ use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子
 use bevy::asset::{Asset, DependencyLoadState, LoadState, RecursiveDependencyLoadState}; // JSON和场景资产状态只在变化或候选构建期读取。
 use bevy::prelude::*; // ECS、GLTF场景根与变换。
 use feathrise_scene_content::{
-    ActiveDynamicScene, BuildingPresetRegistry, SceneId, SceneManifestAsset,
+    ActiveDynamicScene, BuildingPresetRegistry, SceneId, SceneManifestAsset, SceneMotionAsset,
     ScenePlacementAssetTarget, ScenePlacementRecord, ScenePlacementsAsset,
 }; // 运行时与编辑器共享作者格式。
 use feathrise_scene_core::state::ScenePhase; // 当前玩法场景与实体生命周期。
@@ -96,6 +96,8 @@ pub(crate) fn observe_placement_scene_scope(
     building_clearances.clear_formal(); // 离开旧场景时立即撤销正式来源，避免旧图净空残留。
     state.active_scene = Some(scene);
     state.active_scene_id = None; // 同场景内SceneId将在正式重建系统中再次取得并核对。
+    state.motion_asset = None;
+    state.glb_motion_asset = None;
     state.terrain_patch_active = false;
     state.terrain_mesh_generation = None;
     state.terrain_holes_applied = Default::default();
@@ -139,7 +141,7 @@ pub(crate) fn rebuild_data_driven_placements(
     active_dynamic: InstanceRes<ActiveDynamicScene>,
     registry: Option<crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog>,
     building_registry: Option<Res<BuildingPresetRegistry>>,
-    manifests: Res<Assets<SceneManifestAsset>>,
+    (manifests, motion_assets): (Res<Assets<SceneManifestAsset>>, Option<Res<Assets<SceneMotionAsset>>>),
     placements: Res<Assets<ScenePlacementsAsset>>,
     primitive_meshes: Res<Assets<Mesh>>, // 候选生成前只读直接primitive的顶点布局并拒绝缺Skin的蒙皮实例。
     mut state: InstanceResMut<ScenePlacementRuntimeState>,
@@ -182,7 +184,7 @@ pub(crate) fn rebuild_data_driven_placements(
     if keep_adopted_instance_placements(terrain_inputs.is_instance_domain(), &state) {
         return; // 原地换代会绕过已归并SubsceneBatch的物理门；epoch重建成功前保留旧根、状态和碰撞。
     }
-    let Some(registry) = registry.as_deref() else {
+    let Some(registry) = registry.as_ref() else {
         status.phase = ScenePlacementRuntimePhase::Waiting;
         status.detail = "场景目录尚未建立".to_owned();
         return;
@@ -207,6 +209,13 @@ pub(crate) fn rebuild_data_driven_placements(
         .and_then(|preview| preview.for_scene(&scene_id))
         .map(|preview| &preview.placements)
         .unwrap_or(&handles.placements);
+    let motion_path = motion_assets.as_ref()
+        .and_then(|_| registry.registered_manifest(&scene_id))
+        .and_then(SceneMotionAsset::path);
+    if state.motion_asset.as_ref().and_then(Handle::path) != motion_path.as_ref() {
+        state.motion_asset = motion_path.map(|path| asset_server.load(path));
+        state.dirty = true;
+    }
 
     if state.dirty {
         retirement::retire_candidate(&mut commands, &mut state);
@@ -218,13 +227,14 @@ pub(crate) fn rebuild_data_driven_placements(
         }
         if handle_failed(&asset_server, &handles.manifest)
             || handle_failed(&asset_server, placement_handle)
+            || state.motion_asset.as_ref().is_some_and(|handle| handle_failed(&asset_server, handle))
         {
             begin_placement_revision(&mut state, &mut status); // 加载失败也是本次发布之后可被交接门识别的新正式尝试。
             state.dirty = false;
             fail_revision(
                 &mut state,
                 &mut status,
-                format!("场景{scene_id}清单或摆放JSON加载失败"),
+                format!("场景{scene_id}清单、摆放或运动轨道资产加载失败"),
             );
             return;
         }
@@ -237,6 +247,52 @@ pub(crate) fn rebuild_data_driven_placements(
             status.phase = ScenePlacementRuntimePhase::Waiting;
             status.detail = format!("场景{scene_id}摆放文件仍在加载");
             return; // 等待Bevy资产管线完成IO，不在主线程同步读文件。
+        };
+        let glb_motion = if let Some(assets) = motion_assets.as_ref()
+            && let Some(path) = SceneMotionAsset::placement_path(&handles.placements)
+        {
+            if state.glb_motion_asset.as_ref().and_then(Handle::path) != Some(&path) {
+                // 与模型的标准 GLB 载入器共用源数据，由候选持有场景动画子资产。
+                state.glb_motion_asset = Some(asset_server.load(path));
+            }
+            if state.glb_motion_asset.as_ref().is_some_and(|handle| handle_failed(&asset_server, handle)) {
+                begin_placement_revision(&mut state, &mut status);
+                state.dirty = false;
+                fail_revision(&mut state, &mut status, format!("场景{scene_id}的 GLB 动画加载失败"));
+                return;
+            }
+            let Some(asset) = state.glb_motion_asset.as_ref().and_then(|handle| assets.get(handle)) else {
+                status.phase = ScenePlacementRuntimePhase::Waiting;
+                status.detail = format!("场景{scene_id}的 GLB 动画仍在加载");
+                return;
+            };
+            Some(asset)
+        } else {
+            state.glb_motion_asset = None;
+            None
+        };
+        let motion_tracks = if let Some(tracks) = glb_motion.filter(|asset| {
+            asset.authoritative || !asset.tracks.as_ref().is_ok_and(|tracks| tracks.is_empty())
+        }).map(|asset| &asset.tracks).or_else(|| {
+            let asset = motion_assets.as_ref()?.get(state.motion_asset.as_ref()?)?;
+            Some(&asset.tracks)
+        }) {
+            match tracks {
+                Ok(tracks) => Some(tracks.clone()),
+                Err(error) => {
+                    let detail = format!("场景{scene_id}运动轨道加载失败：{error}");
+                    begin_placement_revision(&mut state, &mut status);
+                    state.dirty = false;
+                    fail_revision(&mut state, &mut status, detail);
+                    return;
+                }
+            }
+        } else if state.motion_asset.is_some() {
+            status.phase = ScenePlacementRuntimePhase::Waiting;
+            status.detail = format!("场景{scene_id}的旧版运动数据仍在加载");
+            return;
+        } else {
+            None
         };
         let invalid_identity = manifest.id != scene_id || document.scene_id != scene_id; // 清单、JSON与当前场景必须属于同一身份。
         let bounds = manifest.world_bounds(); // 世界范围只在启动帧转换一次。
@@ -255,7 +311,7 @@ pub(crate) fn rebuild_data_driven_placements(
         let generation = state.generation; // 避免构造资源时产生重叠可变借用。
         let revision = state.revision; // 本尝试修订与后续根组件完全对齐。
         state.failure_logged_revision = None;
-        state.planning = Some(planning::begin_planning(
+        let mut planning = planning::begin_planning(
             generation,                              // 当前场景代次。
             revision,                                // 当前尝试修订。
             scene_id.clone(),                          // 当前场景稳定ID。
@@ -265,8 +321,10 @@ pub(crate) fn rebuild_data_driven_placements(
             placement_handle.id(),                   // 冻结正式文件或完整文档临时句柄身份。
             bounds.expect("上方已确认世界范围合法"), // 后续单条只执行Rect包含检查。
             document.placements.len(),               // 冻结O(1)文档长度，跨帧变化会取消事务。
-        ));
-        state.planning.as_mut().unwrap().terrain_filter = terrain_inputs.filter(manifest, &scene_id);
+        );
+        planning.terrain_filter = terrain_inputs.filter(manifest, &scene_id);
+        planning.motion_tracks = motion_tracks;
+        state.planning = Some(planning);
         state.asset_retry_requested = false; // Scene失败重试门只在规划完成后有意义。
         state.dirty = false;
         status.phase = ScenePlacementRuntimePhase::Waiting;

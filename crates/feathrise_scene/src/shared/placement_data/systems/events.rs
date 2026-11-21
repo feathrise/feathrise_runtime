@@ -4,7 +4,7 @@ use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子
 use bevy::asset::{Asset, AssetEvent, AssetId}; // 消息只携带类型化资产身份，不读取或同步遍历内容。
 use bevy::prelude::*; // MessageReader、Res和资源可变借用。
 use bevy::world_serialization::WorldAsset; // Scene0热更事件使用统一World资产类型。
-use feathrise_scene_content::{ActiveDynamicScene, ScenePlacementsAsset}; // 当前场景目录把JSON事件缩小到唯一正式摆放文档。
+use feathrise_scene_content::{ActiveDynamicScene, SceneMotionAsset, ScenePlacementsAsset};
 
 use super::super::resources::{
     ScenePlacementRebuildRequest, ScenePlacementRuntimePhase, ScenePlacementRuntimeState,
@@ -27,6 +27,7 @@ pub(crate) fn observe_placement_data_events(
     registry: Option<crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog>,
     active_dynamic: InstanceRes<ActiveDynamicScene>, // 显式重建按实际当前动态场景接纳，不依赖可能仍滞后一帧的诊断状态。
     mut document_events: feathrise_scene_core::residency::ResidentAssetEventReader<ScenePlacementsAsset>,
+    mut motion_events: feathrise_scene_core::residency::ResidentAssetEventReader<SceneMotionAsset>,
     mut rebuild_requests: MessageReader<ScenePlacementRebuildRequest>, // 原样重试只为当前正式场景设置同一脏标记。
     mut state: InstanceResMut<ScenePlacementRuntimeState>,
     status: InstanceRes<ScenePlacementRuntimeStatus>, // 只读取尚未由ActiveDynamicScene发布的当前场景身份。
@@ -57,6 +58,13 @@ pub(crate) fn observe_placement_data_events(
     let mut document_changed = false; // 必须消费本帧全部消息，不让`any`短路留下过期事件。
     for event in document_events.read() {
         document_changed |= Some(event_asset_id(event)) == current_document_id; // 另一场景的保存事件不能为当前交接门制造无关新候选。
+    }
+    let motion_id = state.motion_asset.as_ref().map(Handle::id);
+    let glb_motion_id = state.glb_motion_asset.as_ref().map(Handle::id);
+    for event in motion_events.read() {
+        if let AssetEvent::Modified { id } = event {
+            document_changed |= Some(*id) == motion_id || Some(*id) == glb_motion_id;
+        }
     }
     let mut rebuild_requested = false; // 原样重试消息同样全部消费。
     for request in rebuild_requests.read() {

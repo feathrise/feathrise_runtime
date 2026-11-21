@@ -62,6 +62,7 @@ fn primitive_plan_spawns_exact_mesh_and_material_without_world_scene_root() {
                 water_surfaces: Vec::new(),
             };
             let plan = PendingPlacementPlan {
+                motion: None,
                 record,
                 scene: Handle::<WorldAsset>::default(), // 同源Scene0只负责规划加载锚点，实体不得实例化它。
                 primitive: Some(PendingPlacementPrimitive {
@@ -191,6 +192,7 @@ fn skinned_primitive_plan_is_rejected_before_direct_mesh_spawn() {
                 water_surfaces: Vec::new(),      // 子资产本就不携带整网格水绑定。
             }; // 完成最小正式记录。
             let plan = PendingPlacementPlan {
+                motion: None,
                 // 使用候选生成函数的真实计划结构。
                 record,                                 // 保留作者目标和诊断身份。
                 scene: Handle::<WorldAsset>::default(), // 同源Scene0锚点不应被生成。

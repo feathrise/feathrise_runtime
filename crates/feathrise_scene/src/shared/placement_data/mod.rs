@@ -7,6 +7,7 @@ use feathrise_scene_core::residency::SceneResidencyAppExt;
 
 mod components; // 隐藏候选根与World实例完成身份。
 mod builtin; // 内置参数化立方体与编辑器预览共用固定拓扑及弱资产缓存。
+mod motion; // 正式场景位移轨道与角色承托共享同一个运动刚体。
 pub use builtin::{ATTRIBUTE_AUTHORING_WIRE, BuiltinVisualPrepared, builtin_placement_visual_ready, editable_cuboid_mesh, editable_mesh_mesh, spawn_builtin_placement_visual, set_builtin_placement_collision_enabled, set_builtin_placement_collision_enabled_world, set_builtin_placement_batch_enabled, set_builtin_placement_batch_enabled_world};
 mod resources; // 热更新脏状态、候选事务与公开诊断。
 #[cfg(feature = "runtime_test_support")]
@@ -108,6 +109,8 @@ impl Plugin for ScenePlacementDataPlugin {
         terrain_mesh_upload::install(app);
         builtin::install_preparation(app);
         app.init_instance_resource::<resources::ScenePlacementRuntimeState>()
+            .add_message::<bevy::asset::AssetEvent<feathrise_scene_content::SceneMotionAsset>>()
+            .add_systems(FixedUpdate, motion::drive.before(bevy_tnua::prelude::TnuaPipelineSystems::Sensors))
             .init_instance_resource::<terrain_collision::TerrainCollisionRuntime>()
             .init_resource::<TerrainCollisionGarbage>()
             .add_observer(terrain_collision::retire_ready_shape)

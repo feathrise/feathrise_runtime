@@ -144,7 +144,7 @@ fn spawn_ready_placement(
     revision: u32,
 ) -> Result<(Entity, bool), String> {
     if plan.record.asset_target.is_builtin() {
-        let root = commands.spawn((
+        let mut root_commands = commands.spawn((
             Name::new(format!("场景立方体_{}", plan.record.id)),
             plan.transform,
             Visibility::Inherited,
@@ -152,7 +152,11 @@ fn spawn_ready_placement(
             PlacementPendingInstance,
             PlacementPendingRevision { generation, revision },
             ChildOf(staging_root),
-        )).observe(super::super::settlement::on_builtin_visual_ready).id();
+        ));
+        if let Some(track) = &plan.motion {
+            super::super::motion::spawn(&mut root_commands, plan.transform, &plan.record, track.clone());
+        }
+        let root = root_commands.observe(super::super::settlement::on_builtin_visual_ready).id();
         super::super::builtin::spawn_builtin_placement_visual(commands, root, plan.record.asset_target.clone());
         return Ok((root, false)); // 只有真实网格与同源碰撞安装后才登记候选信用。
     }
@@ -188,15 +192,17 @@ fn spawn_ready_placement(
             },
             ChildOf(staging_root),
         ));
-        let requires_collision = plan.record.building_preset_id.is_some()
-            || plan.record.terrain_patch.is_some() || plan.record.asset_target.has_gltf_collision();
+        let requires_collision = plan.motion.is_none() && (plan.record.building_preset_id.is_some()
+            || plan.record.terrain_patch.is_some() || plan.record.asset_target.has_gltf_collision());
         if let Some(collision) = building_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)
                 .insert(PlacementBuildingCollisionGeneration::default()) // World与碰撞边沿从零代开始配对。
                 .observe(super::super::settlement::on_placement_building_collision_ready);
         }
-        if let Some(collision) = super::super::terrain_placement_collision(&plan.record) {
+        if let Some(track) = &plan.motion {
+            super::super::motion::spawn(&mut root_commands, plan.transform, &plan.record, track.clone());
+        } else if let Some(collision) = super::super::terrain_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)
                 .insert(PlacementBuildingCollisionGeneration::default())
@@ -232,7 +238,9 @@ fn spawn_ready_placement(
                 .insert(PlacementBuildingCollisionGeneration::default()) // Scene热更后必须等待同代新碰撞。
                 .observe(super::super::settlement::on_placement_building_collision_ready);
         }
-        if let Some(collision) = super::super::terrain_placement_collision(&plan.record) {
+        if let Some(track) = &plan.motion {
+            super::super::motion::spawn(&mut root_commands, plan.transform, &plan.record, track.clone());
+        } else if let Some(collision) = super::super::terrain_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)
                 .insert(PlacementBuildingCollisionGeneration::default())
@@ -293,7 +301,7 @@ fn spawn_placement_batch(
         staging.roots.push(entity); // 采用时不扫描世界，只解除本候选已知根的隔离标记。
         if plan.record.terrain_patch.is_some() {
             staging.terrain_roots.push(entity);
-        } else if plan.record.asset_target.has_gltf_collision() {
+        } else if plan.motion.is_none() && plan.record.asset_target.has_gltf_collision() {
             staging.primitive_collision_roots.push(entity);
         }
         next_plan += 1; // 根及其全部句柄/observer命令完整建立后才推进游标。

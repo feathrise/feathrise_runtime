@@ -164,6 +164,7 @@ fn water_surface(index: usize) -> ScenePlacementWaterSurface {
 /// 构造一项已经完成校验、等待候选生成的强句柄计划。
 fn pending_plan(index: usize) -> PendingPlacementPlan {
     PendingPlacementPlan {
+        motion: None,
         record: record(index),                  // 每项拥有独立稳定ID和有界作者快照。
         scene: Handle::<WorldAsset>::default(), // 弱默认句柄足以验证析构预算。
         primitive: None,                        // 历史Scene0基线不请求直接子网格。

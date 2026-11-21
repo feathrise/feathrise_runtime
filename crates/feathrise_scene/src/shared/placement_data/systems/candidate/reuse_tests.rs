@@ -117,6 +117,7 @@ fn begin(app: &mut App, records: Vec<feathrise_scene_content::ScenePlacementReco
         plans: records
             .into_iter()
             .map(|record| PendingPlacementPlan {
+                motion: None,
                 transform: Transform::from_translation(Vec3::from_array(record.translation)),
                 record,
                 scene: Default::default(),

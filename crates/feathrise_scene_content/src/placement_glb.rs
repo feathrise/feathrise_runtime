@@ -80,6 +80,14 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
     Ok(result)
 }
 
+/// Blender 新增网格按名称派生身份，首次保存后沿用稳定节点属性。
+pub(crate) fn placement_node_id(custom_id: Option<&str>, name: Option<&str>, mesh: bool) -> Option<String> {
+    custom_id.map(str::to_owned).or_else(|| {
+        mesh.then_some(name).flatten().filter(|name| !name.is_empty())
+            .map(|name| format!("glb-{}", crate::authoring_io::bytes_hash(name.as_bytes())))
+    })
+}
+
 fn read_node<'a>(
     document: &'a Value,
     node: &'a Value,
@@ -95,10 +103,8 @@ fn read_node<'a>(
         return Ok(None); // 场景标识及 Blender 中的普通分组空节点不是可视摆放物。
     }
     let name = node["name"].as_str().filter(|name| !name.is_empty());
-    let id = custom_id.map(str::to_owned).or_else(|| {
-        // 新建 Blender 对象由名称派生身份，首次 Feathrise 保存后固定为节点属性。
-        name.map(|name| format!("glb-{}", crate::authoring_io::bytes_hash(name.as_bytes())))
-    }).ok_or("新增 GLB 网格节点需要名称")?;
+    let id = placement_node_id(custom_id, name, owned_mesh.is_some())
+        .ok_or("新增 GLB 网格节点需要名称")?;
     let mut fields: Value = match extras[PLACEMENT_FIELDS].as_str() {
         Some(fields) => serde_json::from_str(fields).map_err(|error| format!("节点 {id} 的摆放属性无效：{error}"))?,
         None => json!({}),
@@ -238,6 +244,19 @@ pub fn write_scene_placements_glb(
     let mut bin = previous_bin.to_vec();
     let mut recipes = HashMap::new();
     let existing_nodes = document["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let previous_animation_targets = (!document["animations"].is_null()).then(|| {
+        existing_nodes.iter().map(|node| placement_node_id(
+            node["extras"][PLACEMENT_ID].as_str(), node["name"].as_str(), node.get("mesh").is_some(),
+        )).collect::<Vec<_>>()
+    });
+    let authoritative_animation = existing_nodes.iter().any(|node| {
+        node["extras"][SCENE_ID].as_str() == Some(placements.scene_id.as_str())
+            && node["extras"]["feathrise_scene_animation"].as_bool() == Some(true)
+    });
+    let motion_colliders: HashMap<_, _> = existing_nodes.iter().filter_map(|node| {
+        Some((node["extras"][PLACEMENT_ID].as_str()?.to_owned(),
+            node["extras"].get("feathrise_motion_collider")?.clone()))
+    }).collect();
     if existing_nodes.iter().any(|node| node["extras"][SCENE_ID].as_str() == Some(placements.scene_id.as_str())
         && node["extras"][GEOMETRY_HASH].as_str() == Some(previous_hash.as_str())) {
         for node in existing_nodes {
@@ -249,6 +268,9 @@ pub fn write_scene_placements_glb(
     let mut nodes = vec![json!({"name": "Feathrise", "extras": {
         SCENE_ID: placements.scene_id, SCENE_VERSION: placements.schema_version
     }})];
+    if authoritative_animation {
+        nodes[0]["extras"]["feathrise_scene_animation"] = json!(true);
+    }
     for record in &placements.placements {
         let name = if record.editor.name.is_empty() { &record.id } else { &record.editor.name };
         let rotation = Quat::from_rotation_y(record.yaw_degrees.to_radians()).to_array();
@@ -302,6 +324,9 @@ pub fn write_scene_placements_glb(
             field_map.remove("asset_target");
         }
         extras[PLACEMENT_FIELDS] = json!(serde_json::to_string(&fields).map_err(|error| error.to_string())?);
+        if let Some(collider) = motion_colliders.get(record.id.as_str()) {
+            extras["feathrise_motion_collider"] = (*collider).clone();
+        }
         node["extras"] = extras;
         nodes.push(node);
     }
@@ -315,10 +340,37 @@ pub fn write_scene_placements_glb(
         }
     }
     nodes[0]["extras"][GEOMETRY_HASH] = json!(geometry_hash(&document, &bin));
+    if let Some(targets) = previous_animation_targets {
+        rebind_animation_nodes(&mut document, &targets, &nodes)?;
+    }
     document["nodes"] = json!(nodes);
     document["scenes"] = json!([{"nodes": (0..nodes.len()).collect::<Vec<_>>() }]);
     document["scene"] = json!(0);
     write_chunks(&document, &bin)
+}
+
+/// 交换或删除场景对象时按稳定 ID 重绑标准动画通道，保留采样器、时间、片段属性和 BIN。
+fn rebind_animation_nodes(
+    document: &mut Value, old: &[Option<String>], nodes: &[Value],
+) -> Result<(), String> {
+    let new: HashMap<_, _> = nodes.iter().enumerate().filter_map(|(index, node)| {
+        Some((node["extras"][PLACEMENT_ID].as_str()?, index))
+    }).collect();
+    let animations = document["animations"].as_array_mut().ok_or("场景 GLB 的动画列表无效")?;
+    for animation in animations.iter_mut() {
+        let channels = animation["channels"].as_array_mut().ok_or("场景 GLB 的动画通道无效")?;
+        for channel in channels.iter_mut() {
+            let Some(target) = channel["target"].get_mut("node") else { continue; };
+            let id = old.get(index(target)?).ok_or("场景 GLB 动画节点超出范围")?.as_deref();
+            *target = id.and_then(|id| new.get(id)).map_or(Value::Null, |index| json!(index));
+        }
+        channels.retain(|channel| channel["target"].get("node") != Some(&Value::Null));
+    }
+    animations.retain(|animation| animation["channels"].as_array().is_some_and(|channels| !channels.is_empty()));
+    if animations.is_empty() {
+        document.as_object_mut().expect("已读取的 GLB JSON 根是对象").remove("animations");
+    }
+    Ok(())
 }
 
 fn builtin_material(target: &ScenePlacementAssetTarget) -> ([u8; 3], u16, bool) {
@@ -531,6 +583,125 @@ mod tests {
         assert_eq!(fields(1)["asset_target"], json!({"kind": "scene0", "collision": true}));
         assert!(fields(2).get("asset_target").is_none());
         assert_eq!(read_scene_placements(&bytes, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
+    fn scene_motion_uses_standard_glb_after_placement_reordering() {
+        use bevy::{
+            asset::{AssetApp, AssetPlugin, AssetServer, Assets, Handle, io::{
+                AssetSourceBuilder, AssetSourceId, memory::{Dir, MemoryAssetReader},
+            }},
+            gltf::GltfPlugin,
+            prelude::{AnimationClip, App, Mesh, StandardMaterial, TaskPoolPlugin, Transform},
+            world_serialization::WorldAsset,
+        };
+        use std::{path::Path, time::{Duration, Instant}};
+        use crate::{SceneMotionAsset, loaders::ScenePlacementsLoader};
+
+        let mut draft = dock();
+        let mut other = draft.placements[0].clone();
+        other.id = "other".into();
+        draft.placements.push(other);
+        let bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let (mut document, bin) = read_chunks(&bytes).unwrap();
+        let mut bin = bin.to_vec();
+        let mut append = |shape: &str, values: &[f32]| {
+            let accessor = append_accessor(&mut document, &mut bin, 2, shape, 5126, 34962,
+                values.iter().flat_map(|value| value.to_le_bytes())).unwrap();
+            let view = document["accessors"][accessor]["bufferView"].as_u64().unwrap() as usize;
+            document["bufferViews"][view].as_object_mut().unwrap().remove("target");
+            accessor
+        };
+        let time = append("SCALAR", &[0.0, 2.0]);
+        let position = append("VEC3", &[0.0, 1.0, 0.0, 0.0, 3.0, 0.0]);
+        let quarter = std::f32::consts::FRAC_1_SQRT_2;
+        let rotation = append("VEC4", &[0.0, 0.0, 0.0, 1.0, 0.0, quarter, 0.0, quarter]);
+        document["accessors"][time]["min"] = json!([0.0]);
+        document["accessors"][time]["max"] = json!([2.0]);
+        document["nodes"][1]["extras"]["feathrise_motion_collider"] = json!({
+            "center":[0.25,0.0,0.0],"half_extents":[1.5,0.2,1.5]
+        });
+        document["buffers"][0]["byteLength"] = json!(bin.len());
+        document["nodes"][0]["extras"][GEOMETRY_HASH] = json!(geometry_hash(&document, &bin));
+        document["animations"] = json!([
+            {"name":"其他动作","samplers":[{"input":time,"output":position}],
+             "channels":[{"sampler":0,"target":{"node":2,"path":"translation"}}]},
+            {"name":"场景动画","extras":{"feathrise_scene_animation":true,"feathrise_duration":2.0,"feathrise_playback":"ping_pong"},
+             "samplers":[{"input":time,"output":position},{"input":time,"output":rotation}],
+             "channels":[{"sampler":0,"target":{"node":1,"path":"translation"}},
+                         {"sampler":1,"target":{"node":1,"path":"rotation"}}]}
+        ]);
+        let animated = write_chunks(&document, &bin).unwrap();
+        draft.placements.swap(0, 1);
+        let saved = write_scene_placements_glb(&draft, PATH, Some(&animated)).unwrap();
+        let (mut rebound, contents) = read_chunks(&saved).unwrap();
+        assert_eq!(rebound["animations"][0]["channels"][0]["target"]["node"], 1);
+        assert_eq!(rebound["animations"][1]["channels"][1]["target"]["node"], 2);
+        assert_eq!(rebound["animations"][1]["samplers"], document["animations"][1]["samplers"]);
+        assert_eq!(rebound["nodes"][2]["extras"]["feathrise_motion_collider"],
+            document["nodes"][1]["extras"]["feathrise_motion_collider"]);
+        assert_eq!(contents, bin);
+
+        // 真实 GltfLoader 和原摆放读取器同时访问数据库登记的同一个主 GLB。
+        let files = Dir::default();
+        files.insert_asset(Path::new(PATH), saved.clone());
+        let source = files.clone();
+        let mut app = App::new();
+        app.register_asset_source(AssetSourceId::Default, AssetSourceBuilder::new(move || {
+            Box::new(MemoryAssetReader { root: source.clone() })
+        }))
+        .add_plugins((TaskPoolPlugin::default(), AssetPlugin {
+            watch_for_changes_override: Some(false), ..Default::default()
+        }, GltfPlugin::default()))
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<WorldAsset>()
+        .init_asset::<AnimationClip>()
+        .init_asset::<ScenePlacementsAsset>()
+        .init_asset::<SceneMotionAsset>()
+        .init_asset_loader::<ScenePlacementsLoader>();
+        crate::scene_motion::install_gltf_motion(&mut app);
+        app.finish();
+        app.cleanup();
+        let server = app.world().resource::<AssetServer>().clone();
+        let placements: Handle<ScenePlacementsAsset> = server.load(PATH);
+        let motion: Handle<SceneMotionAsset> = server.load(SceneMotionAsset::placement_path(&placements).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            app.update();
+            let data = app.world().resource::<Assets<SceneMotionAsset>>();
+            if let Some(asset) = data.get(&motion) {
+                let tracks = asset.tracks.as_ref().unwrap();
+                assert_eq!(tracks.len(), 1, "优先播放已标记的场景片段");
+                let track = &tracks["bank-floor"];
+                let (position, rotation) = track.sample(3.0, Transform::IDENTITY);
+                assert_eq!(position, Vec3::Y * 2.0);
+                assert!(rotation.dot(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)).abs() > 0.9999);
+                assert_eq!(track.collider_for(&draft.placements[1]).unwrap().center.x, 0.25);
+                break;
+            }
+            assert!(Instant::now() < deadline, "共同 GLB 加载状态：{:?}", server.get_load_state(motion.id()));
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        // 删除管理片段后，场景根标记保留，其他标准片段不能被误认成当前场景动画。
+        rebound["nodes"][0]["extras"]["feathrise_scene_animation"] = json!(true);
+        rebound["animations"].as_array_mut().unwrap().remove(1);
+        let empty = write_chunks(&rebound, contents).unwrap();
+        let empty = write_scene_placements_glb(&draft, PATH, Some(&empty)).unwrap();
+        files.insert_asset(Path::new(PATH), empty);
+        server.reload(PATH);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            app.update();
+            let data = app.world().resource::<Assets<SceneMotionAsset>>();
+            if let Some(asset) = data.get(&motion).filter(|asset| asset.authoritative) {
+                assert!(asset.tracks.as_ref().unwrap().is_empty());
+                break;
+            }
+            assert!(Instant::now() < deadline, "主 GLB 动画清空后未热更新");
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     #[test]

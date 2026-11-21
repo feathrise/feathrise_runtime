@@ -178,10 +178,12 @@ impl AssetLoader for SceneManifestLoader {
         &self,
         reader: &mut dyn Reader,
         _settings: &Self::Settings,
-        _load_context: &mut LoadContext<'_>,
+        load_context: &mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         let bytes = read_bounded(reader, MAX_SCENE_JSON_BYTES, "场景清单").await?;
-        parse_scene_manifest(&bytes)
+        let manifest = parse_scene_manifest(&bytes)?;
+        crate::scene_motion::load_with_manifest(load_context, &manifest.id).await;
+        Ok(manifest)
     }
 
     fn extensions(&self) -> &[&str] {
@@ -316,6 +318,63 @@ mod tests {
             if let Ok(manifest) = result {
                 assert_eq!(manifest.runtime_scene, runtime); // 加载不是格式迁移操作。
             }
+        }
+    }
+
+    #[test]
+    fn scene_motion_uses_the_registered_manifest_asset_root_and_allows_missing_sidecar() {
+        use bevy::asset::{AssetApp, AssetPlugin, io::{AssetSourceBuilder, AssetSourceId,
+            memory::{Dir, MemoryAssetReader}}};
+        use std::{path::Path, time::{Duration, Instant}};
+        use crate::SceneMotionAsset;
+
+        let files = Dir::default();
+        let manifest = serde_json::to_vec(&json!({
+            "schema_version":SCENE_SCHEMA_VERSION, "id":"SCENE-lift", "display_name":"电梯",
+            "runtime_scene":"data_driven", "world_min":[0,0], "world_max":[10,10],
+            "default_spawn":[0,0,0], "terrains":[]
+        })).unwrap();
+        for directory in ["custom/test-lift", "custom/legacy"] {
+            files.insert_asset(Path::new(&format!("{directory}/a.scene_manifest.json")), manifest.clone());
+        }
+        files.insert_asset(Path::new("custom/test-lift/motion.scene_motion.json"), br#"{
+            "schema_version":1,"scene_id":"SCENE-lift","tracks":[{
+                "placement_id":"platform","end_offset":[0,2,0],"travel_seconds":2,"hold_seconds":1,
+                "collider":{"center":[0,0,0],"half_extents":[2,1,2]}
+            }]
+        }"#.to_vec());
+        let mut app = App::new();
+        app.register_asset_source(AssetSourceId::from("motion-test"), AssetSourceBuilder::new(move || {
+            Box::new(MemoryAssetReader { root: files.clone() })
+        }))
+        .add_plugins((TaskPoolPlugin::default(), AssetPlugin {
+            watch_for_changes_override: Some(false), ..Default::default()
+        }))
+        .init_asset::<SceneManifestAsset>()
+        .init_asset::<SceneMotionAsset>()
+        .init_asset_loader::<SceneManifestLoader>();
+        let server = app.world().resource::<AssetServer>().clone();
+        let manifests = ["test-lift", "legacy"].map(|dir| {
+            server.load::<SceneManifestAsset>(format!("motion-test://custom/{dir}/a.scene_manifest.json"))
+        });
+        let handles = manifests.each_ref().map(|manifest| {
+            server.load::<SceneMotionAsset>(SceneMotionAsset::path(manifest).unwrap())
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            app.update();
+            let assets = app.world().resource::<Assets<SceneMotionAsset>>();
+            if let (Some(current), Some(legacy)) = (assets.get(&handles[0]), assets.get(&handles[1])) {
+                let track = &current.tracks.as_ref().unwrap()["platform"];
+                assert!(legacy.tracks.as_ref().unwrap().is_empty());
+                for (second, y) in [(0.5, 0.), (2., 1.), (3.5, 2.), (5., 1.), (6., 0.)] {
+                    assert_eq!(track.sample(second, Transform::IDENTITY).0, Vec3::Y * y);
+                }
+                break;
+            }
+            assert!(Instant::now() < deadline, "运动资产加载状态：{:?}, {:?}",
+                server.get_load_state(handles[0].id()), server.get_load_state(handles[1].id()));
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 

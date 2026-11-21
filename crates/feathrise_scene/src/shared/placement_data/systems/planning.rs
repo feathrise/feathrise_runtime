@@ -116,6 +116,7 @@ pub(super) fn begin_planning(
 ) -> PlacementPlanning {
     PlacementPlanning {
         terrain_filter: Default::default(),
+        motion_tracks: None,
         terrain_patch_count: 0,
         terrain_holes: Vec::new(),
         generation,                      // 迟到规划必须同时匹配代次。
@@ -365,7 +366,26 @@ pub(super) fn advance_planning_bound(
             planning.queued_scene_ids.insert(scene_id); // 初始检查队列与去重集同步建立。
             planning.scene_checks.push_back(scene_id); // 收尾时只移动队列，不遍历全部计划。
         }
+        let motion = planning.motion_tracks.as_ref()
+            .and_then(|tracks| tracks.get(&current.record.id)).cloned();
+        if let Some(track) = &motion {
+            let record = &current.record;
+            // 普通对象的绑定只提供已解析底姿；位置通道在播放时仍是场景轴绝对位置。
+            // 地形自身、建筑和赋水网格由各自的系统拥有，不能把其根交给对象动画。
+            if record.terrain_patch.is_some()
+                || record.building_preset_id.is_some() || record.courtyard.is_some()
+                || !record.water_surfaces.is_empty()
+            {
+                return Err(format!("场景动画对象 {} 必须是独立的普通摆放", record.id));
+            }
+            if !track.compatible_origin(current.transform.translation)
+                || track.collider_for(record).is_some_and(|shape| !(shape.center / current.transform.scale).is_finite())
+            {
+                return Err(format!("对象 {} 的运动端点或碰撞中心超出有效变换范围", record.id));
+            }
+        }
         planning.plans.push(PendingPlacementPlan {
+            motion,
             record: current.record,       // 已校验完整快照移入候选计划。
             scene,                        // Scene0锚点与上述记录的asset_path精确对应。
             primitive,                    // 子资产记录额外持有精确网格及其原关联材质句柄。

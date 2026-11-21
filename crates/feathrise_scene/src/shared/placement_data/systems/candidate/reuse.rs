@@ -9,6 +9,7 @@ use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
 use avian3d::prelude::ColliderOf;
 use bevy::camera::primitives::Aabb;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct PlacementReuseInputs<'w, 's> {
@@ -22,6 +23,7 @@ pub(crate) struct PlacementReuseInputs<'w, 's> {
             Option<&'static PlacementBuildingCollisionGeneration>,
             Option<&'static PlacementBuildingCollisionReady>,
             Option<&'static BuiltinPlacementVisualRoot>,
+            Option<&'static super::super::super::motion::MotionPlatform>,
         ),
     >,
     builtin_visuals: InstanceQuery<
@@ -90,7 +92,7 @@ pub(super) fn reuse_placement(
     let active = active?;
     // 地形根依赖本批次洞口/碰撞发布票据，仍由原完整地形候选处理；普通对象沿用运行状态。
     if plan.record.terrain_patch.is_some()
-        || plan.record.asset_target.has_gltf_collision() // GLB 热载可能复用索引，碰撞仍须对应新网格。
+        || (plan.motion.is_none() && plan.record.asset_target.has_gltf_collision()) // 静态 GLB 碰撞仍须对应新网格。
         || plan.record.terrain_binding.is_some()
         || (plan.record.building_preset_id.is_some()
             && active.building_preset_revision != staging.building_preset_revision)
@@ -103,8 +105,13 @@ pub(super) fn reuse_placement(
         .get(&id_hash(&plan.record.id))
         .copied()
         .flatten()?;
-    let (instance, water, asset, collision_generation, collision_ready, builtin_visual) =
+    let (instance, water, asset, collision_generation, collision_ready, builtin_visual, motion) =
         roots.roots.get(entity).ok()?;
+    match (motion, plan.motion.as_ref()) {
+        (None, None) => {}
+        (Some(platform), Some(track)) if Arc::ptr_eq(&platform.track, track) => {}
+        _ => return None, // 同批动画更新一起更换相位。未更新的动画根保留当前相位。
+    }
     if !instance.matches_record(
         map,
         &plan.record,

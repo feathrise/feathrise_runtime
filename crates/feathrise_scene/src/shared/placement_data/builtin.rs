@@ -147,12 +147,17 @@ pub fn builtin_placement_visual_ready(world: &World, root: Entity) -> bool {
         | ScenePlacementAssetTarget::EditableMesh { collision, .. } => *collision,
         _ => return false,
     };
+    // 作者编辑交接要认领当前摆放自己的碰撞，运动轨道使用独立的盒。
+    let collision_ready = world.get::<super::motion::MotionPlatform>(root).map_or_else(
+        || !collision || world.get::<Collider>(visual).is_some(),
+        |platform| platform.collider_ready(world, root),
+    );
     (instance.is_active() || instance.is_pending())
         && world.get::<BuiltinVisualSource>(visual).is_some_and(|source| source.0 == target)
         && world.get::<Aabb>(visual).is_some()
         && world.get::<Mesh3d>(visual).is_some()
         && world.get::<MeshMaterial3d<StandardMaterial>>(visual).is_some()
-        && (!collision || world.get::<Collider>(visual).is_some())
+        && collision_ready
 }
 
 /// 单节点地址仅表达查找，不授予他人子树写入权；重挂、删除或去标记后立即失败关闭。

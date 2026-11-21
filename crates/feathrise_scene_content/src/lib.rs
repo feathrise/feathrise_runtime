@@ -43,6 +43,7 @@ mod editable_cuboid; // 点边面共用固定拓扑、半毫米坐标和保存�
 mod editable_mesh; // 有界共享四边面拓扑、同源三角化与完整闭壳验证。
 mod mesh_extrusion; // 单面挤出的世界法线、局部逆算和无副作用完整记录候选。
 mod placement_editor; // 每份摆放的名称、逻辑组及仅供编辑器使用的保护标记。
+mod scene_motion; // 场景对象运动独立于原摆放与清单的公开数据结构。
 mod placement_water; // Blender整网格水体覆盖类型与纯校验保持独立，避免摆放资产定义继续膨胀。
 mod puddles;
 mod terrain_topology; // 静态三维地形和高度面让位共享作者协议与裁切算法。 // 积水潜力描述和受检R8规格独立维护。
@@ -88,6 +89,7 @@ pub use editable_mesh::{
 };
 pub use mesh_extrusion::{extruded_placement_record, extrusion_normal};
 pub use placement_editor::*;
+pub use scene_motion::{SceneMotionAsset, SceneMotionTrack};
 pub use placement_water::*; // F12作者工具与正式运行时共享同一网格水体类别、参数和校验边界。
 pub use resources::*; // 消费者通过注册表查找私有资产句柄。
 pub use sparse_height::*; // 创建器、运行时和未来独立编辑器共享同一高度清单与块格式。
@@ -112,6 +114,7 @@ pub struct SceneContentPlugin;
 impl Plugin for SceneContentPlugin {
     fn build(&self, app: &mut App) {
         scene_instances::install(app);
+        scene_motion::install_gltf_motion(app);
         app.init_asset::<SceneCatalogAsset>()
             .init_asset::<BuildingPresetCatalogAsset>() // 建筑数量和类别完全由全局 JSON 目录驱动。
             .init_asset::<CourtyardPresetCatalogAsset>() // 院落组合从独立全局目录热加载，不改变旧场景摆放格式。
@@ -120,6 +123,7 @@ impl Plugin for SceneContentPlugin {
             .init_asset::<WaterPresetCatalogAsset>() // 水体预设数量与固定四波两法线GPU成本完全分离。
             .init_asset::<WorldEnvironmentAsset>() // 全局环境失败时注册表仍保留编译期安全默认值。
             .init_asset::<SceneManifestAsset>()
+            .init_asset::<SceneMotionAsset>()
             .init_asset::<SparseHeightManifestAsset>() // 新图稀疏清单经 AssetServer 受检加载，发布版无需工作区绝对路径。
             .init_asset::<SceneVoxelTerrainSource>() // 独立体素通过同一资产源热加载，不依赖高度图。
             .init_asset_loader::<loaders::SceneVoxelTerrainSourceLoader>()
