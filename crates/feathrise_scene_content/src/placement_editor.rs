@@ -1,4 +1,4 @@
-//! 显式摆放对象的编辑器名称、逻辑分组和保护状态；玩法不消费显隐与锁定。
+//! 显式摆放对象的名称、逻辑分组、参与状态和作者保护；玩法只消费参与状态。
 
 use serde::{Deserialize, Serialize};
 
@@ -16,15 +16,30 @@ pub struct ScenePlacementEditorMetadata {
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub locked: bool,
+    /// 旧摆放默认参与场景。关闭参与仍保留完整摆放，以便作者重新启用。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disabled: bool,
 }
 
 impl ScenePlacementEditorMetadata {
     pub fn is_empty(&self) -> bool {
-        self.name.is_empty() && self.group.is_empty() && !self.hidden && !self.locked
+        self.name.is_empty() && self.group.is_empty() && !self.hidden && !self.locked && !self.disabled
     }
 
     pub fn selectable(&self) -> bool {
-        !self.hidden && !self.locked
+        !self.hidden && !self.locked && self.participates()
+    }
+
+    pub const fn supports_participation() -> bool {
+        true
+    }
+
+    pub const fn participates(&self) -> bool {
+        !self.disabled
+    }
+
+    pub fn set_participation(&mut self, enabled: bool) {
+        self.disabled = !enabled;
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -45,11 +60,12 @@ mod tests {
 
     #[test]
     fn metadata_round_trips_chinese_and_editor_only_protection() {
-        let value = ScenePlacementEditorMetadata {
+        let mut value = ScenePlacementEditorMetadata {
             name: "村口路灯".into(),
             group: "村口".into(),
             hidden: true,
             locked: true,
+            ..Default::default()
         };
         let text = serde_json::to_string(&value).unwrap();
         assert_eq!(
@@ -58,11 +74,15 @@ mod tests {
         );
         assert!(!value.selectable());
         assert!(value.validate().is_ok());
-        assert!(
-            serde_json::from_str::<ScenePlacementEditorMetadata>("{}")
-                .unwrap()
-                .is_empty()
-        );
+        assert!(value.participates(), "仅编辑器隐藏和锁定的摆放仍参与正式场景");
+        value.set_participation(false);
+        let decoded: ScenePlacementEditorMetadata =
+            serde_json::from_str(&serde_json::to_string(&value).unwrap()).unwrap();
+        assert!(!decoded.participates());
+        assert_eq!(decoded, value);
+        let legacy: ScenePlacementEditorMetadata = serde_json::from_str("{}").unwrap();
+        assert!(legacy.is_empty());
+        assert!(legacy.participates());
     }
 
     #[test]

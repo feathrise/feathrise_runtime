@@ -197,11 +197,11 @@ pub(super) fn advance_planning_bound(
                 break; // 全部记录已完成，或本帧普通记录预算已用完。
             }
             let source = &document.placements[planning.next_record]; // 先借用源记录通过O(1)长度与基础数值门，不盲目深拷贝异常字符串。
-            if !planning.terrain_filter.accepts(source) {
+            if !source.editor.participates() || !planning.terrain_filter.accepts(source) {
                 planning.next_record += 1;
                 record_budget -= 1;
                 advance.records_completed += 1;
-                continue; // 跳过的记录同样消耗固定扫描预算，不能在一帧遍历完整场景。
+                continue; // 未参与的摆放仍在作者文档中，运行时不准备其模型、水材质或碰撞。
             }
             let transform = validate_record_transform(
                 source,                // 从同一资产记录校验基础字段。
@@ -255,7 +255,8 @@ pub(super) fn advance_planning_bound(
             .as_mut()
             .expect("上方已建立当前记录"); // 单条水体游标继续消耗独立预算。
         let source = &document.placements[planning.next_record]; // 源记录仍位于冻结文档索引。
-        let source_matches = source.id == current.record.id
+        let source_matches = source.editor.participates()
+            && source.id == current.record.id
             && source.mesh_lod == current.record.mesh_lod
             && source.terrain_patch == current.record.terrain_patch
             && source.asset_path == current.record.asset_path

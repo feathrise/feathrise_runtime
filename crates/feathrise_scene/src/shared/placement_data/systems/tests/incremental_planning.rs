@@ -78,6 +78,32 @@ fn builtin_cuboid_planning_never_tracks_a_fake_scene_dependency() {
 }
 
 #[test]
+fn excluded_glb_and_cube_keep_records_without_preparing_runtime_instances() {
+    let id = SceneId::parse("MAP-participation-planning").unwrap();
+    let mut glb = record(0);
+    std::sync::Arc::make_mut(&mut glb.editor).set_participation(false);
+    let mut cube = record(1);
+    cube.asset_path.clear();
+    cube.asset_target = ScenePlacementAssetTarget::DEFAULT_CUBOID;
+    std::sync::Arc::make_mut(&mut cube.editor).set_participation(false);
+    let doc = ScenePlacementsAsset {
+        schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION,
+        scene_id: id.clone(),
+        placements: vec![glb, cube],
+    };
+    let mut work = planning::begin_planning(1, 1, id, 1, TEST_BUILDING_PRESET_REVISION,
+        asset_id::<SceneManifestAsset>(1), asset_id::<ScenePlacementsAsset>(2),
+        Rect::from_corners(Vec2::splat(-10.0), Vec2::splat(10.0)), doc.placements.len());
+    let mut load = |_: &ScenePlacementRecord| panic!("不参与场景的模型不应请求资产");
+    let advance = planning::advance_planning(&mut work, &doc, &empty_building_registry(), &mut load).unwrap();
+    assert!(advance.complete);
+    let (pending, tracker) = planning::finish_planning(work);
+    assert!(pending.plans.is_empty());
+    assert!(tracker.scene_checks.is_empty());
+    assert_eq!(doc.placements.len(), 2);
+}
+
+#[test]
 fn volume_stream_carrier_is_validated_without_loading_scene_or_cutting_author_bbox() {
     let id = SceneId::parse("MAP-stream-planning").unwrap();
     let mut r = record(0);

@@ -121,7 +121,8 @@ pub(super) fn drive(
             {
                 let end = (state.next + 128).min(asset.placements.len());
                 for r in &asset.placements[state.next..end] {
-                    if r.terrain_patch.as_ref().is_some_and(|p| p.streamed_volume) {
+                    // 此路径独立于摆放根规划，必须同样排除停用体积的显示与碰撞候选。
+                    if r.editor.participates() && r.terrain_patch.as_ref().is_some_and(|p| p.streamed_volume) {
                         if state.records.len() == 32 {
                             status.detail = "流送作者层超过32份场景记录".into();
                             state.scanning = false;

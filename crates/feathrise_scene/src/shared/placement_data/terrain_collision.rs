@@ -10,7 +10,7 @@ use super::{
     resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus},
 };
 use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
-use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, RigidBody, TrimeshFlags};
+use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, ColliderDisabled, RigidBody, TrimeshFlags};
 use bevy::world_serialization::WorldInstanceReady;
 use bevy::{
     asset::{AssetEvent, AssetId},
@@ -37,7 +37,7 @@ pub(crate) use components::TerrainPatchColliderReady;
 pub use components::TerrainPatchCollisionRequest;
 pub(super) use components::TerrainColliderProxy;
 pub(crate) use components::TerrainPhysicsProxy;
-use components::{TerrainMeshSources, TerrainWorldReady};
+use components::{AuthorCollisionSuppression, TerrainMeshSources, TerrainWorldReady};
 pub(crate) use resources::TerrainCollisionGarbage;
 pub(super) use resources::TerrainCollisionRuntime;
 use resources::MeshChangeSweep;
@@ -50,6 +50,33 @@ const MAX_TRIANGLES: usize = 262_144;
 const MAX_MESHES: usize = 32;
 // Parry 的 BvhNodeData 为子树叶数保留低 30 位，高两位用于变化标记。
 const PARRY_BVH_MAX_LEAVES: usize = (1 << 30) - 1;
+
+fn sync_proxy_participation(world: &mut World, proxy: Entity, enabled: bool) {
+    let Ok(mut proxy) = world.get_entity_mut(proxy) else { return; };
+    if enabled {
+        if proxy.take::<AuthorCollisionSuppression>().is_some() {
+            proxy.remove::<ColliderDisabled>();
+        }
+    } else if !proxy.contains::<ColliderDisabled>() {
+        proxy.insert((ColliderDisabled, AuthorCollisionSuppression));
+    }
+}
+
+impl ScenePlacementInstance {
+    /// 编辑器临时切换完整 GLB 的碰撞；只改变当前摆放拥有的独立物理根。
+    pub fn set_editor_collision_participation(world: &mut World, root: Entity, enabled: bool) {
+        if world.get::<Self>(root).is_none() { return; }
+        if enabled {
+            world.entity_mut(root).remove::<AuthorCollisionSuppression>();
+        } else if world.get::<TerrainPatchCollisionRequest>(root).is_some() {
+            // 正在准备的新代理也读取这个标记，不会在异步结果迟到时恢复禁用碰撞。
+            world.entity_mut(root).insert(AuthorCollisionSuppression);
+        }
+        if let Some(proxy) = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0) {
+            sync_proxy_participation(world, proxy, enabled);
+        }
+    }
+}
 
 pub(super) fn install_ready_collider(
     event: On<Insert<InstallTerrainPatchCollider>>,
@@ -128,6 +155,9 @@ fn install_physics_proxy(
         world
             .entity_mut(proxy)
             .insert(GlobalTransform::from(transform));
+        if world.get::<AuthorCollisionSuppression>(root).is_some() {
+            sync_proxy_participation(world, proxy, false);
+        }
     });
 }
 

@@ -54,6 +54,10 @@ pub(in crate::shared::placement_data) struct FormalTerrainPatchCollider;
 /// 已烘焙世界缩放的独立物理根；共享LOD仅识别精确单位尺度采用，生命周期仍由地形域拥有。
 pub(crate) struct TerrainPhysicsProxy;
 
+/// 记录作者对碰撞的临时遮蔽。摆放根负责迟到代理，代理只归还自己插入的禁用标记。
+#[derive(Component)]
+pub(super) struct AuthorCollisionSuppression;
+
 /// 独立物理根不会被GLB热重建删除；作者根拥有其唯一生命期。
 #[derive(Component)]
 pub(in crate::shared::placement_data) struct TerrainColliderProxy(
