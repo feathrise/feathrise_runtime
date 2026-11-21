@@ -269,6 +269,7 @@ mod tests {
             heights: default(),
             height_overrides: default(),
             placements: None,
+            scene_motion: None,
             clear_vegetation: false,
             clear_water: false,
         })).unwrap();

@@ -89,7 +89,7 @@ pub use editable_mesh::{
 };
 pub use mesh_extrusion::{extruded_placement_record, extrusion_normal};
 pub use placement_editor::*;
-pub use scene_motion::{SceneMotionAsset, SceneMotionTrack};
+pub use scene_motion::{SceneMotionAsset, SceneMotionPreviewSource, SceneMotionTrack};
 pub use placement_water::*; // F12作者工具与正式运行时共享同一网格水体类别、参数和校验边界。
 pub use resources::*; // 消费者通过注册表查找私有资产句柄。
 pub use sparse_height::*; // 创建器、运行时和未来独立编辑器共享同一高度清单与块格式。

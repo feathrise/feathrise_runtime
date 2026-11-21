@@ -131,11 +131,25 @@ struct TrackEntry {
 #[derive(Asset, TypePath, Debug)]
 pub struct SceneMotionAsset {
     pub tracks: Result<TrackTable, String>,
-    /// 主 GLB 已正式管理动画。删光关键帧后仍采用空表，避免旧旁档重新生效。
+    /// 主 GLB 已提供场景动画。手动或删光关键帧后的空表仍覆盖旧运动旁档。
     pub authoritative: bool,
     // 同一文件另有摆放元数据读取器。保留标准 GLB 根句柄，文件热更新才会同时重走两种类型。
     #[dependency]
     _standard_source: Option<Handle<Gltf>>,
+}
+
+/// 常驻工程的摆放可由内存 JSON 覆盖，动画仍使用这个场景原来登记的主 GLB。
+#[derive(Resource, PartialEq, Eq)]
+pub struct SceneMotionPreviewSource {
+    pub scene_id: crate::SceneId,
+    pub path: AssetPath<'static>,
+}
+
+impl SceneMotionPreviewSource {
+    pub fn from_glb(scene_id: crate::SceneId, path: &str) -> Option<Self> {
+        let path = SceneMotionAsset::glb_path(&AssetPath::try_parse(path).ok()?)?;
+        Some(Self { scene_id, path })
+    }
 }
 
 impl SceneMotionAsset {
@@ -144,7 +158,10 @@ impl SceneMotionAsset {
     }
 
     pub fn placement_path(placements: &Handle<crate::ScenePlacementsAsset>) -> Option<AssetPath<'static>> {
-        let path = placements.path()?;
+        Self::glb_path(placements.path()?)
+    }
+
+    fn glb_path(path: &AssetPath<'_>) -> Option<AssetPath<'static>> {
         (path.path().extension().and_then(|ext| ext.to_str()) == Some("glb"))
             .then(|| path.clone_owned().with_label(ASSET_LABEL))
     }

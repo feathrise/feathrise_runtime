@@ -626,7 +626,8 @@ mod tests {
         document["animations"] = json!([
             {"name":"其他动作","samplers":[{"input":time,"output":position}],
              "channels":[{"sampler":0,"target":{"node":2,"path":"translation"}}]},
-            {"name":"场景动画","extras":{"feathrise_scene_animation":true,"feathrise_duration":2.0,"feathrise_playback":"ping_pong"},
+            {"name":"场景动画","extras":{"feathrise_scene_animation":true,"feathrise_autoplay":true,
+                "feathrise_duration":2.0,"feathrise_playback":"ping_pong"},
              "samplers":[{"input":time,"output":position},{"input":time,"output":rotation}],
              "channels":[{"sampler":0,"target":{"node":1,"path":"translation"}},
                          {"sampler":1,"target":{"node":1,"path":"rotation"}}]}
@@ -645,6 +646,13 @@ mod tests {
         // 真实 GltfLoader 和原摆放读取器同时访问数据库登记的同一个主 GLB。
         let files = Dir::default();
         files.insert_asset(Path::new(PATH), saved.clone());
+        let mut manual = rebound.clone();
+        manual["animations"][1]["extras"].as_object_mut().unwrap().remove("feathrise_autoplay");
+        let manual_path = "manual/scene.glb";
+        files.insert_asset(Path::new(manual_path), write_chunks(&manual, contents).unwrap());
+        manual["animations"][1].as_object_mut().unwrap().remove("extras");
+        let blender_path = "blender/scene.glb";
+        files.insert_asset(Path::new(blender_path), write_chunks(&manual, contents).unwrap());
         let source = files.clone();
         let mut app = App::new();
         app.register_asset_source(AssetSourceId::Default, AssetSourceBuilder::new(move || {
@@ -666,11 +674,17 @@ mod tests {
         let server = app.world().resource::<AssetServer>().clone();
         let placements: Handle<ScenePlacementsAsset> = server.load(PATH);
         let motion: Handle<SceneMotionAsset> = server.load(SceneMotionAsset::placement_path(&placements).unwrap());
+        let manual: Handle<SceneMotionAsset> = server.load(format!("{manual_path}#SceneMotion"));
+        let blender: Handle<SceneMotionAsset> = server.load(format!("{blender_path}#SceneMotion"));
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             app.update();
             let data = app.world().resource::<Assets<SceneMotionAsset>>();
-            if let Some(asset) = data.get(&motion) {
+            if let (Some(asset), Some(manual), Some(blender)) = (data.get(&motion), data.get(&manual), data.get(&blender)) {
+                for source in [manual, blender] {
+                    assert!(source.authoritative && source.tracks.as_ref().unwrap().is_empty(),
+                        "省略自动播放时主 GLB 继续覆盖旧运动旁档且沿用普通摆放");
+                }
                 let tracks = asset.tracks.as_ref().unwrap();
                 assert_eq!(tracks.len(), 1, "优先播放已标记的场景片段");
                 let track = &tracks["bank-floor"];

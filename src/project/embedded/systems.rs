@@ -9,7 +9,7 @@ use super::{
 use bevy::prelude::*;
 use feathrise_editor_protocol::{Message, Mode};
 use feathrise_scene_core::input::EditorInputState;
-use feathrise_scene_content::{ActiveDynamicScene, SceneId, SparseHeightLiveOverride, TerrainId};
+use feathrise_scene_content::{ActiveDynamicScene, SceneId, SceneMotionPreviewSource, SparseHeightLiveOverride, TerrainId};
 use feathrise_scene::{
     DynamicSceneBoundaryPhase, DynamicSceneBoundaryStatus, DynamicSceneRuntimePhase,
     DynamicSceneRuntimeStatus, DynamicVegetationPhase, DynamicVegetationStatus, DynamicWaterPhase,
@@ -354,6 +354,10 @@ fn publish_snapshot(world: &mut World, runtime: &mut Runtime) -> Result<(), Stri
     let pending = runtime.pending.take().unwrap();
     let value = pending.value;
     let scene_changed = world.resource::<ActiveDynamicScene>().scene_id.as_ref() != Some(&value.scene_id);
+    if world.get_resource::<SceneMotionPreviewSource>() != value.scene_motion.as_ref() {
+        if let Some(source) = value.scene_motion { world.insert_resource(source); }
+        else { world.remove_resource::<SceneMotionPreviewSource>(); }
+    }
     // 根兼容高度直接替换；所有独立画布沿稳定对象路径由固定预算系统同步到实例资源。
     let old_height = world.remove_resource::<SparseHeightLiveOverride>();
     let old_sources = world.remove_resource::<HeightSources>();

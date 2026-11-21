@@ -12,7 +12,7 @@ use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子
 use bevy::asset::{Asset, DependencyLoadState, LoadState, RecursiveDependencyLoadState}; // JSON和场景资产状态只在变化或候选构建期读取。
 use bevy::prelude::*; // ECS、GLTF场景根与变换。
 use feathrise_scene_content::{
-    ActiveDynamicScene, BuildingPresetRegistry, SceneId, SceneManifestAsset, SceneMotionAsset,
+    ActiveDynamicScene, BuildingPresetRegistry, SceneId, SceneManifestAsset, SceneMotionAsset, SceneMotionPreviewSource,
     ScenePlacementAssetTarget, ScenePlacementRecord, ScenePlacementsAsset,
 }; // 运行时与编辑器共享作者格式。
 use feathrise_scene_core::state::ScenePhase; // 当前玩法场景与实体生命周期。
@@ -141,7 +141,9 @@ pub(crate) fn rebuild_data_driven_placements(
     active_dynamic: InstanceRes<ActiveDynamicScene>,
     registry: Option<crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog>,
     building_registry: Option<Res<BuildingPresetRegistry>>,
-    (manifests, motion_assets): (Res<Assets<SceneManifestAsset>>, Option<Res<Assets<SceneMotionAsset>>>),
+    (manifests, motion_assets, preview_motion): (
+        Res<Assets<SceneManifestAsset>>, Option<Res<Assets<SceneMotionAsset>>>, Option<Res<SceneMotionPreviewSource>>,
+    ),
     placements: Res<Assets<ScenePlacementsAsset>>,
     primitive_meshes: Res<Assets<Mesh>>, // 候选生成前只读直接primitive的顶点布局并拒绝缺Skin的蒙皮实例。
     mut state: InstanceResMut<ScenePlacementRuntimeState>,
@@ -216,6 +218,15 @@ pub(crate) fn rebuild_data_driven_placements(
         state.motion_asset = motion_path.map(|path| asset_server.load(path));
         state.dirty = true;
     }
+    let glb_motion_path = motion_assets.as_ref().and_then(|_| {
+        SceneMotionAsset::placement_path(&handles.placements).or_else(|| preview_motion.as_deref()
+            .filter(|source| source.scene_id == scene_id).map(|source| source.path.clone()))
+    });
+    if state.glb_motion_asset.as_ref().and_then(Handle::path) != glb_motion_path.as_ref() {
+        // 预览的摆放快照可以切换到内存 JSON，正式动画仍与同一场景的主 GLB 资产世代绑定。
+        state.glb_motion_asset = glb_motion_path.map(|path| asset_server.load(path));
+        state.dirty = true;
+    }
 
     if state.dirty {
         retirement::retire_candidate(&mut commands, &mut state);
@@ -249,28 +260,21 @@ pub(crate) fn rebuild_data_driven_placements(
             return; // 等待Bevy资产管线完成IO，不在主线程同步读文件。
         };
         let glb_motion = if let Some(assets) = motion_assets.as_ref()
-            && let Some(path) = SceneMotionAsset::placement_path(&handles.placements)
+            && let Some(handle) = state.glb_motion_asset.as_ref()
         {
-            if state.glb_motion_asset.as_ref().and_then(Handle::path) != Some(&path) {
-                // 与模型的标准 GLB 载入器共用源数据，由候选持有场景动画子资产。
-                state.glb_motion_asset = Some(asset_server.load(path));
-            }
-            if state.glb_motion_asset.as_ref().is_some_and(|handle| handle_failed(&asset_server, handle)) {
+            if handle_failed(&asset_server, handle) {
                 begin_placement_revision(&mut state, &mut status);
                 state.dirty = false;
                 fail_revision(&mut state, &mut status, format!("场景{scene_id}的 GLB 动画加载失败"));
                 return;
             }
-            let Some(asset) = state.glb_motion_asset.as_ref().and_then(|handle| assets.get(handle)) else {
+            let Some(asset) = assets.get(handle) else {
                 status.phase = ScenePlacementRuntimePhase::Waiting;
                 status.detail = format!("场景{scene_id}的 GLB 动画仍在加载");
                 return;
             };
             Some(asset)
-        } else {
-            state.glb_motion_asset = None;
-            None
-        };
+        } else { None };
         let motion_tracks = if let Some(tracks) = glb_motion.filter(|asset| {
             asset.authoritative || !asset.tracks.as_ref().is_ok_and(|tracks| tracks.is_empty())
         }).map(|asset| &asset.tracks).or_else(|| {

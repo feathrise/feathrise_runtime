@@ -65,6 +65,8 @@ struct ClipExtras {
     feathrise_duration: Option<f64>,
     #[serde(default)]
     feathrise_playback: Playback,
+    #[serde(default)]
+    feathrise_autoplay: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -127,6 +129,10 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
     }
     let chosen = if authoritative { selected } else { selected.or(fallback) };
     let Some((animation, extra)) = chosen else { return Ok((HashMap::new(), authoritative)); };
+    if !extra.feathrise_autoplay {
+        // 已匹配的主 GLB 片段优先，包括 Blender 原生片段。手动沿用普通摆放的初始变换和碰撞。
+        return Ok((HashMap::new(), true));
+    }
     let mut tracks = HashMap::<usize, ObjectCurves>::new();
     let mut duration = extra.feathrise_duration.unwrap_or(0.0);
     if !duration.is_finite() || duration < 0.0 || duration > f64::from(f32::MAX) {

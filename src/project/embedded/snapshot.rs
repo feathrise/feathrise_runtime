@@ -22,6 +22,7 @@ pub(super) struct PreparedSnapshot {
     pub height_overrides: BTreeMap<TerrainId, SparseHeightLiveOverride>,
     pub height_bindings: super::tool_brush::HeightSourceBindings,
     pub placements: Option<super::placement_update::Prepared>,
+    pub scene_motion: Option<SceneMotionPreviewSource>,
     pub clear_vegetation: bool,
     pub clear_water: bool,
 }
@@ -62,7 +63,13 @@ pub(super) fn prepare(
     let mut catalog: SceneCatalogAsset =
         serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
+    let mut scene_motion = None;
     if let Some(entry) = catalog.scenes.iter_mut().find(|entry| entry.id == id) {
+        // 作者摆放覆盖仍用内存 JSON；场景动画来自本工程磁盘目录中同场景同文件夹的主 GLB。
+        if entry.placements_glb && entry.folder == snapshot.entry.folder {
+            let path = entry.placements_path();
+            if valid_path(&path) { scene_motion = SceneMotionPreviewSource::from_glb(id.clone(), &path); }
+        }
         *entry = snapshot.entry.clone();
     } else {
         catalog.scenes.push(snapshot.entry.clone());
@@ -247,6 +254,7 @@ pub(super) fn prepare(
         reload_paths,
         reads,
         placements,
+        scene_motion,
         clear_vegetation,
         clear_water,
         files: Arc::new(files),

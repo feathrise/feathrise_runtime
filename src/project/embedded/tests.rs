@@ -169,7 +169,7 @@ fn scene_tree_queries_wait_for_the_new_scene_to_be_active() {
         DynamicSceneRuntimePhase, DynamicSceneRuntimeStatus, ScenePlacementRuntimePhase,
         ScenePlacementRuntimeStatus,
     };
-    use feathrise_scene_content::{ActiveDynamicScene, SceneId};
+    use feathrise_scene_content::{ActiveDynamicScene, SceneId, SceneMotionPreviewSource};
     use feathrise_scene_core::{input::EditorInputState, state::ScenePhase};
     use std::time::{Duration, Instant};
 
@@ -280,6 +280,7 @@ fn scene_tree_queries_wait_for_the_new_scene_to_be_active() {
             height_overrides: default(),
             height_bindings: HeightSourceBindings::new(next.clone(), 2),
             placements: None,
+            scene_motion: SceneMotionPreviewSource::from_glb(next.clone(), "scenes/TREE-NEW/scene.glb"),
             clear_vegetation: false,
             clear_water: false,
         }))
@@ -294,6 +295,9 @@ fn scene_tree_queries_wait_for_the_new_scene_to_be_active() {
     assert!(matches!(applied.message, Message::SnapshotApplied { transaction: 2, revision: 2 }));
     assert_eq!(*world.resource::<State<ScenePhase>>().get(), ScenePhase::Active);
     assert_eq!(world.resource::<ActiveDynamicScene>().scene_id.as_ref(), Some(&next));
+    let motion = world.resource::<SceneMotionPreviewSource>();
+    assert_eq!(motion.scene_id, next);
+    assert_eq!(motion.path.to_string(), "scenes/TREE-NEW/scene.glb#SceneMotion");
     query(3, 2, next.as_str(), 2);
     let queued = reply(world, 3, 2, 2);
     assert!(queued["version"].is_null() && queued["rows"].is_null());
