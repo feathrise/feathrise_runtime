@@ -8,10 +8,13 @@ use super::{
     ScenePlacementInstance,
     components::{PlacementPendingInstance, PlacementPendingRevision, PlacementWorldInstanceReady},
     resources::{ScenePlacementRuntimeState, ScenePlacementRuntimeStatus},
+    source_grounding::{SourceGroundingReady, SourceGroundingRequired},
+    source_mesh_properties::{SourceMeshProperties, collision_summary},
 };
-use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
+use crate::{MeshLodAuxiliary, StaticMeshLodOriginal, shared::world_asset_lifecycle::WorldAssetLifecycleIndex};
 use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, ColliderDisabled, RigidBody, TrimeshFlags};
-use bevy::world_serialization::WorldInstanceReady;
+use bevy::world_serialization::{WorldAsset, WorldInstance, WorldInstanceReady};
+use feathrise_scene_core::residency::{EntitySceneScope, InstanceResMut, SceneInstanceDetached, SceneInstanceOwner};
 use bevy::{
     asset::{AssetEvent, AssetId},
     mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
@@ -19,12 +22,13 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     ops::Bound::{Excluded, Unbounded},
     time::Instant,
 };
 
 mod components;
+mod partitioned;
 mod resources;
 mod static_shape; // 真正Trimesh查询，静态质量与包围球元数据不在插入帧重算。
 pub(crate) use static_shape::StaticTerrainShape; // 通用碰撞LOD只能后台适配真正静态包装，不猜测Custom几何。
@@ -37,11 +41,15 @@ pub(crate) use components::TerrainPatchColliderReady;
 pub use components::TerrainPatchCollisionRequest;
 pub(super) use components::TerrainColliderProxy;
 pub(crate) use components::TerrainPhysicsProxy;
-use components::{AuthorCollisionSuppression, TerrainMeshSources, TerrainWorldReady};
+pub(crate) use components::PlacementColliderOwner;
+pub(super) use components::{PartitionColliderReady, SourceSceneCollision};
+use components::{AuthorCollisionSuppression, PartitionColliderBody, PartitionColliderPreparing, TerrainMeshSources, TerrainWorldReady};
+pub(super) use partitioned::discard_ready as discard_partition_ready;
+pub(super) use partitioned::discard_preparing as discard_partition_preparing;
 pub(crate) use resources::TerrainCollisionGarbage;
 pub(super) use resources::TerrainCollisionRuntime;
 use resources::MeshChangeSweep;
-use types::{Capture, Cooked, MeshCapture};
+use types::{Capture, CapturedMesh, Cooked, CookedShape, MeshCapture, PartitionInstall};
 
 const COPY_BYTES: usize = 128 * 1024;
 const ROOTS_PER_FRAME: usize = 128; // 分帧查询预算，只控制一次推进的工作量。
@@ -52,6 +60,10 @@ const MAX_MESHES: usize = 32;
 const PARRY_BVH_MAX_LEAVES: usize = (1 << 30) - 1;
 
 fn sync_proxy_participation(world: &mut World, proxy: Entity, enabled: bool) {
+    if world.get::<PartitionColliderBody>(proxy).is_some() {
+        partitioned::set_enabled(world, proxy, enabled);
+        return;
+    }
     let Ok(mut proxy) = world.get_entity_mut(proxy) else { return; };
     if enabled {
         if proxy.take::<AuthorCollisionSuppression>().is_some() {
@@ -68,7 +80,9 @@ impl ScenePlacementInstance {
         if world.get::<Self>(root).is_none() { return; }
         if enabled {
             world.entity_mut(root).remove::<AuthorCollisionSuppression>();
-        } else if world.get::<TerrainPatchCollisionRequest>(root).is_some() {
+        } else if world.get::<TerrainPatchCollisionRequest>(root).is_some()
+            || world.get::<SourceSceneCollision>(root).is_some()
+        {
             // 正在准备的新代理也读取这个标记，不会在异步结果迟到时恢复禁用碰撞。
             world.entity_mut(root).insert(AuthorCollisionSuppression);
         }
@@ -80,21 +94,29 @@ impl ScenePlacementInstance {
 
 pub(super) fn install_ready_collider(
     event: On<Insert<InstallTerrainPatchCollider>>,
-    ready: Query<(&TerrainPatchColliderReady, &GlobalTransform)>,
+    ready: Query<(
+        Option<&TerrainPatchColliderReady>, Option<&PartitionColliderReady>,
+        &TerrainPatchCollisionRequest, &GlobalTransform,
+    )>,
     mut commands: Commands,
 ) {
-    if let Ok((ready, transform)) = ready.get(event.entity) {
+    let Ok((single, partition, request, transform)) = ready.get(event.entity) else { return; };
+    if let Some(partition) = partition.filter(|ready| ready.matches(request)) {
+        partitioned::install(&mut commands, event.entity, *transform, *partition);
+    } else if let Some(single) = single.filter(|ready| ready.matches(request)) {
         install_physics_proxy(
             &mut commands,
             event.entity,
             *transform,
-            ready.physical.clone(),
+            single.physical.clone(),
         );
-        commands
-            .entity(event.entity)
-            .insert(FormalTerrainPatchCollider)
-            .remove::<InstallTerrainPatchCollider>();
+    } else {
+        return;
     }
+    commands
+        .entity(event.entity)
+        .try_insert(FormalTerrainPatchCollider)
+        .try_remove::<InstallTerrainPatchCollider>();
 }
 
 /// 物理根使用单位缩放与已烘焙顶点，Avian插入和固定步均无需重新缩放大BVH。
@@ -119,10 +141,12 @@ fn install_physics_proxy(
             }
             return;
         }
-        let existing = world
-            .get::<TerrainColliderProxy>(root)
-            .map(|proxy| proxy.0)
+        let previous = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0);
+        let existing = previous
             .filter(|entity| world.get::<TerrainPhysicsProxy>(*entity).is_some());
+        if let Some(previous) = previous.filter(|_| existing.is_none()) {
+            sync_proxy_participation(world, previous, false); // 从分组换回原合并路径时先释放旧的真实承托。
+        }
         // Avian on_insert从GlobalTransform分解缩放；旋转矩阵的舍入残差也可能触发
         // Custom形状同步重缩放大BVH。此独占命令内先提供精确单位缩放，物理位姿显式
         // 来自Position/Rotation，再立即恢复渲染变换；任何系统都观察不到中间状态。
@@ -139,14 +163,15 @@ fn install_physics_proxy(
             world.get_mut::<TerrainColliderProxy>(root).unwrap().1 = matrix;
             existing
         } else {
-            let proxy = world
-                .spawn((
-                    bundle,
-                    TerrainPhysicsProxy,
-                    RigidBody::Static,
-                    Name::new("三维地形独立物理根"),
-                ))
-                .id();
+            let source_owner = world.get::<SceneInstanceOwner>(root).copied();
+            let source = world.get::<SourceSceneCollision>(root).is_some();
+            let mut proxy = world.spawn_empty();
+            if source {
+                if let Some(owner) = source_owner { proxy.insert(owner); }
+                proxy.insert(SceneInstanceDetached); // 普通 GLB 换回单代理时保持已烘焙世界位姿。
+            }
+            proxy.insert((bundle, TerrainPhysicsProxy, RigidBody::Static, Name::new("三维地形独立物理根")));
+            let proxy = proxy.id();
             world
                 .entity_mut(root)
                 .insert(TerrainColliderProxy(proxy, matrix));
@@ -155,6 +180,11 @@ fn install_physics_proxy(
         world
             .entity_mut(proxy)
             .insert(GlobalTransform::from(transform));
+        if world.get::<ScenePlacementInstance>(root).is_some_and(|instance| {
+            !instance.is_terrain_patch() && !instance.has_building_preset()
+        }) {
+            world.entity_mut(proxy).insert(PlacementColliderOwner { placement: root, lod: None });
+        }
         if world.get::<AuthorCollisionSuppression>(root).is_some() {
             sync_proxy_participation(world, proxy, false);
         }
@@ -219,10 +249,15 @@ pub(super) fn sync_preview_physics_pose(
 pub(super) fn retire_physics_proxy(
     event: On<Discard<TerrainColliderProxy>>,
     roots: Query<&TerrainColliderProxy>,
+    partition_bodies: Query<(), With<PartitionColliderBody>>,
     mut commands: Commands,
 ) {
     if let Ok(proxy) = roots.get(event.entity) {
-        commands.entity(proxy.0).try_despawn(); // 无后代的唯一物理实体，不能随普通场景树拖延回收。
+        if partition_bodies.contains(proxy.0) {
+            partitioned::retire(&mut commands, proxy.0);
+        } else {
+            commands.entity(proxy.0).try_despawn(); // 旧单体代理没有后代，可在采用帧直接撤销。
+        }
     }
 }
 
@@ -243,7 +278,7 @@ pub(super) fn invalidate_world_ready(
     mut roots: Query<(
         &bevy::world_serialization::WorldInstance,
         &mut TerrainPatchCollisionRequest,
-    )>,
+    ), Without<SourceSceneCollision>>,
     mut commands: Commands,
 ) {
     if let Ok((instance, mut request)) = roots.get_mut(event.entity)
@@ -252,6 +287,58 @@ pub(super) fn invalidate_world_ready(
         request.generation = request.generation.wrapping_add(1).max(1);
         commands.entity(event.entity).insert(TerrainWorldReady);
     }
+}
+
+/// 只对正式普通 GLB 查看当前已实例化场景摘要。源节点显式开启也能启动后台碰撞请求。
+pub(super) fn sync_source_world_collision(
+    event: On<WorldInstanceReady>,
+    context: EntitySceneScope,
+    scene_assets: Option<Res<Assets<WorldAsset>>>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut roots: Query<(
+        &WorldInstance, &WorldAssetRoot, &ScenePlacementInstance, &mut SourceSceneCollision,
+        Option<&TerrainPatchCollisionRequest>, Option<&PlacementPendingRevision>,
+    )>,
+    mut commands: Commands,
+) {
+    let root = event.entity;
+    let Ok((instance, asset_root, placement, mut source, request, pending)) = roots.get_mut(root) else { return; };
+    if **instance != event.instance_id || !(placement.is_active() || placement.is_pending()) { return; }
+    let summary = scene_assets.as_ref().and_then(|assets| assets.get(&asset_root.0)).map(collision_summary).unwrap_or_default();
+    source.partitioned = summary.has_overrides;
+    // 即使新源没有碰撞，也推进单调票据，避免迟到结果跨过无请求的间隙。
+    source.generation = source.generation.max(request.map_or(0, |request| request.generation)).wrapping_add(1).max(1);
+    let generation = source.generation;
+    if !placement.asset_target().has_scene_collision() && !summary.any_enabled {
+        if request.is_some() {
+            commands.queue(move |world: &mut World| {
+                if world.get::<SourceSceneCollision>(root).is_none_or(|source| source.generation != generation) { return; }
+                if let Some(old) = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0) {
+                    sync_proxy_participation(world, old, false);
+                }
+                world.entity_mut(root).remove::<(TerrainPatchCollisionRequest, TerrainWorldReady, TerrainPatchColliderReady, TerrainPatchColliderFailure)>();
+            });
+        }
+        return;
+    }
+    if !source.tracked
+        && let Some(state) = state.for_instance_mut(context.instance(root))
+    {
+        if let Some(staging) = state.staging.as_mut().filter(|staging| {
+            pending.is_some_and(|pending| pending.generation == staging.generation && pending.revision == staging.revision)
+        }) {
+            staging.primitive_collision_roots.push(root);
+            source.tracked = true;
+        } else if let Some(active) = state.active.as_mut().filter(|_| placement.is_active()) {
+            active.primitive_collision_roots.push(root);
+            source.tracked = true;
+        }
+    }
+    commands.queue(move |world: &mut World| {
+        if world.get::<SourceSceneCollision>(root).is_some_and(|source| source.generation == generation) {
+            world.entity_mut(root).insert((RigidBody::Static, TerrainPatchCollisionRequest { generation }, TerrainWorldReady));
+        }
+    });
 }
 
 pub(super) fn invalidate_world_root(
@@ -312,14 +399,15 @@ pub(super) fn unregister_request(
     runtime.failed.remove(&event.entity);
     commands
         .entity(event.entity)
-        .try_remove::<TerrainColliderProxy>();
+        .try_remove::<(TerrainColliderProxy, PartitionColliderPreparing, PartitionColliderReady)>();
 }
 
 fn capture_step(
     capture: &mut Capture,
     meshes: &Assets<Mesh>,
     children: &Query<&Children>,
-    visuals: &Query<(&Mesh3d, &GlobalTransform)>,
+    visuals: &Query<(&Mesh3d, &GlobalTransform, Option<&ChildOf>, Option<&StaticMeshLodOriginal>), Without<MeshLodAuxiliary>>,
+    properties: &Query<&SourceMeshProperties>,
 ) -> Result<bool, String> {
     let mut bytes = COPY_BYTES;
     let mut nodes = 64;
@@ -338,20 +426,20 @@ fn capture_step(
             if positions.len() != current.vertex_count || indices.len() != current.index_count {
                 return Err("三维地形网格在捕获期间换代".into());
             }
-            let from = current.vertices.len();
+            let from = current.mesh.vertices.len();
             let end = (from + bytes / 12).min(positions.len());
             current
-                .vertices
+                .mesh.vertices
                 .extend(positions[from..end].iter().map(|p| Vec3::from_array(*p)));
             bytes -= (end - from) * 12;
             if end < positions.len() {
                 return Ok(false);
             }
-            let from = current.indices.len();
+            let from = current.mesh.indices.len();
             let end = (from + bytes / 4).min(indices.len());
             match indices {
-                Indices::U32(values) => current.indices.extend_from_slice(&values[from..end]),
-                Indices::U16(values) => current
+                Indices::U32(values) => current.mesh.indices.extend_from_slice(&values[from..end]),
+                Indices::U16(values) => current.mesh
                     .indices
                     .extend(values[from..end].iter().map(|i| u32::from(*i))),
             }
@@ -361,8 +449,7 @@ fn capture_step(
             }
             let current = capture.current.take().expect("本帧正在捕获网格");
             // 矩阵变换移交后台，不把一次完整顶点变换塞到捕获结束帧。
-            capture.meshes.push((current.vertices, current.indices));
-            capture.matrices_mut().push(current.matrix);
+            capture.meshes.push(current.mesh);
             continue;
         }
         if nodes == 0 {
@@ -389,8 +476,21 @@ fn capture_step(
         if legacy_limits && capture.nodes > 1024 {
             return Err("三维地形节点超过1024项预算".into());
         }
-        if let Ok((handle, transform)) = visuals.get(entity) {
-            let Some(mesh) = meshes.get(&handle.0) else {
+        if let Ok((visual, transform, parent, original)) = visuals.get(entity) {
+            // 显示 LOD 可以在截取期间变更，物理始终读取权威原始句柄。
+            let handle = original.map_or(&visual.0, |original| &original.mesh);
+            let mut group = None;
+            if capture.partitioned {
+                let node = parent.map(ChildOf::parent);
+                let properties = node.and_then(|node| properties.get(node).ok());
+                // primitive 仅继承直接 glTF 节点，不把父节点策略传播到另一子网格。
+                if !properties.and_then(|properties| properties.collision).unwrap_or(capture.root_collision) {
+                    capture.excluded_mesh = true;
+                    continue;
+                }
+                group = node.zip(properties.and_then(|properties| properties.collision_lod));
+            }
+            let Some(mesh) = meshes.get(handle) else {
                 capture.stack.push_front(entity);
                 capture.nodes -= 1;
                 return Ok(false);
@@ -425,7 +525,7 @@ fn capture_step(
             {
                 return Err("三维地形超过单实例网格/顶点/三角预算，请拆分资产".into());
             }
-            if capture.scene_collision {
+            if capture.scene_collision && !capture.partitioned {
                 if u32::try_from(capture.vertices).is_err() {
                     return Err("顶点总数超出三角网格的32位索引表示范围".into());
                 }
@@ -442,15 +542,18 @@ fn capture_step(
                 indices.try_reserve_exact(count)
                     .map_err(|error| format!("三角索引缓冲分配失败：{error}"))?;
             }
-            capture.sources.insert(handle.0.id());
-            capture.mesh_entities.push((entity, handle.0.clone()));
+            capture.sources.insert(handle.id());
+            capture.mesh_entities.push((entity, handle.clone()));
             capture.current = Some(MeshCapture {
-                handle: handle.0.clone(),
-                matrix: capture.inverse_root * transform.to_matrix(),
+                handle: handle.clone(),
                 vertex_count: positions.len(),
                 index_count: count,
-                vertices,
-                indices,
+                mesh: CapturedMesh {
+                    matrix: capture.inverse_root * transform.to_matrix(),
+                    vertices,
+                    indices,
+                    group,
+                },
             });
         }
         if let Ok(children) = children.get(entity) {
@@ -464,29 +567,57 @@ fn capture_step(
 }
 
 // 与顶点数组同属唯一捕获快照；只在后台使用矩阵。
-impl Capture {
-    fn matrices_mut(&mut self) -> &mut Vec<Mat4> {
-        &mut self.matrices
+fn cook(capture: Capture) -> Cooked {
+    let shape = if capture.partitioned {
+        if capture.meshes.is_empty() && !capture.excluded_mesh {
+            Err("GLB 没有可用的真实网格".into())
+        } else {
+            // 继承项沿用一个 Trimesh，仅需独立档位的节点保有独立物理形状。
+            let mut groups = BTreeMap::<_, (_, Vec<_>)>::new();
+            for mesh in capture.meshes {
+                let (key, policy) = mesh.group.unzip();
+                groups.entry(key).or_insert_with(|| (policy, Vec::new())).1.push(mesh);
+            }
+            groups.into_values().map(|(policy, meshes)| {
+                cook_meshes(meshes, false, capture.scale).map(|(_, physical)| (physical, policy))
+            }).collect::<Result<_, _>>().map(CookedShape::Partitioned)
+        }
+    } else {
+        cook_meshes(capture.meshes, capture.streamed, capture.scale)
+            .map(|(collider, physical)| CookedShape::Single(collider, physical))
+    };
+    Cooked {
+        root: capture.root,
+        generation: capture.generation,
+        inverse_root: capture.inverse_root,
+        scale: capture.scale,
+        shape,
+        meshes: capture.mesh_entities.into(),
     }
 }
 
-fn cook(capture: Capture) -> Cooked {
-    let shape = (|| {
-        if capture.meshes.is_empty() {
+fn cook_meshes(meshes: Vec<CapturedMesh>, streamed: bool, scale: Vec3) -> Result<(Collider, Collider), String> {
+        if meshes.is_empty() {
             return Err("三维地形没有可用的真实网格".into());
+        }
+        let (vertex_count, triangle_count) = meshes.iter().try_fold((0usize, 0usize), |(vertices, triangles), mesh| {
+            Some((vertices.checked_add(mesh.vertices.len())?, triangles.checked_add(mesh.indices.len() / 3)?))
+        }).ok_or("合并三角网格的容量超出表示范围")?;
+        if u32::try_from(vertex_count).is_err() || triangle_count > PARRY_BVH_MAX_LEAVES {
+            return Err("合并三角网格超过 Parry 的索引表示范围".into());
         }
         // 一个实例的所有primitive合并为同一个Trimesh；保留真实空腔与倒扣。
         // Parry禁止Compound嵌套Trimesh，不能按材质再包一层复合形状。
         let mut merged_vertices = Vec::new();
         merged_vertices
-            .try_reserve_exact(capture.vertices)
+            .try_reserve_exact(vertex_count)
             .map_err(|e| format!("三维地形碰撞顶点内存分配失败：{e}"))?;
         let mut triangles = Vec::new();
         triangles
-            .try_reserve_exact(capture.triangles)
+            .try_reserve_exact(triangle_count)
             .map_err(|e| format!("三维地形碰撞三角内存分配失败：{e}"))?;
         let mut welded = HashMap::<[u32; 3], u32>::new();
-        for ((mut vertices, indices), matrix) in capture.meshes.into_iter().zip(capture.matrices) {
+        for CapturedMesh { mut vertices, indices, matrix, .. } in meshes {
             for vertex in &mut vertices {
                 *vertex = matrix.transform_point3(*vertex);
             }
@@ -495,7 +626,7 @@ fn cook(capture: Capture) -> Cooked {
             {
                 return Err("三维地形含非有限位置或越界索引".into());
             }
-            if capture.streamed {
+            if streamed {
                 // 显示块在接缝处会复制顶点；物理必须重新焊接，内边缘处理才能识别连续地面。
                 let mut remap = Vec::with_capacity(vertices.len());
                 for vertex in vertices {
@@ -542,11 +673,11 @@ fn cook(capture: Capture) -> Cooked {
         )
         .map_err(|error| format!("三维地形三角网格无法烘焙：{error}"))?;
         let query = static_shape::StaticTerrainShape::new(mesh);
-        let physical = if capture.scale == Vec3::ONE {
+        let physical = if scale == Vec3::ONE {
             avian3d::parry::shape::SharedShape::new(query.clone())
         } else {
             avian3d::parry::shape::SharedShape(std::sync::Arc::from(
-                avian3d::parry::shape::Shape::scale_dyn(&query, capture.scale, 10)
+                avian3d::parry::shape::Shape::scale_dyn(&query, scale, 10)
                     .expect("已校验正缩放Trimesh"),
             ))
         };
@@ -554,15 +685,6 @@ fn cook(capture: Capture) -> Cooked {
             Collider::from(avian3d::parry::shape::SharedShape::new(query)),
             Collider::from(physical),
         ))
-    })();
-    Cooked {
-        root: capture.root,
-        generation: capture.generation,
-        inverse_root: capture.inverse_root,
-        scale: capture.scale,
-        shape,
-        meshes: capture.mesh_entities.into(),
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -572,7 +694,8 @@ pub(super) fn drive_terrain_collision(
     meshes: Res<Assets<Mesh>>,
     mut events: MessageReader<AssetEvent<Mesh>>,
     children: Query<&Children>,
-    visuals: Query<(&Mesh3d, &GlobalTransform)>,
+    visuals: Query<(&Mesh3d, &GlobalTransform, Option<&ChildOf>, Option<&StaticMeshLodOriginal>), Without<MeshLodAuxiliary>>,
+    properties: Query<&SourceMeshProperties>,
     mut roots: Query<(
         Entity,
         &mut TerrainPatchCollisionRequest,
@@ -583,6 +706,10 @@ pub(super) fn drive_terrain_collision(
         Option<&TerrainMeshSources>,
         &GlobalTransform,
         Option<&FormalTerrainPatchCollider>,
+        Option<&SourceSceneCollision>,
+        Option<&PartitionColliderReady>,
+        Has<SourceGroundingRequired>,
+        Option<&SourceGroundingReady>,
     )>,
     mut state: ResMut<ScenePlacementRuntimeState>,
     mut status: ResMut<ScenePlacementRuntimeStatus>,
@@ -593,6 +720,12 @@ pub(super) fn drive_terrain_collision(
     uploading: Query<(), With<super::terrain_mesh_upload::TerrainMeshUpload>>,
     fields: Query<&crate::VolumeSurfaceFields>,
 ) {
+    let grounded = |required: bool, ready: Option<&SourceGroundingReady>, root: Entity, world: Option<&WorldAssetRoot>| {
+        !required || ready.zip(world).is_some_and(|(ready, world)| {
+            world_assets.as_ref().and_then(|lifecycle| lifecycle.current_ready_epoch(root, world.0.id())) == Some(ready.0)
+        })
+    };
+    partitioned::cleanup(&mut commands, &mut garbage, &children);
     let mesh_events_caught_up = {
         let runtime = &mut *runtime;
         // Bevy消息只有短寿命，先合并真实换代ID，再分帧撤销受影响根的旧就绪证明。
@@ -610,7 +743,7 @@ pub(super) fn drive_terrain_collision(
             let mut remaining = runtime.registered.range((sweep.cursor.map_or(Unbounded, Excluded), Unbounded));
             for &root in remaining.by_ref().take(ROOTS_PER_FRAME) {
                 sweep.cursor = Some(root);
-                let Ok((_, mut request, _, world, _, _, sources, _, _)) = roots.get_mut(root) else { continue; };
+                let Ok((_, mut request, _, world, _, _, sources, ..)) = roots.get_mut(root) else { continue; };
                 let source_changed = sources.is_some_and(|sources| !sources.0.is_disjoint(&sweep.changed));
                 let capture_changed = runtime.capture.as_ref().is_some_and(|capture| {
                     capture.root == root && !capture.sources.is_disjoint(&sweep.changed)
@@ -639,7 +772,7 @@ pub(super) fn drive_terrain_collision(
         && started.elapsed().as_secs() >= 30
         && !roots
             .get(root)
-            .is_ok_and(|(_, _, instance, _, _, _, _, _, _)| {
+            .is_ok_and(|(_, _, instance, ..)| {
                 instance.terrain_patch().is_some_and(|p| p.streamed_volume)
             })
         && runtime.failed.get(&root) != Some(&generation)
@@ -662,23 +795,53 @@ pub(super) fn drive_terrain_collision(
     if runtime.release.is_some() {
         return;
     }
-    if !garbage.0.is_empty() {
-        let shapes = std::mem::take(&mut garbage.0);
+    if !garbage.shapes.is_empty() {
+        let shapes = std::mem::take(&mut garbage.shapes);
         runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move {
             drop(shapes);
         }));
         return;
     } // 同域单飞释放槽，不为每根创建任务。
+    if let Some(mut install) = runtime.partition.take() {
+        let root = install.root;
+        let valid = roots.get(root).ok().filter(|(_, request, _, world, _, _, _, global, _, _, _, requires_ground, ground)| {
+            request.generation == install.generation && global.to_matrix().inverse() == install.inverse_root
+                && grounded(*requires_ground, *ground, root, *world)
+        });
+        let Some((_, _, instance, _, _, _, _, global, _, _, _, _, _)) = valid else {
+            if let Some(body) = install.body { partitioned::retire(&mut commands, body); }
+            commands.entity(root).try_remove::<PartitionColliderPreparing>();
+            runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move { drop(install); }));
+            return;
+        };
+        let Some(ready) = partitioned::prepare(&mut install, &mut commands, *global) else {
+            runtime.partition = Some(install);
+            if root_is_pending(root, &state, &pending_roots) { status.advance_progress(); }
+            return;
+        };
+        commands.entity(root)
+            .try_remove::<(TerrainPatchColliderFailure, TerrainPatchColliderReady)>()
+            .try_insert(ready)
+            .try_remove::<PartitionColliderPreparing>();
+        if root_is_pending(root, &state, &pending_roots) {
+            status.advance_progress();
+        } else if instance.is_active() && !deferred.contains(root) {
+            partitioned::install(&mut commands, root, *global, ready);
+        }
+        commands.trigger(ColliderConstructorHierarchyReady { entity: root });
+        return;
+    }
     let mut completed_root = None;
     if let Some(result) = runtime.task.as_mut().and_then(check_ready) {
         runtime.task = None;
         runtime.started = None;
         let valid = runtime.failed.get(&result.root) != Some(&result.generation)
             && roots.get(result.root).is_ok_and(
-                |(_, request, instance, _, _, _, _, transform, _)| {
+                |(_, request, instance, world, _, _, _, transform, _, source, _, requires_ground, ground)| {
                     request.generation == result.generation
-                        && instance.uses_async_mesh_collision()
+                        && (instance.uses_async_mesh_collision() || source.is_some())
                         && transform.to_matrix().inverse() == result.inverse_root
+                        && grounded(requires_ground, ground, result.root, world)
                 },
             );
         if !valid {
@@ -688,9 +851,16 @@ pub(super) fn drive_terrain_collision(
             return;
         }
         match result.shape {
-            Ok((collider, physical)) => {
+            Ok(CookedShape::Partitioned(shapes)) => {
+                runtime.partition = Some(PartitionInstall {
+                    root: result.root, generation: result.generation, inverse_root: result.inverse_root,
+                    scale: result.scale, body: None, shapes,
+                });
+                return;
+            }
+            Ok(CookedShape::Single(collider, physical)) => {
                 completed_root = Some(result.root); // Ready命令尚未应用，本帧无需把刚完成的根再次排队。
-                let update_active = roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal)| {
+                let update_active = roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal, ..)| {
                     instance.is_active()
                         && (formal.is_none() || (!instance.is_terrain_patch() && instance.asset_target().has_scene_collision()))
                 });
@@ -701,8 +871,8 @@ pub(super) fn drive_terrain_collision(
                 }
                 commands
                     .entity(result.root)
-                    .remove::<TerrainPatchColliderFailure>()
-                    .insert(TerrainPatchColliderReady {
+                    .try_remove::<(TerrainPatchColliderFailure, PartitionColliderReady)>()
+                    .try_insert(TerrainPatchColliderReady {
                         collider,
                         physical,
                         scale: result.scale,
@@ -738,9 +908,10 @@ pub(super) fn drive_terrain_collision(
         runtime.failed.get(&capture.root) == Some(&capture.generation)
             || roots
                 .get(capture.root)
-                .map_or(true, |(_, request, _, _, _, _, _, transform, _)| {
+            .map_or(true, |(_, request, _, world, _, _, _, transform, _, _, _, requires_ground, ground)| {
                     request.generation != capture.generation
                         || transform.to_matrix().inverse() != capture.inverse_root
+                        || !grounded(requires_ground, ground, capture.root, world)
                 })
     }) {
         runtime.started = None;
@@ -757,22 +928,26 @@ pub(super) fn drive_terrain_collision(
             if completed_root == Some(root) {
                 continue;
             }
-            let Ok((root, request, instance, world, world_ready, ready, _, transform, _)) =
+            let Ok((root, request, instance, world, world_ready, ready, _, transform, _, source, partition, requires_ground, ground)) =
                 roots.get(root)
             else {
                 continue;
             };
-            if !instance.uses_async_mesh_collision()
+            if !(instance.uses_async_mesh_collision() || source.is_some())
                 || uploading.contains(root)
                 || (world.is_some() && world_ready.is_none())
+                || !grounded(requires_ground, ground, root, world)
                 || ready.is_some_and(|ready| {
                     ready.generation == request.generation && ready.scale == transform.scale()
                 })
+                || partition.is_some_and(|ready| ready.matches(request) && ready.scale == transform.scale())
                 || runtime.failed.get(&root) == Some(&request.generation)
             {
                 continue;
             }
-            let scene_collision = !instance.is_terrain_patch() && instance.asset_target().has_scene_collision();
+            let root_collision = instance.asset_target().has_scene_collision();
+            let partitioned = source.is_some_and(|source| source.partitioned);
+            let scene_collision = !instance.is_terrain_patch() && (root_collision || partitioned);
             runtime.capture = Some(Capture {
                 root,
                 generation: request.generation,
@@ -782,12 +957,14 @@ pub(super) fn drive_terrain_collision(
                 current: None,
                 meshes: Vec::new(),
                 sources: HashSet::new(),
-                matrices: Vec::new(),
                 mesh_entities: Vec::new(),
                 nodes: 0,
                 vertices: 0,
                 triangles: 0,
                 scene_collision,
+                root_collision,
+                partitioned,
+                excluded_mesh: false,
                 streamed: instance.terrain_patch().is_some_and(|p| p.streamed_volume),
                 child_cursor: None,
             });
@@ -805,17 +982,17 @@ pub(super) fn drive_terrain_collision(
         capture
             .current
             .as_ref()
-            .map(|mesh| mesh.vertices.len() + mesh.indices.len()),
+            .map(|mesh| mesh.mesh.vertices.len() + mesh.mesh.indices.len()),
         capture.meshes.len(),
     );
-    let result = capture_step(capture, &meshes, &children, &visuals);
+    let result = capture_step(capture, &meshes, &children, &visuals, &properties);
     let after = (
         capture.nodes,
         capture.child_cursor,
         capture
             .current
             .as_ref()
-            .map(|mesh| mesh.vertices.len() + mesh.indices.len()),
+            .map(|mesh| mesh.mesh.vertices.len() + mesh.mesh.indices.len()),
         capture.meshes.len(),
     );
     if before != after && root_is_pending(capture.root, &state, &pending_roots) {
@@ -827,7 +1004,7 @@ pub(super) fn drive_terrain_collision(
             let mut capture = runtime.capture.take().expect("完整捕获已就绪");
             commands
                 .entity(capture.root)
-                .insert(TerrainMeshSources(std::mem::take(&mut capture.sources)));
+                .try_insert(TerrainMeshSources(std::mem::take(&mut capture.sources)));
             runtime.task = Some(AsyncComputeTaskPool::get().spawn(async move { cook(capture) }));
         }
         Err(error) => {

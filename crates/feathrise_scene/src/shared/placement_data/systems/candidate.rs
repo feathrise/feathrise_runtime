@@ -232,6 +232,19 @@ fn spawn_ready_placement(
             },
             ChildOf(staging_root),
         ));
+        if plan.motion.is_none() && plan.record.asset_target.is_scene0()
+            && plan.record.terrain_patch.is_none() && plan.record.building_preset_id.is_none()
+            && std::path::Path::new(&plan.record.asset_path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("glb"))
+        {
+            // 正式普通 GLB 首载和换代都能从自己的 World 读取源子网格碰撞。未保存预览不创建物理代理。
+            let tracked = plan.record.asset_target.has_scene_collision();
+            root_commands.insert(super::super::terrain_collision::SourceSceneCollision::new(tracked));
+            root_commands.observe(super::super::terrain_collision::sync_source_world_collision);
+            if !tracked {
+                root_commands.insert(PlacementBuildingCollisionGeneration::default())
+                    .observe(super::super::settlement::on_placement_building_collision_ready);
+            }
+        }
         if let Some(collision) = building_placement_collision(&plan.record) {
             root_commands
                 .insert(collision)

@@ -255,6 +255,34 @@ fn placement_reuse_cancel_returns_roots_and_removes_carry_without_losing_state()
 }
 
 #[test]
+fn cancel_restores_late_source_collision_ownership_to_the_active_batch() {
+    use super::super::super::terrain_collision::{SourceSceneCollision, TerrainPatchCollisionRequest};
+
+    let (mut app, roots, container) = fixture(1);
+    let root = roots[0];
+    let mut source = record("kept-0");
+    source.asset_target = feathrise_scene_content::ScenePlacementAssetTarget::Scene0;
+    source.asset_path = "models/source-mesh.glb".into();
+    let gate = app.world().resource::<ScenePlacementRuntimeState>().active.as_ref().unwrap().gate.clone();
+    app.world_mut().entity_mut(root).insert((
+        ScenePlacementInstance::new_pending(&SceneId("MAP-reuse".into()), &source, gate),
+        SourceSceneCollision::new(false),
+    ));
+    begin(&mut app, vec![source]);
+    app.update();
+    // 复用之后 World 换代才在候选读到子节点显式碰撞。它的形状仍在后台准备。
+    app.world_mut().entity_mut(root).insert((SourceSceneCollision::new(true), TerrainPatchCollisionRequest::default()));
+    app.world_mut().resource_mut::<ScenePlacementRuntimeState>().staging.as_mut().unwrap()
+        .primitive_collision_roots.push(root);
+    app.world_mut().run_system_once(|mut commands: Commands, mut state: ResMut<ScenePlacementRuntimeState>| {
+        retire_candidate(&mut commands, &mut state);
+    }).unwrap();
+    for _ in 0..2 { cleanup_retired_placement_trees(app.world_mut()); }
+    assert_eq!(app.world().get::<ChildOf>(root).unwrap().parent(), container);
+    assert_eq!(app.world().resource::<ScenePlacementRuntimeState>().active.as_ref().unwrap().primitive_collision_roots, [root]);
+}
+
+#[test]
 fn same_saved_cube_survives_retirement_of_its_old_shared_rigid_body() {
     let mut app = candidate_app();
     app.add_plugins((TransformPlugin, VisibilityPlugin, PhysicsPlugins::default()))

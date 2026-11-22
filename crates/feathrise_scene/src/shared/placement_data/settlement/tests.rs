@@ -44,6 +44,7 @@ fn install_settlement_runtime(app: &mut App) {
         .add_observer(invalidate_discarded_candidate_world_asset)
         .add_observer(cancel_removed_candidate_world_asset)
         .add_observer(queue_inserted_placement_world_ready)
+        .add_observer(queue_inserted_placement_grounding_ready)
         .add_observer(queue_inserted_placement_water_status)
         .add_observer(queue_inserted_placement_collision_ready)
         .add_systems(Update, process_pending_placement_settlements); // Update只消费FIFO，不迭代全部候选Query。
@@ -145,6 +146,36 @@ fn settled_root_keeps_pending_marker_until_whole_candidate_adoption() {
             .ready_roots
             .contains(&candidate)
     ); // 当前根取得可撤销的联合Ready信用。
+}
+
+#[test]
+fn source_grounding_only_settles_after_matching_propagated_epoch() {
+    use super::super::source_grounding::{SourceGroundingReady, SourceGroundingRequired};
+
+    let mut app = App::new();
+    install_settlement_runtime(&mut app);
+    let staging = app.world_mut().spawn_empty().id();
+    let gate = PlacementInstanceGate::new(false);
+    let candidate = app.world_mut().spawn((
+        ordinary_pending_instance("glb-child-grounding", gate.clone()),
+        PlacementPendingInstance,
+        PlacementPendingRevision { generation: 4, revision: 7 },
+        DynamicWaterMeshOverrideStatus::Ready,
+        SourceGroundingRequired,
+    )).id();
+    app.insert_resource(state_with_candidate(staging, candidate, 4, 7, false, gate));
+    app.world_mut().entity_mut(candidate).insert(PlacementWorldInstanceReady(2));
+    app.update();
+    assert!(app.world().get::<PlacementWorldInstanceReady>(candidate).is_some());
+
+    app.world_mut().entity_mut(candidate).insert(SourceGroundingReady(1));
+    app.update();
+    assert!(app.world().get::<PlacementWorldInstanceReady>(candidate).is_some());
+
+    app.world_mut().entity_mut(candidate).insert(SourceGroundingReady(2));
+    app.update();
+    assert!(app.world().get::<PlacementWorldInstanceReady>(candidate).is_none());
+    assert!(app.world().resource::<ScenePlacementRuntimeState>().staging.as_ref().unwrap().ready_roots.contains(&candidate));
 }
 
 #[test]

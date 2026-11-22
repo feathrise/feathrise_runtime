@@ -1,10 +1,16 @@
 //! 只认领明确场景静态来源；骨骼、形变、水体与已有专用LOD从祖先链排除。
 use super::{components::MeshLodAuxiliary, resources::MeshLodRuntime, types::Owner};
+use crate::shared::placement_data::source_mesh_properties::SourceMeshProperties;
 use bevy::{mesh::skinning::SkinnedMesh, prelude::*};
 use feathrise_environment::vegetation::{VegetationMeshBatchNode, VegetationMeshLodNode};
 use feathrise_scene_content::SceneTerrainKind;
 
 pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
+    // GLB primitive 的直属父节点保存策略；父网格的策略不传给另一个节点的 primitive。
+    let display = world.get::<Mesh3d>(entity)
+        .and_then(|_| world.get::<ChildOf>(entity))
+        .and_then(|parent| world.get::<SourceMeshProperties>(parent.parent()))
+        .and_then(|properties| properties.display_lod);
     let mut cursor = entity;
     let mut active = true;
     for _ in 0..128 {
@@ -32,9 +38,13 @@ pub(super) fn owner(world: &World, entity: Entity) -> Option<Owner> {
             if instance.is_terrain_patch() {
                 return None;
             }
+            let mut policy = instance.mesh_lod_policy();
+            if let Some(display) = display {
+                policy.display = display;
+            }
             return Some(Owner {
                 root: cursor,
-                policy: instance.mesh_lod_policy(),
+                policy,
                 building: instance.is_building(),
                 active: active && instance.is_active(),
             });

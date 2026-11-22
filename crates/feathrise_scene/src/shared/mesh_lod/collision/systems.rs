@@ -3,6 +3,7 @@ use super::super::{
     components::MeshLodAuthoringState,
     ownership::owner,
     resources::{CACHE_BYTES, TARGET_BUDGET},
+    types::Owner,
 };
 use super::{
     build::{cook, source_mesh},
@@ -17,6 +18,22 @@ use bevy::{
 };
 use feathrise_scene_content::MeshCollisionLodSettings;
 use std::sync::Arc;
+
+fn collision_owner(world: &World, entity: Entity) -> Option<Owner> {
+    let Some(proxy) = world.get::<crate::shared::placement_data::PlacementColliderOwner>(entity) else {
+        return owner(world, entity);
+    };
+    // 独立代理在 GLB 热重载时不随 World 子树销毁，只从权威摆放读取继承项。
+    let placement = world.get::<crate::ScenePlacementInstance>(proxy.placement)?;
+    let mut policy = placement.mesh_lod_policy();
+    if let Some(lod) = proxy.lod { policy.collision = lod; }
+    Some(Owner {
+        root: proxy.placement,
+        policy,
+        building: placement.has_building_preset(),
+        active: placement.is_active() && world.get::<bevy::ecs::entity_disabling::Disabled>(proxy.placement).is_none(),
+    })
+}
 pub(super) fn body_inserted(
     event: On<Insert<RigidBody>>,
     bodies: Query<&RigidBody>,
@@ -272,7 +289,7 @@ pub(in crate::shared::mesh_lod) fn restore_unsafe(world: &mut World) {
                     .and_then(|cache| cache.levels.get(target.applied.saturating_sub(1)))
                     .is_some_and(|level| key(&level.collider) == key(collider))
             });
-            let policy = owner(world, entity)
+            let policy = collision_owner(world, entity)
                 .filter(|owner| owner.active && owner.root == target.owner && !owner.building)
                 .and_then(|owner| owner.policy.resolve_collision(global));
             if unchanged
@@ -360,7 +377,7 @@ pub(super) fn drive(world: &mut World) {
                 break;
             };
             runtime.queued.remove(&entity);
-            let Some(owner) = owner(world, entity).filter(|owner| !owner.building) else {
+            let Some(owner) = collision_owner(world, entity).filter(|owner| !owner.building) else {
                 continue;
             };
             let Some(mut original) = world.get::<Collider>(entity).cloned() else {
@@ -544,7 +561,7 @@ pub(super) fn drive(world: &mut World) {
                         .iter()
                         .any(|level| key(&level.collider) == key(&current))
                 });
-            let source_owner = owner(world, entity);
+            let source_owner = collision_owner(world, entity);
             if source_owner
                 .as_ref()
                 .is_none_or(|owner| owner.root != target.owner || owner.building)

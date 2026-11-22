@@ -261,7 +261,8 @@ pub(super) fn on_placement_building_collision_ready(
     state: InstanceRes<ScenePlacementRuntimeState>,
     mut commands: Commands,
     terrain_shapes: Query<(
-        &super::TerrainPatchColliderReady,
+        Option<&super::TerrainPatchColliderReady>,
+        Option<&super::terrain_collision::PartitionColliderReady>,
         &super::TerrainPatchCollisionRequest,
     )>,
 ) {
@@ -270,19 +271,21 @@ pub(super) fn on_placement_building_collision_ready(
     let Ok((pending, instance, mut collision_generation)) = roots.get_mut(ready.entity) else {
         return; // F12预览、已采用或已退役根不参与正式候选门。
     };
-    if instance.uses_async_mesh_collision()
-        && !terrain_shapes
-            .get(ready.entity)
-            .is_ok_and(|(shape, request)| shape.matches(request))
+    let async_shape = terrain_shapes.get(ready.entity);
+    if (instance.uses_async_mesh_collision() || async_shape.is_ok())
+        && !async_shape.is_ok_and(|(single, partition, request)| {
+            single.is_some_and(|shape| shape.matches(request))
+                || partition.is_some_and(|shape| shape.matches(request))
+        })
     {
         return; // 迟到的通用碰撞完成信号不能给新网格请求授信。
     }
-    let matches_current = instance.is_building()
+    let matches_current = (instance.is_building() || async_shape.is_ok())
         && state.staging.as_ref().is_some_and(|staging| {
             staging.generation == pending.generation && staging.revision == pending.revision
         });
     if matches_current {
-        collision_generation.collision_ready = if instance.uses_async_mesh_collision() {
+        collision_generation.collision_ready = if async_shape.is_ok() {
             // 三维地形自行以网格请求票据拒绝旧完成；同一World代的Mesh热更可多次重烘焙。
             collision_generation.world_ready
         } else {
@@ -306,6 +309,7 @@ pub(super) fn queue_inserted_placement_collision_ready(
             &ScenePlacementInstance,
             &PlacementBuildingCollisionGeneration,
             &PlacementBuildingCollisionReady,
+            Has<super::TerrainPatchCollisionRequest>,
         ),
         With<PlacementPendingInstance>,
     >,
@@ -317,11 +321,11 @@ pub(super) fn queue_inserted_placement_collision_ready(
     let Some(settlements) = settlements.for_instance_mut(instance_scope) else { return; };
     let Some(state) = state.for_instance_mut(instance_scope) else { return; };
     let Some(status) = status.for_instance_mut(instance_scope) else { return; };
-    let Ok((pending, instance, collision_generation, collision_ready)) = roots.get(insert.entity)
+    let Ok((pending, instance, collision_generation, collision_ready, async_shape)) = roots.get(insert.entity)
     else {
         return;
     };
-    if !instance.is_building() {
+    if !instance.is_building() && !async_shape {
         return; // 防御外部误插标记，普通资产不能改变既有就绪路径。
     }
     match instance.asset_target() {
@@ -404,6 +408,22 @@ pub(super) fn queue_inserted_placement_world_ready(
     queue_candidate_settlement(insert.entity, pending, settlements, state); // 调度到 Update 读取同帧最终水状态。
 }
 
+/// 等节点姿态传播完，再为同一候选根恢复联合就绪检查。
+pub(super) fn queue_inserted_placement_grounding_ready(
+    insert: On<Insert<super::source_grounding::SourceGroundingReady>>,
+    context: feathrise_scene_core::residency::EntitySceneScope,
+    roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>,
+    mut settlements: InstanceResMut<PlacementSettlementQueue>,
+    state: InstanceRes<ScenePlacementRuntimeState>,
+) {
+    let scope = context.instance(insert.entity);
+    if let (Ok(pending), Some(settlements), Some(state)) = (
+        roots.get(insert.entity), settlements.for_instance_mut(scope), state.for_instance(scope),
+    ) {
+        queue_candidate_settlement(insert.entity, pending, settlements, state);
+    }
+}
+
 /// 水体Pending/Ready/Failed整组件写入时只唤醒已经取得World完成门的候选根。
 pub(super) fn queue_inserted_placement_water_status(
     insert: On<Insert<DynamicWaterMeshOverrideStatus>>, // runtime每次状态发布都使用整组件insert。
@@ -440,6 +460,9 @@ pub(super) fn process_pending_placement_settlements(
             Option<&PlacementBuildingCollisionGeneration>, // 建筑Scene热更与碰撞各自推进同一根代次。
             Option<&PlacementBuildingCollisionReady>,      // 普通根为None仍沿用既有就绪语义。
             Option<&WorldAssetRoot>, // 正式根强句柄定位资产epoch；无渲染单测允许epoch零夹具。
+            Has<super::source_grounding::SourceGroundingRequired>,
+            Option<&super::source_grounding::SourceGroundingReady>,
+            Has<super::TerrainPatchCollisionRequest>,
         ),
         (
             With<PlacementWorldInstanceReady>,
@@ -462,6 +485,9 @@ pub(super) fn process_pending_placement_settlements(
             collision_generation,
             collision_ready,
             world_asset,
+            grounding_required,
+            grounding_ready,
+            async_shape,
         )) = roots.get(entity)
         else {
             continue; // 根已退役/移除或门已被另一次结算消费，陈旧事件只释放席位。
@@ -472,13 +498,16 @@ pub(super) fn process_pending_placement_settlements(
         if staging.generation != pending.generation || staging.revision != pending.revision {
             continue; // 不同代次或修订的迟到根绝不污染当前计数。
         } // 完成候选身份核对。
+        if grounding_required && !grounding_ready.is_some_and(|ready| ready.0 == world_ready.0) {
+            continue; // 同代 GLB 子节点落点尚未传播到世界坐标。
+        }
         let collision_matches_world =
             collision_generation
                 .zip(collision_ready)
                 .is_some_and(|(generation, ready)| {
                     generation.world_ready > 0 && ready.0 == generation.world_ready
                 });
-        if instance.is_building() && !collision_matches_world {
+        if (instance.is_building() || async_shape) && !collision_matches_world {
             continue; // World或水体先完成、或热更新后仍是旧碰撞时继续等Avian。
         }
         let epoch_is_current = world_asset.is_none_or(|world_asset| {

@@ -9,6 +9,7 @@ pub(in crate::shared::placement_data) struct TerrainCollisionRuntime {
     pub(super) started: Option<(Entity, u64, Instant)>,
     pub(super) capture: Option<Capture>,
     pub(super) task: Option<Task<Cooked>>,
+    pub(super) partition: Option<PartitionInstall>,
     pub(super) release: Option<Task<()>>,
     pub(super) failed: HashMap<Entity, u64>,
 }
@@ -20,10 +21,13 @@ pub(super) struct MeshChangeSweep {
 
 /// 旧形状引用移出帧关键路径；主线程与地表快照都完成切换后由同一个释放槽析构。
 #[derive(Resource, Default)]
-pub(crate) struct TerrainCollisionGarbage(pub(super) HashMap<usize, Collider>);
+pub(crate) struct TerrainCollisionGarbage {
+    pub(super) shapes: HashMap<usize, Collider>,
+    pub(super) bodies: VecDeque<Entity>,
+}
 impl TerrainCollisionGarbage {
     pub(crate) fn retain_shape(&mut self, shape: &Collider) {
         let key = std::ptr::from_ref(shape.shape_scaled().as_ref()).cast::<()>() as usize;
-        self.0.entry(key).or_insert_with(|| shape.clone()); // 缩放BVH可能与原BVH独立，不能按共同原形状误去重。
+        self.shapes.entry(key).or_insert_with(|| shape.clone()); // 缩放BVH可能与原BVH独立，不能按共同原形状误去重。
     }
 }

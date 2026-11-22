@@ -5,6 +5,9 @@ use bevy::prelude::*; // exclusive系统逐个静默、断开父子关系并销�
 use super::super::super::resources::ScenePlacementRuntimeState; // 唯一运行时状态持有退役树队列。
 use super::PLACEMENT_TREE_CLEANUP_BUDGET_PER_FRAME; // 每帧树操作硬预算由退役功能域统一声明。
 use super::super::super::components::{ScenePlacementInstance, PlacementPendingInstance, PlacementPendingRevision};
+use super::super::super::terrain_collision::{
+    InstallTerrainPatchCollider, PartitionColliderReady, SourceSceneCollision, TerrainPatchCollisionRequest,
+};
 
 /// 每帧以固定操作数静默并回收退役树，绝不对仍有Children的实体调用linked-spawn递归despawn。
 pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
@@ -28,6 +31,7 @@ pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
                     && world.get_entity(parent).is_ok() {
                     world.entity_mut(root).insert(ChildOf(parent))
                         .remove::<(PlacementPendingInstance, PlacementPendingRevision)>();
+                    restore_carried_collision(world, root);
                 }
                 continue;
             }
@@ -90,4 +94,20 @@ pub(crate) fn cleanup_retired_placement_trees(world: &mut World) {
     world
         .resource_mut::<ScenePlacementRuntimeState>()
         .retired_trees = retired; // exclusive处理完成后一次归还剩余所有权。
+}
+
+/// 热更已原地更新复用根的可视 World。取消候选只归还该根，仍需保留同一源的最新碰撞。
+fn restore_carried_collision(world: &mut World, root: Entity) {
+    if !world.get::<SourceSceneCollision>(root).is_some_and(SourceSceneCollision::is_tracked) {
+        return;
+    }
+    if let Some(active) = feathrise_scene_core::residency::instance_resource_mut::<ScenePlacementRuntimeState>(world).active.as_mut() {
+        // 先前已跟踪碰撞的根不参加复用，这里只归还其在候选期首次取得的所有权。
+        active.primitive_collision_roots.push(root);
+    }
+    if world.get::<PartitionColliderReady>(root).zip(world.get::<TerrainPatchCollisionRequest>(root))
+        .is_some_and(|(ready, request)| ready.matches(request))
+    {
+        world.entity_mut(root).insert(InstallTerrainPatchCollider);
+    } // 未准备完成的结果在下一次分帧碰撞推进时按活动根正常采用。
 }

@@ -209,7 +209,11 @@ impl ScenePlacementInstance {
 
     /// 返回该根是否必须等待静态网格碰撞完成。
     pub(crate) fn is_building(&self) -> bool {
-        self.building_preset_id.is_some() || self.uses_async_mesh_collision()
+        self.has_building_preset() || self.uses_async_mesh_collision()
+    }
+
+    pub(crate) fn has_building_preset(&self) -> bool {
+        self.building_preset_id.is_some()
     }
 
     pub(crate) fn uses_async_mesh_collision(&self) -> bool {

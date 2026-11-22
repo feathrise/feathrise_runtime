@@ -37,6 +37,7 @@ pub use instances::TerrainVolumeAuthorPreviewRoot;
 mod voxel_objects; // 独立密度源共用正式等值面与接缝简化，显示和碰撞分别选择LOD。
 mod terrain_queries; // 编辑器和玩法通过同一对象身份冻结真实表面查询。
 pub use terrain_queries::{TerrainObjectQueries, TerrainObjectRaySnapshot, TerrainSurfaceVersion};
+pub(crate) use terrain_queries::{PlacementGroundSources, PlacementGroundSurface};
 mod session_crater; // 技能浅坑仅作用于当前场景会话，不写F12作者高度。
 mod sparse_runtime; // 新场景稀疏清单和固定预算 Clipmap 网格的异步采用。
 mod sparse_lod; // 编辑器与玩法共用当前相机的投影格距和全局观察中心。

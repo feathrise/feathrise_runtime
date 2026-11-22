@@ -90,6 +90,35 @@ fn actual_far_collision_lod_recovers_near_player_without_duplicate_colliders() {
 }
 
 #[test]
+fn detached_glb_proxies_choose_lod_per_source_node() {
+    use crate::shared::placement_data::{PlacementColliderOwner, TerrainPhysicsProxy};
+    use feathrise_scene_content::{MeshLodMode, SceneId, ScenePlacementRecord};
+
+    let mut app = app();
+    let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"static", "asset_path":"scenes/LOD/static.glb", "translation":[0,0,0],
+        "yaw_degrees":0, "scale":[1,1,1], "asset_target":{"kind":"scene0","collision":true},
+        "mesh_lod":{"collision":{"mode":"disabled"}}
+    })).unwrap();
+    let placement = app.world_mut().spawn(crate::ScenePlacementInstance::new(
+        &SceneId::parse("MAP-LOD").unwrap(), &record,
+    )).id();
+    let original = source();
+    let body = app.world_mut().spawn(RigidBody::Static).id();
+    let mut proxy = |lod, position| app.world_mut().spawn((
+        TerrainPhysicsProxy, ColliderOf { body }, original.clone(),
+        GlobalTransform::from_translation(position), PlacementColliderOwner { placement, lod },
+    )).id();
+    let inherited = proxy(None, Vec3::ZERO);
+    let explicit = proxy(Some(MeshLodMode::Inherit), Vec3::X * 80.0);
+    app.world_mut().spawn((RigidBody::Dynamic, Collider::sphere(0.5), Position(Vec3::splat(1000.0))));
+    until(&mut app, |world| {
+        world.get::<Collider>(explicit).is_some_and(|collider| key(collider) != key(&original))
+    });
+    assert_eq!(key(app.world().get::<Collider>(inherited).unwrap()), key(&original));
+}
+
+#[test]
 fn no_focus_building_and_disabled_physics_never_simplify_original_support() {
     let mut app = app();
     let root = owner_root(app.world_mut(), false);

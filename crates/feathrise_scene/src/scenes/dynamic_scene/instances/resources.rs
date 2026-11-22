@@ -91,6 +91,11 @@ impl SubsceneRuntime {
         self.active.as_ref()?.index.get(path).copied()
     }
 
+    /// 摆放候选可以在整图采用前读取同批地表，不能从上一批次借用旧的地形姿态。
+    pub(in crate::scenes::dynamic_scene) fn preparing_terrain(&self, path: &SceneInstancePath) -> Option<Entity> {
+        self.candidate.as_ref().or(self.active.as_ref())?.index.get(path).copied()
+    }
+
     /// 无窗口查询回归只安装小型已采用地址表，不构造正式加载/GPU后台事务。
     #[cfg(any(test, feature = "runtime_test_support"))]
     pub(in crate::scenes::dynamic_scene) fn test_active(root: Entity, index: BTreeMap<SceneInstancePath, Entity>) -> Self {

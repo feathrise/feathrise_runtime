@@ -124,7 +124,6 @@ impl PlacementSettlementQueue {
         true // 报告确实撤销了一个有效席位。
     }
 
-    #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.links.len() // 反向索引数量就是当前有效根数。
     }

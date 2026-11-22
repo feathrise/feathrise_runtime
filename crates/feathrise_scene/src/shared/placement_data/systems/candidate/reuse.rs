@@ -24,6 +24,8 @@ pub(crate) struct PlacementReuseInputs<'w, 's> {
             Option<&'static PlacementBuildingCollisionReady>,
             Option<&'static BuiltinPlacementVisualRoot>,
             Option<&'static super::super::super::motion::MotionPlatform>,
+            Option<&'static super::super::super::terrain_collision::SourceSceneCollision>,
+            Has<super::super::super::source_grounding::SourceGroundingRequired>,
         ),
     >,
     builtin_visuals: InstanceQuery<
@@ -105,8 +107,11 @@ pub(super) fn reuse_placement(
         .get(&id_hash(&plan.record.id))
         .copied()
         .flatten()?;
-    let (instance, water, asset, collision_generation, collision_ready, builtin_visual, motion) =
+    let (instance, water, asset, collision_generation, collision_ready, builtin_visual, motion, source_collision, source_grounding) =
         roots.roots.get(entity).ok()?;
+    if source_grounding || source_collision.is_some_and(|source| source.is_tracked()) {
+        return None; // 这两类根的节点结果绑定当前地形或完整源碰撞代次，不能借用旧物理门。
+    }
     match (motion, plan.motion.as_ref()) {
         (None, None) => {}
         (Some(platform), Some(track)) if Arc::ptr_eq(&platform.track, track) => {}

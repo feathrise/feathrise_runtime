@@ -13,6 +13,9 @@ mod resources; // 热更新脏状态、候选事务与公开诊断。
 #[cfg(feature = "runtime_test_support")]
 pub(crate) mod runtime_test_support; // 下游回归只构造真实共享门，不放宽生产候选生命周期入口。
 mod settlement; // World实例与整网格赋水必须联合就绪后才结算候选。
+mod source_grounding; // GLB 源节点按各场景各引用的真实地表准备初始姿态。
+pub(crate) use source_grounding::waits_for_source_ground;
+pub(crate) mod source_mesh_properties;
 mod systems; // 事件观察、完整校验和实体替换。
 mod terrain_collision; // 三维地形按固定字节捕获，在单飞后台烘焙完整真实网格。
 mod terrain_mesh_upload;
@@ -24,6 +27,7 @@ pub(crate) use terrain_collision::TerrainCollisionGarbage;
 pub(crate) use terrain_collision::TerrainPatchColliderReady;
 pub(crate) use terrain_collision::StaticTerrainShape;
 pub(crate) use terrain_collision::TerrainPhysicsProxy;
+pub(crate) use terrain_collision::PlacementColliderOwner;
 pub use terrain_collision::{
     DeferredTerrainPreviewCollider, TerrainPatchColliderFailure, TerrainPatchCollisionRequest,
     terrain_placement_collision,
@@ -103,6 +107,8 @@ pub(crate) struct ScenePlacementDataPlugin;
 
 impl Plugin for ScenePlacementDataPlugin {
     fn build(&self, app: &mut App) {
+        source_mesh_properties::install(app);
+        source_grounding::install(app);
         // 候选容器也属于完整场景；父世界空摆放批次没有ChildOf/DespawnOnExit，必须显式纳入驻留索引。
         // 否则关闭标签只退役资源槽，容器会在每次重新打开后遗留一份。
         crate::register_resident_scene_root::<components::PlacementStagingRoot>(app);
@@ -116,6 +122,8 @@ impl Plugin for ScenePlacementDataPlugin {
             .init_instance_resource::<terrain_collision::TerrainCollisionRuntime>()
             .init_resource::<TerrainCollisionGarbage>()
             .add_observer(terrain_collision::retire_ready_shape)
+            .add_observer(terrain_collision::discard_partition_ready)
+            .add_observer(terrain_collision::discard_partition_preparing)
             .add_observer(terrain_collision::retire_installed_shape)
             .add_observer(terrain_collision::retire_physics_proxy)
             .add_observer(terrain_collision::register_request)
@@ -142,6 +150,7 @@ impl Plugin for ScenePlacementDataPlugin {
             .add_observer(settlement::invalidate_discarded_candidate_world_asset) // WorldAssetRoot替换当下撤销旧联合Ready信用。
             .add_observer(settlement::cancel_removed_candidate_world_asset) // 根真实移除时O(1)取消阻断与待结算席位。
             .add_observer(settlement::queue_inserted_placement_world_ready) // World完成门只定向入队，不扫描全部候选。
+            .add_observer(settlement::queue_inserted_placement_grounding_ready)
             .add_observer(settlement::queue_inserted_placement_water_status) // 水状态整组件写入与World门在队列中合并。
             .add_observer(settlement::queue_inserted_placement_collision_ready) // 建筑碰撞Ready与World/水体使用同一候选身份。
             .add_observer(settlement::invalidate_candidate_world_asset_epoch) // 资产级全局门之后按精确根撤销旧WorldReady。

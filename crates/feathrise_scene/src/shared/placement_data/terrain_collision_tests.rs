@@ -48,6 +48,100 @@ fn floor(y: f32) -> Mesh {
 }
 
 #[test]
+fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes() {
+    use avian3d::prelude::{PhysicsPlugins, SpatialQuery, SpatialQueryFilter};
+    use bevy::ecs::system::RunSystemOnce;
+    use feathrise_scene_content::{MeshLodMode, ScenePlacementAssetTarget};
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, TransformPlugin, PhysicsPlugins::default()))
+        .init_resource::<Assets<Mesh>>()
+        .add_message::<AssetEvent<Mesh>>()
+        .init_resource::<ScenePlacementRuntimeState>()
+        .init_resource::<ScenePlacementRuntimeStatus>()
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(std::time::Duration::from_millis(17)))
+        .add_observer(discard_partition_ready)
+        .add_observer(discard_partition_preparing)
+        .add_systems(Update, drive_terrain_collision);
+    super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
+    app.finish();
+    app.cleanup();
+    let (original, displayed) = {
+        let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+        (meshes.add(floor(0.0)), meshes.add(floor(3.0)))
+    };
+    let mut record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+        "id":"source-mesh", "asset_path":"models/shared.glb", "translation":[0,0,0],
+        "yaw_degrees":0, "scale":[1,1,1]
+    })).unwrap();
+    let map = SceneId("SCENE-source-mesh-collision".into());
+    let mut spawn = |body_x: f32, whole_collision| {
+        record.asset_target = ScenePlacementAssetTarget::Scene { collision: whole_collision };
+        let pose = Transform::from_xyz(body_x, 0.0, 0.0);
+        let world = app.world_mut();
+        let root = world.spawn((
+            ScenePlacementInstance::new(&map, &record), pose, GlobalTransform::from(pose),
+            TerrainPatchCollisionRequest { generation: 1 },
+            SourceSceneCollision { partitioned: true, ..SourceSceneCollision::default() },
+        )).id();
+        let mut nodes = Vec::new();
+        for (x, collision, lod) in [(0.0, None, None), (6.0, Some(false), None), (12.0, Some(true), Some(MeshLodMode::Disabled))] {
+            let pose = Transform::from_xyz(x, 0.0, 0.0);
+            let node = world.spawn((
+                SourceMeshProperties { collision, collision_lod: lod, ..default() },
+                ChildOf(root), pose, GlobalTransform::from_translation(Vec3::new(body_x + x, 0.0, 0.0)),
+            )).id();
+            world.spawn((Mesh3d(displayed.clone()), StaticMeshLodOriginal { mesh: original.clone() }, ChildOf(node), Transform::IDENTITY));
+            nodes.push(node);
+        }
+        (root, nodes)
+    };
+    let (off, off_nodes) = spawn(0.0, false);
+    let (on, _) = spawn(30.0, true);
+    let scoped_root = app.world_mut().spawn(Transform::from_xyz(200.0, 0.0, 0.0)).id();
+    app.world_mut().entity_mut(on).insert(SceneInstanceOwner(scoped_root));
+    let wait_for_generation = |app: &mut App, root: Entity, generation| {
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while app.world().get::<PartitionColliderReady>(root).is_none_or(|ready| ready.generation != generation) {
+            app.update();
+            assert!(Instant::now() < deadline, "分组碰撞未完成");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        app.update(); // 物理步读取同代已采用的代理和姿态。
+    };
+    let ground_hit = |app: &mut App, x: f32| {
+        app.world_mut().run_system_once(move |query: SpatialQuery, active: feathrise_grounding::GroundSurfaceFilter| {
+            query.cast_ray_predicate(Vec3::new(x, 10.0, 0.0), Dir3::NEG_Y, 20.0, true,
+                &SpatialQueryFilter::default(), &|entity| active.is_active(entity)).map(|hit| {
+                    assert!((hit.distance - 10.0).abs() < 1e-4); // 显示派生不能影响真实物理位置。
+                    hit.entity
+                })
+        }).unwrap()
+    };
+    wait_for_generation(&mut app, off, 1);
+    wait_for_generation(&mut app, on, 1);
+    let body = app.world().get::<TerrainColliderProxy>(on).unwrap().0;
+    assert_eq!(app.world().get::<SceneInstanceOwner>(body).unwrap().0, scoped_root);
+    assert!(app.world().get::<ChildOf>(body).is_none());
+    for (x, expected) in [(0.0, false), (6.0, false), (12.0, true), (30.0, true), (36.0, false), (42.0, true)] {
+        assert_eq!(ground_hit(&mut app, x).is_some(), expected, "x={x}");
+    }
+    let inherited = ground_hit(&mut app, 30.0).unwrap();
+    let explicit = ground_hit(&mut app, 42.0).unwrap();
+    assert_ne!(inherited, explicit);
+    assert_eq!(app.world().get::<PlacementColliderOwner>(explicit).unwrap().lod, Some(MeshLodMode::Disabled));
+    let old = ground_hit(&mut app, 12.0).unwrap();
+    app.world_mut().get_mut::<SourceMeshProperties>(off_nodes[2]).unwrap().collision = Some(false);
+    app.world_mut().get_mut::<TerrainPatchCollisionRequest>(off).unwrap().generation += 1;
+    app.update();
+    assert_eq!(ground_hit(&mut app, 12.0), Some(old)); // 旧完整物理保留到新结果发布。
+    wait_for_generation(&mut app, off, 2);
+    assert!(app.world().get::<TerrainColliderProxy>(off).is_none());
+    assert!(ground_hit(&mut app, 12.0).is_none());
+    assert_eq!(ground_hit(&mut app, 42.0), Some(explicit));
+}
+
+#[test]
 fn dense_scene0_cooks_and_installs_exact_collision_across_frames() {
     // 527076点、1051250三角，加上多节点和多个子网格，覆盖原先拦截完整GLB的各项限制。
     const CELLS: u32 = 725;
@@ -111,8 +205,8 @@ fn dense_scene0_cooks_and_installs_exact_collision_across_frames() {
     }
     let runtime = app.world().resource::<TerrainCollisionRuntime>();
     let current = runtime.capture.as_ref().unwrap().current.as_ref().unwrap();
-    assert_eq!(current.vertices.len(), COPY_BYTES / 12);
-    assert!(current.indices.is_empty());
+    assert_eq!(current.mesh.vertices.len(), COPY_BYTES / 12);
+    assert!(current.mesh.indices.is_empty());
     assert!(runtime.started.is_none()); // 已持续推进的普通GLB不受旧地形的累计超时限制。
     wait_ready_within(&mut app, root, 30);
     assert!(app.world().get::<TerrainColliderProxy>(root).is_none());
@@ -292,7 +386,7 @@ fn garbage_keeps_independent_scaled_bvhs_even_when_raw_shape_is_shared() {
     garbage.retain_shape(&raw);
     garbage.retain_shape(&scaled);
     garbage.retain_shape(&scaled);
-    assert_eq!(garbage.0.len(), 2); // 原始查询与缩放物理必须各留一份，重复保留仍去重。
+    assert_eq!(garbage.shapes.len(), 2); // 原始查询与缩放物理必须各留一份，重复保留仍去重。
 }
 
 #[test]
@@ -305,27 +399,31 @@ fn cooked_scaled_collider_installs_without_rebuilding_scaled_bvh() {
         scale,
         stack: VecDeque::new(),
         current: None,
-        meshes: vec![(
-            vec![
+        meshes: vec![CapturedMesh {
+            vertices: vec![
                 Vec3::new(-2.0, -1.0, -2.0),
                 Vec3::new(-2.0, -1.0, 2.0),
                 Vec3::new(2.0, -1.0, 2.0),
                 Vec3::new(2.0, -1.0, -2.0),
             ],
-            vec![0, 1, 2, 0, 2, 3],
-        )],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            matrix: Mat4::IDENTITY,
+            group: None,
+        }],
         sources: HashSet::new(),
-        matrices: vec![Mat4::IDENTITY],
         mesh_entities: Vec::new(),
         nodes: 1,
         vertices: 4,
         triangles: 2,
         scene_collision: false,
+        root_collision: false,
+        partitioned: false,
+        excluded_mesh: false,
         streamed: false,
         child_cursor: None,
     });
     assert_eq!(cooked.scale, scale);
-    let (query, mut collider) = cooked.shape.unwrap();
+    let CookedShape::Single(query, mut collider) = cooked.shape.unwrap() else { panic!("单体形状") };
     assert_eq!(collider.scale(), Vec3::ONE);
     let prepared = collider.shape_scaled().clone();
     collider.set_scale(Vec3::ONE, 10); // 独立物理实体应用单位GlobalTransform；必须直接命中准备缓存。

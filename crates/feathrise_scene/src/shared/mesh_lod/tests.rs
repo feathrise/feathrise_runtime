@@ -161,6 +161,36 @@ fn actual_static_display_lod_keeps_source_metadata_and_recovers_for_authoring() 
 }
 
 #[test]
+fn source_node_display_override_keeps_original_for_every_reference_of_that_node() {
+    use crate::shared::placement_data::source_mesh_properties::SourceMeshProperties;
+    use feathrise_scene_content::MeshLodMode;
+
+    let mut app = app();
+    let source = app.world_mut().resource_mut::<Assets<Mesh>>().add(grid());
+    let mut original = Vec::new();
+    let mut inherited = Vec::new();
+    for _ in 0..2 {
+        let world = app.world_mut();
+        let root = owner_root(world, false);
+        let node = world.spawn((ChildOf(root), SourceMeshProperties {
+            display_lod: Some(MeshLodMode::Disabled),
+            ..default()
+        })).id();
+        let child_node = world.spawn(ChildOf(node)).id();
+        original.push(visual(world, node, source.clone()));
+        inherited.push(visual(world, child_node, source.clone()));
+    }
+    camera(app.world_mut());
+    until(&mut app, |world| inherited.iter().all(|&entity| {
+        world.get::<Mesh3d>(entity).is_some_and(|mesh| mesh.0 != source)
+    }));
+    // 两个引用采用同一节点设置；即使共用 Mesh，另一个网格节点仍独立继承。
+    for entity in original {
+        assert_eq!(app.world().get::<Mesh3d>(entity).unwrap().0, source);
+    }
+}
+
+#[test]
 fn model_inspection_previews_only_the_selected_static_glb_root() {
     let mut app = app();
     let source = app.world_mut().resource_mut::<Assets<Mesh>>().add(grid());

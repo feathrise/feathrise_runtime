@@ -8,6 +8,9 @@ use super::{instances::{SubsceneActive, SubsceneInstance, TerrainObjectInstance}
     clipmap::{DynamicClipmapGroundSurface, ClipmapGroundSnapshot},
     voxel_objects::VoxelObjectRuntime};
 
+mod placement;
+pub(crate) use placement::{PlacementGroundSources, PlacementGroundSurface};
+
 #[derive(Clone)]
 pub enum TerrainObjectRaySnapshot {
     Clipmap(ClipmapGroundSnapshot, SceneSourceFrame),
@@ -148,10 +151,14 @@ pub struct TerrainObjectQueries<'w, 's> {
     runtime: Option<Res<'w, super::instances::SubsceneRuntime>>,
     lookup: Option<Res<'w, super::instances::TerrainInstanceLookup>>,
     sources: Option<Res<'w, InstanceResourceTable<SceneContentRegistry>>>,
+    root_content: Option<Res<'w, SceneContentRegistry>>,
+    manifests: Option<Res<'w, Assets<feathrise_scene_content::SceneManifestAsset>>>,
     definitions: Query<'w, 's, (&'static SubsceneInstance, &'static TerrainObjectInstance, &'static SceneSourceFrame)>,
     contexts: Query<'w, 's, &'static SubsceneInstance>,
+    context_frames: Query<'w, 's, &'static SceneSourceFrame>,
     active: Query<'w, 's, (), With<SubsceneActive>>,
     ground: Option<Res<'w, InstanceResourceTable<DynamicClipmapGroundSurface>>>,
+    root_ground: Option<Res<'w, DynamicClipmapGroundSurface>>,
     voxels: Option<Res<'w, InstanceResourceTable<VoxelObjectRuntime>>>,
     scenes: Option<Res<'w, InstanceResourceTable<super::resources::DynamicSceneRuntimeState>>>,
     root_scene: Option<Res<'w, super::resources::DynamicSceneRuntimeState>>,
@@ -324,22 +331,29 @@ impl TerrainObjectQueries<'_, '_> {
     fn snapshot_at(&self, entity: Entity, owner: &SceneId, path: &feathrise_scene_content::SceneInstancePath) -> Option<(std::sync::Arc<feathrise_scene_content::SceneTerrainObject>, TerrainObjectRaySnapshot, TerrainSurfaceVersion)> {
         let (instance, object, frame) = self.definitions.get(entity).ok()?;
         if &instance.source_scene_id != owner || instance.path != *path || !object.definition.enabled || !self.active.contains(instance.batch) { return None; }
-        if let Some(snapshot) = self.ground.as_ref().and_then(|table| table.values.get(&entity)).and_then(|surface| surface.snapshot.clone()) {
-            let version = TerrainSurfaceVersion { entity, collider: None,
-                content: Some((snapshot.content_revision_words(), snapshot.ready)),
-                query: Some((snapshot.revision, snapshot.missing_pages, snapshot.authoritative_page_revision())), frame: frame.source_to_world };
-            return Some((object.definition.clone(), TerrainObjectRaySnapshot::Clipmap(snapshot, *frame), version));
+        let (surface, version) = self.object_surface(entity, owner, *frame)?;
+        Some((object.definition.clone(), surface, version))
+    }
+
+    fn object_surface(&self, entity: Entity, owner: &SceneId, frame: SceneSourceFrame) -> Option<(TerrainObjectRaySnapshot, TerrainSurfaceVersion)> {
+        if let Some(snapshot) = self.ground.as_ref().and_then(|table| table.values.get(&entity)).and_then(|surface| surface.snapshot.as_ref()).filter(|snapshot| &snapshot.scene_id == owner) {
+            return Some(placement::clipmap_surface(entity, snapshot, frame));
         }
         if let Some(runtime) = self.voxels.as_ref().and_then(|table| table.values.get(&entity))
             && let (Some(active), Some(query)) = (runtime.active, &runtime.display_query) {
             let version = TerrainSurfaceVersion { entity, collider: Some((active, runtime.generation)), content: None, query: None, frame: frame.source_to_world };
-            return Some((object.definition.clone(), TerrainObjectRaySnapshot::Mesh(query.clone(), *frame), version));
+            return Some((TerrainObjectRaySnapshot::Mesh(query.clone(), frame), version));
         }
         let collider_entity = self.voxels.as_ref().and_then(|table| table.values.get(&entity)).and_then(|runtime| runtime.active)
             .or_else(|| self.scenes.as_ref().and_then(|table| table.values.get(&entity))
+                .filter(|map| map.active_scene_id.as_ref() == Some(owner))
                 .and_then(|map| map.terrain_display.or_else(|| (!map.derive_glb_height && map.glb_path.is_some()).then_some(map.root).flatten())))?;
+        self.collider_surface(entity, collider_entity, frame)
+    }
+
+    fn collider_surface(&self, entity: Entity, collider_entity: Entity, frame: SceneSourceFrame) -> Option<(TerrainObjectRaySnapshot, TerrainSurfaceVersion)> {
         let collider = self.colliders.get(collider_entity).ok()?;
         let version = TerrainSurfaceVersion { entity, collider: Some((collider_entity, u64::from(collider.last_changed().get()))), content: None, query: None, frame: frame.source_to_world };
-        Some((object.definition.clone(), TerrainObjectRaySnapshot::Mesh((*collider).clone(), *frame), version))
+        Some((TerrainObjectRaySnapshot::Mesh((*collider).clone(), frame), version))
     }
 }

@@ -232,7 +232,9 @@ fn advance(world: &mut World, batch: &mut Batch, available: usize, status: &mut 
     }
     batch.leases.retain(|&index| {
         let context = &batch.contexts[index];
-        !((context.ready || context.failed) && !readiness::busy(world, context.entity))
+        // 容器自身没有可继续等待的后台任务时，给同批独立地形一个准备席位。
+        let waiting_for_ground = crate::shared::placement_data::waits_for_source_ground(world, context.entity);
+        !((context.ready || context.failed || waiting_for_ground) && !readiness::busy(world, context.entity))
     });
     *world.resource_mut::<SceneRuntimeScope>() = SceneRuntimeScope::default();
 }
