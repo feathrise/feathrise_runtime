@@ -206,7 +206,7 @@ pub(crate) struct PendingPlacementRevision {
 /// 并用水体游标在最多六十四项的独立帧预算下完成稳定身份校验。
 #[derive(Debug)]
 pub(crate) struct PlacementRecordPlanning {
-    pub(crate) source_pose: feathrise_scene_content::TerrainObjectTransform,
+    pub(crate) source_pose: Transform,
     pub(crate) record: ScenePlacementRecord, // 基础字段已冻结，水体Vec只追加已通过当帧预算校验的前缀。
     pub(crate) transform: Transform,       // 基础字段校验后只转换一次运行时变换。
     pub(crate) total_water_surfaces: usize, // 启动记录时冻结的源绑定数，跨帧变化立即失败。

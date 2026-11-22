@@ -10,6 +10,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use super::{Curves, SceneMotionCollider, SceneMotionTrack};
+use crate::{MAX_SCENE_PLACEMENT_SCALE, MIN_SCENE_PLACEMENT_SCALE};
 
 trait MotionCurve<T>: Curve<T> + Debug + Send + Sync {}
 impl<T, C: Curve<T> + Debug + Send + Sync> MotionCurve<T> for C {}
@@ -28,20 +29,27 @@ enum Playback {
 pub(super) struct ObjectCurves {
     translation: Option<Channel<Vec3>>,
     rotation: Option<Channel<Quat>>,
+    scale: Option<Channel<Vec3>>,
     duration: f64,
     playback: Playback,
 }
 
 impl ObjectCurves {
-    pub(super) fn sample(&self, elapsed: f64, origin: Transform) -> (Vec3, Quat) {
+    pub(super) fn sample(&self, elapsed: f64, origin: Transform) -> Transform {
         let time = match self.playback {
             Playback::PingPong => elapsed.min(2.0 * self.duration - elapsed),
             _ => elapsed,
         } as f32;
-        (
-            self.translation.as_ref().map_or(origin.translation, |curve| curve.sample_clamped(time)),
-            self.rotation.as_ref().map_or(origin.rotation, |curve| curve.sample_clamped(time)),
-        )
+        let scale = self.scale.as_ref().map_or(origin.scale, |curve| {
+            let value = curve.sample_clamped(time);
+            // 三次曲线切线可越出有效范围。避免瞬时退化为零厚度或翻面碰撞。
+            if value.is_finite() { value.clamp(scale_min(), scale_max()) } else { origin.scale }
+        });
+        Transform {
+            translation: self.translation.as_ref().map_or(origin.translation, |curve| curve.sample_clamped(time)),
+            rotation: self.rotation.as_ref().map_or(origin.rotation, |curve| curve.sample_clamped(time)),
+            scale,
+        }
     }
 
     pub(super) fn advance(&self, elapsed: f64, delta: f64) -> (f64, bool) {
@@ -111,7 +119,7 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
         }
     }
     let relevant = |channel: gltf::animation::Channel<'_>| {
-        matches!(channel.target().property(), Property::Translation | Property::Rotation)
+        matches!(channel.target().property(), Property::Translation | Property::Rotation | Property::Scale)
             && bindings.contains_key(&channel.target().node().index())
     };
 
@@ -153,10 +161,20 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
         let track = tracks.entry(node).or_default();
         match reader.read_outputs().ok_or("场景动画关键帧值未内嵌在 GLB 中")? {
             ReadOutputs::Translations(values) if track.translation.is_none() => {
-                track.translation = Some(translation_curve(times, values.map(Vec3::from).collect(), interpolation)?);
+                track.translation = Some(vector_curve(times, values.map(Vec3::from).collect(), interpolation, "位置")?);
             }
             ReadOutputs::Rotations(values) if track.rotation.is_none() => {
                 track.rotation = Some(rotation_curve(times, values.into_f32().map(Vec4::from).collect(), interpolation)?);
+            }
+            ReadOutputs::Scales(values) if track.scale.is_none() => {
+                let values = values.map(Vec3::from).collect::<Vec<_>>();
+                let width = if interpolation == Interpolation::CubicSpline { 3 } else { 1 };
+                if values.iter().skip(width / 2).step_by(width)
+                    .any(|value| value.cmplt(scale_min()).any() || value.cmpgt(scale_max()).any())
+                {
+                    return Err("场景 GLB 缩放关键帧须在摆放缩放范围内".into());
+                }
+                track.scale = Some(vector_curve(times, values, interpolation, "缩放")?);
             }
             _ => return Err("场景 GLB 中同一个对象的动画属性重复或无效".into()),
         }
@@ -175,12 +193,15 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
     Ok((tracks, authoritative))
 }
 
-fn translation_curve(times: Vec<f32>, values: Vec<Vec3>, interpolation: Interpolation)
+fn scale_min() -> Vec3 { Vec3::splat(MIN_SCENE_PLACEMENT_SCALE) }
+fn scale_max() -> Vec3 { Vec3::splat(MAX_SCENE_PLACEMENT_SCALE) }
+
+fn vector_curve(times: Vec<f32>, values: Vec<Vec3>, interpolation: Interpolation, property: &str)
     -> Result<Channel<Vec3>, String>
 {
     let width = if interpolation == Interpolation::CubicSpline { 3 } else { 1 };
     if values.len() != times.len().saturating_mul(width) || values.iter().any(|value| !value.is_finite()) {
-        return Err("场景 GLB 位置关键帧值无效".into());
+        return Err(format!("场景 GLB {property}关键帧值无效"));
     }
     if times.len() == 1 {
         return Ok(Box::new(ConstantCurve::new(Interval::EVERYWHERE, values[width / 2])));

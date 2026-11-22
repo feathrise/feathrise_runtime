@@ -112,11 +112,11 @@ fn read_node<'a>(
     if !fields.is_object() {
         return Err(format!("节点 {id} 的摆放属性必须为对象"));
     }
-    let (translation, yaw, scale) = placement_transform(transform)
+    let (translation, rotation, scale) = placement_transform(transform)
         .map_err(|error| format!("节点 {id}：{error}"))?;
     fields["id"] = json!(id);
     fields["translation"] = json!(translation);
-    fields["yaw_degrees"] = json!(yaw);
+    fields["yaw_degrees"] = json!(0.0);
     fields["scale"] = json!(scale);
     if let Some(name) = name.filter(|name| Some(*name) != custom_id) {
         if fields["editor"].is_null() {
@@ -172,6 +172,7 @@ fn read_node<'a>(
         record.asset_target = target;
     }
     record.asset_target.validate()?;
+    record.set_rotation(rotation).map_err(|error| format!("节点 {id}：{error}"))?;
     Ok(Some(record))
 }
 
@@ -213,19 +214,16 @@ fn vec_field(node: &Value, field: &str, default: [f32; 3]) -> Result<Vec3, Strin
         .map(|value| Vec3::from_array(value.unwrap_or(default)))
 }
 
-fn placement_transform(transform: Mat4) -> Result<([f32; 3], f32, [f32; 3]), String> {
+fn placement_transform(transform: Mat4) -> Result<([f32; 3], Quat, [f32; 3]), String> {
     if !transform.is_finite() || transform.determinant() <= 0.0 {
         return Err("摆放变换必须有限且为正缩放".into());
     }
     let (scale, rotation, translation) = transform.to_scale_rotation_translation();
-    let forward = rotation * Vec3::Z;
-    let yaw = forward.x.atan2(forward.z);
-    let reconstructed = Mat4::from_scale_rotation_translation(scale, Quat::from_rotation_y(yaw), translation);
+    let reconstructed = Mat4::from_scale_rotation_translation(scale, rotation, translation);
     if !transform.abs_diff_eq(reconstructed, 0.0002 * scale.max_element().max(1.0)) {
-        return Err("场景摆放使用 Y 轴旋转，请在 Blender 应用倾斜、镜像或剪切变换后导出".into());
+        return Err("场景摆放不接受剪切，请先在 Blender 应用剪切变换再导出".into());
     }
-    let yaw = yaw.to_degrees();
-    Ok((translation.to_array(), yaw, scale.to_array()))
+    Ok((translation.to_array(), rotation, scale.to_array()))
 }
 
 /// 编辑器写入同一个 GLB。已有模型的缓冲和材质沿用原文件，变换修改只更新节点。
@@ -273,7 +271,7 @@ pub fn write_scene_placements_glb(
     }
     for record in &placements.placements {
         let name = if record.editor.name.is_empty() { &record.id } else { &record.editor.name };
-        let rotation = Quat::from_rotation_y(record.yaw_degrees.to_radians()).to_array();
+        let rotation = record.rotation().to_array();
         let mut node = json!({"name": name, "translation": record.translation, "scale": record.scale, "rotation": rotation});
         // 内置编辑源可能有数十万面。几何配方在BUILTIN_RECIPE只序列化一次，节点字段不再复制同一整片数据。
         let builtin_fields;
@@ -290,6 +288,13 @@ pub fn write_scene_placements_glb(
         let field_map = fields.as_object_mut().expect("摆放记录总是对象");
         for key in ["id", "translation", "yaw_degrees", "scale"] {
             field_map.remove(key);
+        }
+        // GLB 中旋转以节点为准。移除只在旧 JSON 记录中使用的余量。
+        if let Some(editor) = field_map.get_mut("editor").and_then(Value::as_object_mut) {
+            editor.remove("rotation_offset");
+            if editor.is_empty() {
+                field_map.remove("editor");
+            }
         }
         let mut extras = json!({PLACEMENT_ID: record.id});
         let mesh = match &record.asset_target {
@@ -561,6 +566,34 @@ mod tests {
         }
         assert!(!bin.is_empty());
         assert_eq!(read_scene_placements(&bytes, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
+    fn scene_placement_rotation_round_trips_standard_glb_and_legacy_json() {
+        let mut draft = dock();
+        let expected = Quat::from_rotation_x(0.6) * Quat::from_rotation_y(-0.7) * Quat::from_rotation_z(0.4);
+        draft.placements[0].set_rotation(expected).unwrap();
+        draft.placements[0].scale = [1.5, 0.75, 2.0];
+        let legacy = serde_json::to_vec(&draft.placements[0]).unwrap();
+        let reread: ScenePlacementRecord = serde_json::from_slice(&legacy).unwrap();
+        assert_eq!(reread, draft.placements[0]);
+        assert!(reread.rotation().dot(expected).abs() > 0.999999);
+
+        let bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let (document, _) = read_chunks(&bytes).unwrap();
+        let node = &document["nodes"][1];
+        let rotation: [f32; 4] = serde_json::from_value(node["rotation"].clone()).unwrap();
+        assert!(Quat::from_array(rotation).dot(expected).abs() > 0.999999);
+        let extras: Value = serde_json::from_str(node["extras"][PLACEMENT_FIELDS].as_str().unwrap()).unwrap();
+        assert!(extras["editor"].get("rotation_offset").is_none(), "GLB 只用标准节点四元数");
+        let loaded = read_scene_placements(&bytes, PATH).unwrap().placements.remove(0);
+        assert!(loaded.rotation().dot(expected).abs() > 0.999999);
+        assert!(Vec3::from_array(loaded.scale).abs_diff_eq(Vec3::new(1.5, 0.75, 2.0), 0.00001));
+
+        let mut old = dock().placements.remove(0);
+        old.yaw_degrees = 60.0;
+        assert_eq!(old.rotation(), Quat::from_rotation_y(60_f32.to_radians()));
+        assert!(serde_json::to_value(&old).unwrap()["editor"].get("rotation_offset").is_none());
     }
 
     #[test]

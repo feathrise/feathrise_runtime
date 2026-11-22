@@ -3,9 +3,11 @@
 //! 【功能设计】F12作者工具、保存预检和运行时候选必须共享同一份变换判定；
 //! 不能出现编辑器已经接受、保存后却由动态场景运行时拒载的分叉结果。
 
+use std::sync::Arc;
+
 use bevy::prelude::*; // Rect、Transform与向量转换保持和正式场景完全一致。
 
-use crate::{SceneId, ScenePlacementRecord}; // 公共记录和场景身份共同生成可定位诊断。
+use crate::{SceneId, ScenePlacementRecord, ScenePlacementRotationOffset}; // 公共记录和场景身份共同生成可定位诊断。
 
 /// 单轴缩放允许的闭区间下界；零或负缩放不得进入场景层级。
 pub const MIN_SCENE_PLACEMENT_SCALE: f32 = 0.001;
@@ -13,6 +15,32 @@ pub const MIN_SCENE_PLACEMENT_SCALE: f32 = 0.001;
 pub const MAX_SCENE_PLACEMENT_SCALE: f32 = 1_000.0;
 
 impl ScenePlacementRecord {
+    /// 供同时支持旧 SDK 的编辑器识别三轴旋转能力。
+    pub const SUPPORTS_FULL_ROTATION: bool = true;
+
+    /// 旧记录只含 Y 轴方向。新增的局部余量保留俯仰和翻滚，旧方向字段仍可独立修改。
+    pub fn rotation(&self) -> Quat {
+        let yaw = Quat::from_rotation_y(self.yaw_degrees.to_radians());
+        self.editor.rotation_offset.map_or(yaw, |offset| yaw * offset.quat())
+    }
+
+    pub fn set_rotation(&mut self, rotation: Quat) -> Result<(), String> {
+        let rotation = ScenePlacementRotationOffset::try_from(rotation.to_array())?.quat();
+        let forward = rotation * Vec3::Z;
+        let yaw_degrees = forward.x.atan2(forward.z).to_degrees();
+        let offset = if rotation.x == 0.0 && rotation.z == 0.0 {
+            None // 纯 Y 轴继续沿用原来的记录与 JSON 表示。
+        } else {
+            let yaw = Quat::from_rotation_y(yaw_degrees.to_radians());
+            Some(ScenePlacementRotationOffset::try_from((yaw.inverse() * rotation).to_array())?)
+        };
+        self.yaw_degrees = yaw_degrees;
+        if self.editor.rotation_offset != offset {
+            Arc::make_mut(&mut self.editor).rotation_offset = offset;
+        }
+        Ok(())
+    }
+
     /// 校验当前记录的世界变换，并返回运行时与作者预览可直接采用的同一`Transform`。
     pub fn validated_transform(
         &self,          // 当前完整摆放记录。
@@ -56,7 +84,7 @@ impl ScenePlacementRecord {
         // 世界位置只需有限；bounds只供旧主地形切洞校验，不能作为场景容器边界。
         self.terrain_cutout(bounds)?; // 首版三维地形约束在预览、保存和正式加载入口一致。
         Ok(Transform::from_translation(translation)
-            .with_rotation(Quat::from_rotation_y(self.yaw_degrees.to_radians()))
+            .with_rotation(self.rotation())
             .with_scale(scale)) // 唯一受检结果直接供预览与正式候选采用。
     }
 }

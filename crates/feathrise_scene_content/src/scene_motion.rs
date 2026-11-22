@@ -83,9 +83,17 @@ impl SceneMotionTrack {
 
     /// 各通道独立覆盖摆放的局部变换。物理在同一个采样时刻采用位置和朝向。
     pub fn sample(&self, seconds: f64, origin: Transform) -> (Vec3, Quat) {
+        let sample = self.sample_transform(seconds, origin);
+        (sample.translation, sample.rotation)
+    }
+
+    /// 在同一时刻采样三个标准变换属性。没有关键帧的属性继续使用摆放初始值。
+    pub fn sample_transform(&self, seconds: f64, origin: Transform) -> Transform {
         match &self.curves {
             Curves::Gltf(track) => track.sample(seconds, origin),
-            Curves::Legacy(track) => (origin.translation + track.offset_at(seconds), origin.rotation),
+            Curves::Legacy(track) => Transform {
+                translation: origin.translation + track.offset_at(seconds), ..origin
+            },
         }
     }
 

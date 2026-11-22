@@ -73,8 +73,8 @@ fn scene_motion_collision_carries_a_rider_and_retires() {
 }
 
 #[test]
-fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object() {
-    use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
+fn scene_motion_standard_glb_rotation_and_scale_update_the_offset_collision() {
+    use avian3d::prelude::{PhysicsSystems, SpatialQuery, SpatialQueryFilter};
     use bevy::{
         asset::io::{AssetSourceBuilder, AssetSourceId, memory::{Dir, MemoryAssetReader}},
         ecs::system::RunSystemOnce, gltf::GltfPlugin, world_serialization::WorldAsset,
@@ -84,7 +84,8 @@ fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object()
     use std::{path::Path, time::Instant};
 
     let quarter = std::f32::consts::FRAC_1_SQRT_2;
-    let binary: Vec<_> = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, quarter, 0.0, quarter]
+    let binary: Vec<_> = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, quarter, 0.0, quarter,
+        2.0, 1.0, 3.0, 4.0, 2.0, 1.5]
         .into_iter().flat_map(f32::to_le_bytes).collect();
     let mut document = serde_json::to_vec(&json!({
         "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
@@ -92,12 +93,15 @@ fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object()
             "feathrise_motion_collider":{"center":[0.4,0,0],"half_extents":[1,0.2,0.3]}}}],
         "buffers":[{"byteLength":binary.len()}],
         "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},
-                       {"buffer":0,"byteOffset":8,"byteLength":32}],
+                       {"buffer":0,"byteOffset":8,"byteLength":32},
+                       {"buffer":0,"byteOffset":40,"byteLength":24}],
         "accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},
-                     {"bufferView":1,"componentType":5126,"count":2,"type":"VEC4"}],
+                     {"bufferView":1,"componentType":5126,"count":2,"type":"VEC4"},
+                     {"bufferView":2,"componentType":5126,"count":2,"type":"VEC3"}],
         "animations":[{"extras":{"feathrise_autoplay":true},
-                       "channels":[{"sampler":0,"target":{"node":0,"path":"rotation"}}],
-                       "samplers":[{"input":0,"output":1}]}]
+                       "channels":[{"sampler":0,"target":{"node":0,"path":"rotation"}},
+                                   {"sampler":1,"target":{"node":0,"path":"scale"}}],
+                       "samplers":[{"input":0,"output":1},{"input":0,"output":2}]}]
     })).unwrap();
     document.resize(document.len().next_multiple_of(4), b' ');
     let mut glb = b"glTF".to_vec();
@@ -122,7 +126,7 @@ fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object()
     .init_asset::<WorldAsset>()
     .init_asset::<StandardMaterial>()
     .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 64.0)))
-    .add_systems(FixedUpdate, drive);
+    .add_systems(FixedUpdate, drive.before(PhysicsSystems::Prepare));
     app.finish();
     app.cleanup();
     let motion = app.world().resource::<AssetServer>().load::<SceneMotionAsset>("scene.glb#SceneMotion");
@@ -136,12 +140,12 @@ fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object()
         std::thread::sleep(Duration::from_millis(1));
     };
     let record: ScenePlacementRecord = serde_json::from_value(json!({
-        "id":"旋转盒","translation":[0,1,0],"yaw_degrees":0,"scale":[1,1,1],
+        "id":"旋转盒","translation":[0,1,0],"yaw_degrees":0,"scale":[2,1,3],
         "asset_target":ScenePlacementAssetTarget::DEFAULT_CUBOID,
     })).unwrap();
     let scene = SceneId::parse("SCENE-motion").unwrap();
     let parent = app.world_mut().spawn((Transform::from_xyz(3.0, 2.0, -1.0), InheritedVisibility::VISIBLE)).id();
-    let origin = Transform::from_xyz(0.0, 1.0, 0.0);
+    let origin = Transform::from_xyz(0.0, 1.0, 0.0).with_scale(Vec3::new(2.0, 1.0, 3.0));
     let platform = app.world_mut().spawn((
         origin, ChildOf(parent), ScenePlacementInstance::new(&scene, &record),
     )).id();
@@ -152,10 +156,12 @@ fn scene_motion_standard_glb_rotation_keeps_the_offset_collision_on_the_object()
     let pose = app.world().get::<Transform>(platform).unwrap();
     assert!(pose.translation.distance(origin.translation) < 0.001, "偏心盒转动时模型原点偏移：{pose:?}");
     assert!(pose.rotation.dot(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)).abs() > 0.9999);
+    assert_eq!(pose.scale, Vec3::new(4.0, 2.0, 1.5), "可视模型采用标准 scale 的最后一键");
     let shape = app.world().get::<MotionPlatform>(platform).unwrap().collider.unwrap();
+    assert_eq!(app.world().get::<Collider>(shape).unwrap().scale(), Vec3::new(2.0, 2.0, 0.5));
     let hit = app.world_mut().run_system_once(|query: SpatialQuery| {
-        query.cast_ray(Vec3::new(3.0, 4.0, -2.1), Dir3::NEG_Y, 3.0, true, &SpatialQueryFilter::default())
+        query.cast_ray(Vec3::new(3.0, 4.0, -3.3), Dir3::NEG_Y, 3.0, true, &SpatialQueryFilter::default())
             .map(|hit| hit.entity)
     }).unwrap();
-    assert_eq!(hit, Some(shape), "真实碰撞沿动画旋转后的长边命中");
+    assert_eq!(hit, Some(shape), "射线能命中新缩放后延伸的碰撞范围");
 }

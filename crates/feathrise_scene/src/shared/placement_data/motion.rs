@@ -1,4 +1,4 @@
-//! 从场景 GLB 采样对象变换，由 Avian 同步可视根和碰撞，保留角色承托速度。
+//! 从场景 GLB 同时采样位置、旋转和缩放，由 Avian 同步模型、碰撞与承托速度。
 
 use avian3d::prelude::{
     AngularVelocity, Collider, ColliderOf, ComputedCenterOfMass, LinearVelocity, Physics,
@@ -38,7 +38,7 @@ pub(super) fn spawn(
 ) {
     let body = root.id();
     root.insert((RigidBody::Kinematic, RigidBodyDisabled, TnuaNotPlatform));
-    // 作者碰撞盒已换算成米。抵消摆放自身缩放，仍保留摆放朝向和场景父级的刚体变换。
+    // 作者盒已经包含初始缩放。子盒抵消初值，之后随根的比例变化同步形状和偏心位置。
     let collider = track.collider_for(record).map(|shape| {
         let size = shape.half_extents * 2.0;
         root.commands().spawn((
@@ -59,7 +59,7 @@ pub(super) fn drive(
     parents: Query<(&GlobalTransform, &InheritedVisibility)>,
     mut platforms: Query<(
         Entity, &ScenePlacementInstance, &ChildOf, &mut Position, &mut Rotation,
-        &mut LinearVelocity, &mut AngularVelocity, &ComputedCenterOfMass,
+        &mut LinearVelocity, &mut AngularVelocity, &ComputedCenterOfMass, &mut Transform,
         &mut MotionPlatform, Has<RigidBodyDisabled>,
     )>,
 ) {
@@ -67,7 +67,7 @@ pub(super) fn drive(
     let delta = time.delta_secs_f64() * physics.relative_speed_f64();
     // 独立作者宿主继续跑碰撞调试，但作者预览拥有变换，游戏轨迹既不写入也不计时。
     let paused = physics.is_paused() || editor.is_some_and(|input| input.scene_editor_open);
-    for (entity, placement, parent, mut position, mut rotation, mut linear, mut angular, center, mut platform, disabled) in &mut platforms {
+    for (entity, placement, parent, mut position, mut rotation, mut linear, mut angular, center, mut transform, mut platform, disabled) in &mut platforms {
         let Ok((frame, visibility)) = parents.get(parent.parent()) else { continue; };
         // 子场景候选可能已采用内部摆放，祖先可见性仍挡住尚未发布的整图及已停放的副本。
         let enabled = placement.is_active() && visibility.get();
@@ -87,13 +87,20 @@ pub(super) fn drive(
             continue;
         }
         let (elapsed, reset) = platform.elapsed.map_or((0.0, true), |elapsed| platform.track.advance(elapsed, delta));
-        let (local_position, local_rotation) = platform.track.sample(elapsed, platform.origin);
-        let target = frame.transform_point(local_position);
-        let target_rotation = frame.rotation() * local_rotation;
+        let local = platform.track.sample_transform(elapsed, platform.origin);
+        let target = frame.transform_point(local.translation);
+        let target_rotation = frame.rotation() * local.rotation;
+        let valid = target.is_finite() && target_rotation.is_finite();
+        let mut center = center.0;
+        if valid && transform.scale != local.scale {
+            // Prepare 会在本步按新比例更新子盒及其质心，角速度补偿也应使用该质心。
+            center *= local.scale / transform.scale;
+            transform.scale = local.scale;
+        }
         platform.elapsed = Some(elapsed);
-        if !target.is_finite() || !target_rotation.is_finite() || reset {
+        if !valid || reset {
             // 第零帧和循环断点采用整套姿态，避免把不相邻的首尾姿态差转成承托冲量。
-            if target.is_finite() && target_rotation.is_finite() {
+            if valid {
                 position.set_if_neq(Position(target));
                 rotation.set_if_neq(Rotation(target_rotation));
             }
@@ -105,7 +112,7 @@ pub(super) fn drive(
         let shortest = if difference.w < 0.0 { -difference } else { difference };
         let spin = shortest.to_scaled_axis() / delta as f32;
         // Avian 积分质心速度；偏心碰撞盒旋转时仍需让模型原点命中作者的下一姿态。
-        let displacement = target - position.0 + (target_rotation * center.0 - rotation.0 * center.0);
+        let displacement = target - position.0 + (target_rotation * center - rotation.0 * center);
         let velocity = displacement / delta as f32;
         linear.set_if_neq(LinearVelocity(if velocity.is_finite() { velocity } else { Vec3::ZERO }));
         angular.set_if_neq(AngularVelocity(if spin.is_finite() { spin } else { Vec3::ZERO }));

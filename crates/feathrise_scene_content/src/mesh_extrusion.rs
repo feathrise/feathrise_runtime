@@ -5,7 +5,7 @@ use crate::{
     editable_mesh_required_bytes,
 };
 use bevy::{
-    math::{DQuat, DVec3},
+    math::DVec3,
     prelude::*,
 };
 
@@ -23,7 +23,7 @@ fn face_normal(
     {
         return Err("实例变换无效，无法挤出".into());
     }
-    let rotation = DQuat::from_rotation_y(f64::from(before.yaw_degrees).to_radians());
+    let rotation = before.rotation().as_dquat().normalize();
     let points = geometry.vertices();
     let scale = scale.as_dvec3() * 0.0005;
     geometry.face_triangles(face).ok_or("所选面已失效")?
@@ -73,7 +73,7 @@ pub fn extruded_placement_record(
         return Err("挤出会超过网格安全内存预算，请减少操作范围或拆分对象".into());
     }
     let normal = face_normal(before, &geometry, face)?;
-    let local_delta = (DQuat::from_rotation_y(-f64::from(before.yaw_degrees).to_radians())
+    let local_delta = (before.rotation().as_dquat().normalize().inverse()
         * normal.as_dvec3()
         * f64::from(world_distance))
         / Vec3::from_array(before.scale).as_dvec3()
@@ -120,6 +120,7 @@ pub fn extruded_placement_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::DQuat;
     use crate::ScenePlacementAssetTarget;
 
     fn record() -> ScenePlacementRecord {

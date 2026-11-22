@@ -42,7 +42,7 @@ impl TerrainBindingIndex {
         if let Some(binding) = record.terrain_binding.as_ref() {
             let pose = self.resolve(binding)?;
             record.translation = pose.translation;
-            record.yaw_degrees = pose.yaw_degrees;
+            record.set_rotation(pose.rotation())?;
             record.scale = pose.scale;
         }
         Ok(())

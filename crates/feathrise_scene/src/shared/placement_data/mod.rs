@@ -110,7 +110,9 @@ impl Plugin for ScenePlacementDataPlugin {
         builtin::install_preparation(app);
         app.init_instance_resource::<resources::ScenePlacementRuntimeState>()
             .add_message::<bevy::asset::AssetEvent<feathrise_scene_content::SceneMotionAsset>>()
-            .add_systems(FixedUpdate, motion::drive.before(bevy_tnua::prelude::TnuaPipelineSystems::Sensors))
+            .add_systems(FixedUpdate, motion::drive
+                .before(bevy_tnua::prelude::TnuaPipelineSystems::Sensors)
+                .before(avian3d::prelude::PhysicsSystems::Prepare))
             .init_instance_resource::<terrain_collision::TerrainCollisionRuntime>()
             .init_resource::<TerrainCollisionGarbage>()
             .add_observer(terrain_collision::retire_ready_shape)

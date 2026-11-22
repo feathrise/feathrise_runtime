@@ -82,7 +82,7 @@ pub struct ScenePlacementInstance {
     terrain_patch: Option<feathrise_scene_content::ScenePlacementTerrainPatch>, // 洞口与真实碰撞一起参与保存证明。
     mesh_lod: Option<feathrise_scene_content::MeshLodPolicy>, // 显式网格策略属于作者身份，换策略不能借用旧根证明。
     translation: [f32; 3], // 保存证明比较原始JSON平移，不用归一化后的Transform猜作者值。
-    yaw_degrees: f32,      // 保存证明比较原始有限Y轴角度快照。
+    rotation: Quat,        // 三轴变换的任意一轴变化都必须有新候选证据。
     scale: [f32; 3],       // 保存证明比较原始三轴缩放快照。
     gate: PlacementInstanceGate, // 采用/退役只需O(1)切换整批，不扫描世界或逐根改组件。
     previous_gate: Option<PlacementInstanceGate>, // 未变根跨候选保留旧活动信用；最多两票据，禁止递归门链。
@@ -101,7 +101,7 @@ impl ScenePlacementInstance {
             terrain_patch: record.terrain_patch.clone(),
             mesh_lod: record.mesh_lod,
             translation: record.translation, // 数组是Copy，不产生额外堆分配。
-            yaw_degrees: record.yaw_degrees, // 保留作者原始角度值供精确比较。
+            rotation: record.rotation(),
             scale: record.scale,             // 保留作者原始缩放值供精确比较。
             gate: PlacementInstanceGate::new(true), // 编辑器独立预览根创建后立即属于作者活动集合。
             previous_gate: None,
@@ -124,7 +124,7 @@ impl ScenePlacementInstance {
             terrain_patch: record.terrain_patch.clone(),
             mesh_lod: record.mesh_lod,
             translation: record.translation, // 精确保留计划生成前的作者平移。
-            yaw_degrees: record.yaw_degrees, // 精确保留计划生成前的作者角度。
+            rotation: record.rotation(),
             scale: record.scale,             // 精确保留计划生成前的作者缩放。
             gate,                            // 全候选批次共享Pending、Active、Retired三态。
             previous_gate: None,
@@ -244,7 +244,7 @@ impl ScenePlacementInstance {
             && self.terrain_patch == record.terrain_patch
             && self.mesh_lod == record.mesh_lod
             && self.translation == record.translation // 平移变化必须由对应预览或正式候选证明。
-            && self.yaw_degrees == record.yaw_degrees // 旋转变化不能借用旧根Ready。
+            && self.rotation == record.rotation() // 旋转变化不能借用旧根Ready。
             && self.scale == record.scale // 缩放变化不能借用旧根Ready。
             && water_surfaces == record.water_surfaces // 当前覆盖组件补齐可热改的水数组证据。
     }

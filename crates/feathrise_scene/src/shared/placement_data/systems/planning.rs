@@ -209,9 +209,9 @@ pub(super) fn advance_planning_bound(
                 &planning.scene_id,      // 诊断使用冻结场景ID。
                 planning.world_bounds, // 范围使用冻结合法Rect。
             )?;
-            let source_pose=feathrise_scene_content::TerrainObjectTransform{translation:source.translation,yaw_degrees:source.yaw_degrees,scale:source.scale, ..Default::default()};
-            let resolved=resolve_binding(source)?.unwrap_or(source_pose);
-            let transform=if source.terrain_binding.is_some() {resolved.as_transform()} else {transform};
+            let source_pose = transform;
+            let resolved = resolve_binding(source)?;
+            let transform = resolved.map_or(source_pose, |pose| pose.as_transform());
             if !planning.ids.insert(source.id.clone()) {
                 return Err(format!(
                     "场景{}包含重复实例ID {}",
@@ -223,25 +223,29 @@ pub(super) fn advance_planning_bound(
                 .checked_add(source.water_surfaces.len())
                 .ok_or_else(|| "单个场景整网格水体绑定总数计算溢出".to_owned())?;
             planning.total_water_surfaces = next_total; // 只在当前记录基础门通过后累计。
+            let mut record = ScenePlacementRecord {
+                mesh_lod: source.mesh_lod, // 完整候选复制实例策略，不因姿态/水绑定分帧计划退回全局。
+                terrain_binding: source.terrain_binding.clone(),
+                editor: source.editor.clone(), // 共享作者元数据，否则会把姿态余量还原为纯 Y。
+                terrain_patch: source.terrain_patch.clone(), // 有界元数据随同一实例冻结，不在强句柄准备时丢失洞口。
+                id: source.id.clone(), // ID已通过一KiB前置门，只做一次有界拷贝。
+                asset_path: source.asset_path.clone(), // 路径已通过四KiB前置门。
+                asset_target: source.asset_target.clone(), // 可编辑网格共享不可变来源，克隆不复制拓扑。
+                building_preset_id: source.building_preset_id.clone(), // 可选稳定身份已通过有界字符校验。
+                courtyard: source.courtyard.clone(), // 保留已校验的院落成员身份，不把正式候选拆离组合。
+                translation: transform.translation.to_array(),
+                height_mode: source.height_mode, // 完整计划保留固定或跟随作者语义供热接管诊断。
+                terrain_offset: source.terrain_offset, // 离地偏移随完整快照跨候选保存。
+                yaw_degrees: source.yaw_degrees,
+                scale: transform.scale.to_array(),
+                water_surfaces: Vec::with_capacity(source.water_surfaces.len()), // 最多六十四个席位，内容按水体预算逐项追加。
+            };
+            if resolved.is_some() {
+                record.set_rotation(transform.rotation)?; // 已采用地形与局部物体姿态一同合成四元数。
+            }
             planning.current_record = Some(PlacementRecordPlanning {
                 source_pose,
-                record: ScenePlacementRecord {
-                    mesh_lod: source.mesh_lod, // 完整候选复制实例策略，不因姿态/水绑定分帧计划退回全局。
-                    terrain_binding: source.terrain_binding.clone(),
-                    editor: Default::default(),
-                    terrain_patch: source.terrain_patch.clone(), // 有界元数据随同一实例冻结，不在强句柄准备时丢失洞口。
-                    id: source.id.clone(), // ID已通过一KiB前置门，只做一次有界拷贝。
-                    asset_path: source.asset_path.clone(), // 路径已通过四KiB前置门。
-                    asset_target: source.asset_target.clone(), // 可编辑网格共享不可变来源，克隆不复制拓扑。
-                    building_preset_id: source.building_preset_id.clone(), // 可选稳定身份已通过有界字符校验。
-                    courtyard: source.courtyard.clone(), // 保留已校验的院落成员身份，不把正式候选拆离组合。
-                    translation: resolved.translation, // 完整姿态以已采用的对象身份解析，不能只跟随Y。
-                    height_mode: source.height_mode, // 完整计划保留固定或跟随作者语义供热接管诊断。
-                    terrain_offset: source.terrain_offset, // 离地偏移随完整快照跨候选保存。
-                    yaw_degrees: resolved.yaw_degrees,
-                    scale: resolved.scale,
-                    water_surfaces: Vec::with_capacity(source.water_surfaces.len()), // 最多六十四个席位，内容按水体预算逐项追加。
-                },
+                record,
                 transform, // 完成后直接移入强句柄计划。
                 total_water_surfaces: source.water_surfaces.len(), // 冻结跨帧源长度。
                 next_water_surface: 0, // 从单根首个绑定开始。
@@ -265,9 +269,9 @@ pub(super) fn advance_planning_bound(
             && source.building_preset_id == current.record.building_preset_id
             && source.courtyard == current.record.courtyard
             && source.terrain_binding == current.record.terrain_binding
-            && source.translation == current.source_pose.translation
-            && source.yaw_degrees == current.source_pose.yaw_degrees
-            && source.scale == current.source_pose.scale
+            && source.translation == current.source_pose.translation.to_array()
+            && source.rotation() == current.source_pose.rotation
+            && source.scale == current.source_pose.scale.to_array()
             && source.water_surfaces.len() == current.total_water_surfaces; // 同句柄原地变异也不能继续混合旧前缀。
         if !source_matches {
             return Err(format!(
