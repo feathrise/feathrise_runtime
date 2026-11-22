@@ -2,17 +2,15 @@
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 import bevy_render::view::View;
 
-@group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var normals: texture_2d<f32>;
-@group(0) @binding(2) var depth: texture_depth_2d;
+@group(0) @binding(0) var normals: texture_2d<f32>;
+@group(0) @binding(1) var depth: texture_depth_2d;
 struct Settings { options:vec4<f32>, wire:vec4<f32> }
-@group(0) @binding(3) var<uniform> settings:Settings;
-@group(0) @binding(4) var<uniform> view: View;
+@group(0) @binding(2) var<uniform> settings:Settings;
+@group(0) @binding(3) var<uniform> view: View;
 @fragment
 fn fragment(in:FullscreenVertexOutput)->@location(0) vec4<f32> {
-    let size=vec2<i32>(textureDimensions(source));
-    let p=clamp(vec2<i32>(in.uv*vec2<f32>(size)),vec2<i32>(0),size-1);
-    let color=textureLoad(source,p,0);
+    let size=vec2<i32>(textureDimensions(normals));
+    let p=clamp(vec2<i32>(in.position.xy),vec2<i32>(0),size-1);
     let d=textureLoad(depth,p,0);
     let normal_sample=textureLoad(normals,p,0);
     // 只处理作者线框的主色与背景，后续Gizmo仍保留橙色选中、悬停和变换手柄。
@@ -24,10 +22,10 @@ fn fragment(in:FullscreenVertexOutput)->@location(0) vec4<f32> {
     }
     if d<=0.0000001 {
         if settings.options.w<0.5 {return vec4<f32>(0.047,0.047,0.047,1.0);}
-        return color;
+        discard;
     }
-    if settings.options.x<0.5 || settings.options.x>1.5 {return color;}
-    if dot(normal_sample.xyz,normal_sample.xyz)<0.00001 {return color;}
+    // 保色像素直接跳过，无需读取或交换同一相机的主颜色附件。
+    if settings.options.x>1.5 || dot(normal_sample.xyz,normal_sample.xyz)<0.00001 {discard;}
     let n=normalize(normal_sample.xyz*2.0-1.0);
     var gray=0.18+0.55*max(dot(n,normalize(vec3<f32>(-0.35,0.8,0.6))),0.0);
     if settings.options.w<0.5 {

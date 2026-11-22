@@ -1,29 +1,36 @@
 //! 每视图预通道后处理；固定一次全屏绘制，不捕获或遍历场景对象。
 use super::components::ShadingView;
+use super::selection_outline::PreparedOutline;
 use bevy::{
     asset::{embedded_asset, load_embedded_asset},
     core_pipeline::{
-        Core3dSystems, FullscreenShader, prepass::ViewPrepassTextures, schedule::Core3d,
+        Core3dSystems, FullscreenShader,
+        core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d, TransparentSortingInfo3d, main_transparent_pass_3d},
+        prepass::ViewPrepassTextures, schedule::Core3d,
     },
+    ecs::{query::ROQueryItem, system::{SystemParamItem, lifetimeless::SRes}},
     prelude::*,
     render::{
-        RenderApp, RenderStartup,
+        Render, RenderApp, RenderStartup, RenderSystems,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponentPlugin, UniformComponentPlugin,
         },
+        render_phase::{AddRenderCommand, DrawFunctions, PhaseItemExtraIndex, RenderCommand,
+            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases},
         render_resource::{
             binding_types::{texture_2d, texture_depth_2d, uniform_buffer},
             *,
         },
-        renderer::{RenderContext, ViewQuery},
-        view::{ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+        renderer::{RenderDevice, ViewQuery},
+        sync_world::MainEntity,
+        view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
 pub struct ShadingRenderPlugin;
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct SolidViewPass;
+pub(super) struct AuthorColorQueue;
 
 impl Plugin for ShadingRenderPlugin {
     fn build(&self, app: &mut App) {
@@ -36,15 +43,18 @@ impl Plugin for ShadingRenderPlugin {
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render
                 .init_resource::<SpecializedRenderPipelines<SolidPipeline>>()
+                .init_resource::<PreparedSolid>()
+                .add_render_command::<Transparent3d, (SetItemPipeline, DrawAuthorColor)>()
                 .add_systems(RenderStartup, init_pipeline)
+                .add_systems(Render, queue_author_color
+                    .in_set(RenderSystems::Queue)
+                    .in_set(AuthorColorQueue))
                 .add_systems(
                     Core3d,
-                    solid_pass
+                    prepare_solid
                         .in_set(Core3dSystems::MainPass)
-                        .in_set(SolidViewPass)
-                        .after(bevy::core_pipeline::core_3d::main_opaque_pass_3d)
-                        .before(bevy::core_pipeline::core_3d::main_transparent_pass_3d),
-                ); // 先改变实体表面，再画透明内容与编辑Gizmo，不能盖掉点边面高亮和手柄。
+                        .before(main_transparent_pass_3d),
+                );
         }
         super::selection_outline::install(app);
     }
@@ -74,7 +84,6 @@ fn init_pipeline(
                 ShaderStages::FRAGMENT,
                 (
                     texture_2d(TextureSampleType::Float { filterable: false }),
-                    texture_2d(TextureSampleType::Float { filterable: false }),
                     texture_depth_2d(),
                     uniform_buffer::<ShadingView>(true),
                     uniform_buffer::<ViewUniform>(true),
@@ -101,46 +110,97 @@ impl SpecializedRenderPipeline for SolidPipeline {
                 })],
                 ..default()
             }),
+            depth_stencil: Some(author_color_depth()),
             ..default()
         }
     }
 }
+
+/// 作者颜色只读预通道深度，透明通道自己的深度附件不能被全屏三角形改写。
+pub(super) fn author_color_depth() -> DepthStencilState {
+    DepthStencilState {
+        format: CORE_3D_DEPTH_FORMAT,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(CompareFunction::Always),
+        stencil: StencilState::default(),
+        bias: DepthBiasState::default(),
+    }
+}
+
+fn uses_author_color(view: &ShadingView) -> bool {
+    view.options.x <= 1.0 || view.options.w < 0.5
+}
+
+fn queue_author_color(
+    views: Query<(Entity, &ExtractedView, &ShadingView, &Msaa)>,
+    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    pipeline: Option<Res<SolidPipeline>>,
+    cache: Res<PipelineCache>,
+    mut pipelines: ResMut<SpecializedRenderPipelines<SolidPipeline>>,
+    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+) {
+    let Some(pipeline) = pipeline else { return; };
+    let draw_function = draw_functions.read().id::<(SetItemPipeline, DrawAuthorColor)>();
+    for (entity, view, settings, msaa) in &views {
+        if !uses_author_color(settings) || *msaa != Msaa::Off {
+            continue;
+        }
+        let Some(phase) = phases.get_mut(&view.retained_view_entity) else { continue; };
+        let id = pipelines.specialize(&cache, &pipeline, view.target_format);
+        if cache.get_render_pipeline(id).is_none() {
+            continue;
+        }
+        // 大气会混合天空和实体颜色。进入原透明通道后先原位调色，再画网格和手柄。
+        // 这里的虚拟图元不能和参考网格复用同一个 phase 键。
+        phase.add_transient(Transparent3d {
+            sorting_info: TransparentSortingInfo3d::AlwaysOnTop,
+            distance: f32::NEG_INFINITY,
+            pipeline: id,
+            entity: (entity, MainEntity::from(Entity::PLACEHOLDER)),
+            draw_function,
+            batch_range: 0..1,
+            extra_index: PhaseItemExtraIndex::None,
+            indexed: false,
+        });
+    }
+}
+
 #[derive(Default)]
 struct BindCache {
     entries: Vec<(
-        (TextureViewId, TextureViewId, TextureViewId, BufferId, BufferId),
+        (TextureViewId, TextureViewId, BufferId, BufferId),
         BindGroup,
     )>,
 }
-fn solid_pass(
+
+#[derive(Resource, Default)]
+struct PreparedSolid(Option<(Entity, BindGroup)>);
+
+fn prepare_solid(
     view: ViewQuery<(
         &ViewTarget,
-        &ViewPrepassTextures,
+        Option<&ViewPrepassTextures>,
         &ShadingView,
-        &DynamicUniformIndex<ShadingView>,
-        &ViewUniformOffset,
     )>,
     pipeline: Option<Res<SolidPipeline>>,
     pipeline_cache: Res<PipelineCache>,
-    mut pipelines: ResMut<SpecializedRenderPipelines<SolidPipeline>>,
     uniforms: Res<ComponentUniforms<ShadingView>>,
     views: Res<ViewUniforms>,
+    device: Res<RenderDevice>,
     mut bindings: Local<BindCache>,
-    mut context: RenderContext,
+    mut prepared: ResMut<PreparedSolid>,
 ) {
-    let (target, prepass, settings, index, view_offset) = view.into_inner();
-    if settings.options.x > 1.0 && settings.options.w > 0.5 {
+    let entity = view.entity();
+    prepared.0 = None;
+    let (target, prepass, settings) = view.into_inner();
+    if !uses_author_color(settings) {
         return;
     }
+    let Some(prepass) = prepass else { return; };
     let Some(pipeline) = pipeline else {
         return;
     };
-    let id = pipelines.specialize(&pipeline_cache, &pipeline, target.main_texture_format());
-    let Some(compiled) = pipeline_cache.get_render_pipeline(id) else {
-        return;
-    };
-    // MainWorld模式和RenderApp附件可能跨帧交接；实际GPU纹理才是绑定合同的依据。
-    // 必须在post_process_write交换主纹理之前检查，跳过旧附件时保持本帧原画面有效。
+    // 模式和附件跨帧采用。只准备已同步的深度及法线纹理，附件未齐时保留原图。
     let (Some(normal_attachment), Some(depth_attachment)) = (&prepass.normal, &prepass.depth)
     else {
         return;
@@ -164,8 +224,7 @@ fn solid_pass(
     ) else {
         return;
     };
-    let post = target.post_process_write();
-    let key = (post.source.id(), normal.id(), depth.id(), buffer.id(), view_buffer.id());
+    let key = (normal.id(), depth.id(), buffer.id(), view_buffer.id());
     let slot = bindings
         .entries
         .iter()
@@ -174,30 +233,38 @@ fn solid_pass(
             if bindings.entries.len() == 8 {
                 bindings.entries.remove(0);
             }
-            let binding = context.render_device().create_bind_group(
+            let binding = device.create_bind_group(
                 "editor_solid_bind",
                 &pipeline_cache.get_bind_group_layout(&pipeline.layout),
-                &BindGroupEntries::sequential((post.source, normal, depth, uniform, view_uniform)),
+                &BindGroupEntries::sequential((normal, depth, uniform, view_uniform)),
             );
             bindings.entries.push((key, binding));
             bindings.entries.len() - 1
         });
-    let mut pass = context
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("editor_solid_view"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-    pass.set_pipeline(compiled);
-    pass.set_bind_group(0, &bindings.entries[slot].1, &[index.index(), view_offset.offset]);
-    pass.draw(0..3, 0..1);
+    prepared.0 = Some((entity, bindings.entries[slot].1.clone()));
+}
+
+struct DrawAuthorColor;
+
+impl RenderCommand<Transparent3d> for DrawAuthorColor {
+    type Param = (SRes<PreparedSolid>, SRes<PreparedOutline>, SRes<PipelineCache>);
+    type ViewQuery = (&'static ViewUniformOffset, &'static DynamicUniformIndex<ShadingView>);
+    type ItemQuery = ();
+
+    fn render<'w>(
+        item: &Transparent3d,
+        (view, settings): ROQueryItem<'w, '_, Self::ViewQuery>,
+        _: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
+        (solid, outline, cache): SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let entity = item.entity.0;
+        if let Some((_, binding)) = solid.into_inner().0.as_ref().filter(|(view, _)| *view == entity) {
+            pass.set_bind_group(0, binding, &[settings.index(), view.offset]);
+            pass.draw(0..3, 0..1);
+        }
+        // 选中蒙版先在同一视图离屏绘制。橙边在实体替色后合成，透明工具仍排在最上方。
+        outline.into_inner().draw(entity, cache.into_inner(), pass);
+        RenderCommandResult::Success
+    }
 }

@@ -7,7 +7,9 @@ use feathrise_scene_content::{
     SceneInstanceSource, SceneManifestAsset, ScenePuddleLiveOverride, ScenePuddleSaveHandoff,
     SceneTerrainDescriptor, SceneTerrainKind, SceneTerrainObject, TerrainId, expand_scene_instances,
 };
-use feathrise_scene_core::residency::SceneInstanceContextAppExt;
+use feathrise_scene_core::residency::{
+    SceneInstanceContextAppExt, SceneResidencyActivity, SceneResidencyAppExt, SceneResidencyResourcePlugin,
+};
 
 fn placement_revision_app() -> App {
     let mut app = App::new();
@@ -238,6 +240,54 @@ fn create_candidate(app: &mut App, map: &SceneId, objects: Arc<[SceneTerrainObje
         app.world().resource::<SubsceneRuntime>().root_scene_id.as_ref(),
         Some(map)
     );
+}
+
+#[test]
+fn warm_activation_keeps_the_original_terrain_batch_before_the_graph_catches_up() {
+    let (mut app, map) = fixture();
+    let terrain = object("warm-ground");
+    let path = SceneInstancePath::root(map.clone()).terrain(terrain.id.clone());
+    create_candidate(&mut app, &map, Arc::from([terrain]), 2);
+    let (root, entity) = app.world_mut().resource_scope(|world, mut runtime: Mut<SubsceneRuntime>| {
+        world.entity_mut(runtime.active.take().unwrap().root).despawn();
+        let batch = runtime.candidate.take().unwrap();
+        let identity = (batch.root, batch.index[&path]);
+        world.entity_mut(batch.root).insert((Visibility::Inherited, SubsceneActive))
+            .remove::<(RigidBodyDisabled, TnuaNotPlatform)>();
+        runtime.observed_revision = batch.revision;
+        runtime.active = Some(batch);
+        identity
+    });
+    let previous = SceneId::parse("MAP-warm-previous").unwrap();
+    let expected = map.clone();
+    app.add_plugins((bevy::state::app::StatesPlugin, SceneResidencyResourcePlugin))
+        .insert_resource(SceneResidencyActivity { enabled: true, switching: true, ..default() })
+        .insert_resource(ActiveDynamicScene { scene_id: Some(previous.clone()) })
+        .insert_resource(SceneInstanceRootRequest { scene_id: Some(previous.clone()) })
+        .insert_resource(SceneInstanceGraph { root_scene_id: Some(previous), ..default() })
+        .insert_resource(SubsceneRuntimeStatus { root_scene_id: Some(map.clone()), ready: true,
+            applied_revision: 2, ..default() })
+        // 模拟正式驻留采用时点：PreUpdate 已过，目标资源和实体已经从驻留槽恢复。
+        .add_systems(StateTransition, move |mut active: ResMut<ActiveDynamicScene>, mut activity: ResMut<SceneResidencyActivity>| {
+            active.scene_id = Some(expected.clone());
+            activity.switching = false;
+        })
+        .add_systems(Update, (|active: Res<ActiveDynamicScene>, request: Res<SceneInstanceRootRequest>| {
+            assert_eq!(request.scene_id, active.scene_id, "实例图必须读取本帧刚采用的场景身份");
+        }).in_set(feathrise_scene_content::SceneInstanceGraphPublishSet))
+        .add_resident_systems(Update, drive.after(feathrise_scene_content::SceneInstanceGraphPublishSet));
+    super::super::install_root_publication(&mut app);
+
+    app.update();
+    let world = app.world();
+    let runtime = world.resource::<SubsceneRuntime>();
+    assert_eq!(runtime.active.as_ref().unwrap().root, root);
+    assert_eq!(runtime.active_entity(&path), Some(entity));
+    assert!(runtime.retired.is_empty() && runtime.candidate.is_none());
+    assert!(world.resource::<SubsceneRuntimeStatus>().ready);
+    assert_eq!(world.get::<Visibility>(root), Some(&Visibility::Inherited));
+    assert!(world.get::<SubsceneActive>(root).is_some());
+    assert_eq!(world.get::<ChildOf>(entity).unwrap().parent(), root);
 }
 
 #[test]

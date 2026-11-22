@@ -43,6 +43,7 @@ impl Plugin for GridRenderPlugin {
                 .add_systems(RenderStartup, init_pipeline)
                 .add_systems(Render, queue_grid
                     .in_set(RenderSystems::Queue)
+                    .after(super::render::AuthorColorQueue)
                     .before(GizmoRenderSystems::QueueLineGizmos3d))
                 .add_systems(Render, prepare_grid_bindings.in_set(RenderSystems::PrepareBindGroups));
         } // 原生大气明确早于整个透明通道；不依赖其私有render_sky函数或未约束的MainPass先后顺序。

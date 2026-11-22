@@ -48,8 +48,14 @@ use bevy::prelude::*;
 use feathrise_scene_content::*;
 use feathrise_scene_core::residency::{SceneInstanceContextAppExt, SceneResidencyAppExt, install_instance_asset_journal};
 
+fn install_root_publication(app: &mut App) {
+    // 暖恢复在 PreUpdate 之后采用场景。先发布当帧的根身份，再让实例图和运行时读取请求。
+    app.add_resident_systems(Update, driver::publish_root.before(SceneInstanceGraphPublishSet));
+}
+
 pub(super) fn install(app: &mut App) {
     super::clipmap::stitches::install(app);
+    install_root_publication(app);
     app.init_resident_resource::<resources::SubsceneRuntime>()
         .init_resource::<TerrainInstanceLookup>() // 与driver的Runtime resource_scope独立，候选子调度持续可读。
         .init_resource::<TerrainObjectTransformPreview>()
@@ -70,7 +76,6 @@ pub(super) fn install(app: &mut App) {
         .add_observer(physics::consolidate_static_bodies)
         .add_observer(physics::repair_collider_body)
         .add_observer(physics::consolidate_late_owned_bodies)
-        .add_resident_systems(PreUpdate, driver::publish_root)
         .add_resident_systems(PreUpdate, driver::invalidate_submaps_for_placement_changes)
         .add_resident_systems(Update, driver::drive.after(SceneInstanceGraphPublishSet)
             .before(crate::SceneApplicationSet::PublishSource)

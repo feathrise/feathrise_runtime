@@ -12,6 +12,7 @@ use bevy::{
         camera::ExtractedCamera,
         mesh::{RenderMesh, RenderMeshBufferInfo, allocator::MeshAllocator},
         render_asset::RenderAssets,
+        render_phase::TrackedRenderPass,
         render_resource::{
             binding_types::{texture_2d, uniform_buffer},
             *,
@@ -152,6 +153,7 @@ impl SpecializedRenderPipeline for OutlinePipelines {
                 })],
                 ..default()
             }),
+            depth_stencil: Some(super::render::author_color_depth()),
             ..default()
         }
     }
@@ -187,21 +189,37 @@ pub(super) fn install(app: &mut App) {
         render
             .init_resource::<SpecializedMeshPipelines<OutlinePipelines>>()
             .init_resource::<SpecializedRenderPipelines<OutlinePipelines>>()
+            .init_resource::<PreparedOutline>()
             .add_systems(ExtractSchedule, extract_selection)
             .add_systems(RenderStartup, setup)
             .add_systems(
                 Core3d,
-                draw_selection
+                prepare_outline
                     .in_set(Core3dSystems::MainPass)
-                    .after(super::render::SolidViewPass)
                     .before(core_3d::main_transparent_pass_3d),
             );
     }
 }
 
-fn draw_selection(
+#[derive(Resource, Default)]
+pub(super) struct PreparedOutline(Option<(Entity, CachedRenderPipelineId, BindGroup)>);
+
+impl PreparedOutline {
+    pub(super) fn draw<'w>(&'w self, entity: Entity, cache: &'w PipelineCache, pass: &mut TrackedRenderPass<'w>) {
+        let Some((view, pipeline, binding)) = &self.0 else { return; };
+        if *view != entity {
+            return;
+        }
+        let Some(pipeline) = cache.get_render_pipeline(*pipeline) else { return; };
+        pass.set_render_pipeline(pipeline);
+        pass.set_bind_group(0, binding, &[]);
+        pass.draw(0..3, 0..1);
+    }
+}
+
+fn prepare_outline(
     view: ViewQuery<(
-        &OutlineSources,
+        Option<&OutlineSources>,
         &ViewTarget,
         &ExtractedCamera,
         &ViewUniformOffset,
@@ -219,8 +237,12 @@ fn draw_selection(
     mut textures: ResMut<TextureCache>,
     mut transforms: Local<DynamicUniformBuffer<Mat4>>,
     mut context: RenderContext,
+    mut prepared: ResMut<PreparedOutline>,
 ) {
+    let entity = view.entity();
+    prepared.0 = None;
     let (selection, target, camera, view_offset, resolution) = view.into_inner();
+    let Some(selection) = selection else { return; };
     let size = target.main_texture().size();
     // 工作背景持有单采样附件租约；换挡时跳过尚未归还的旧附件。
     if target.sampled_main_texture().is_some() || size.width == 0 || size.height == 0 {
@@ -259,12 +281,10 @@ fn draw_selection(
             transforms.push(world_from_model),
         ));
     }
-    let (Some(composite), Some(view_uniform)) = (
-        cache.get_render_pipeline(composite),
-        views.uniforms.binding(),
-    ) else {
+    if cache.get_render_pipeline(composite).is_none() {
         return;
-    };
+    }
+    let Some(view_uniform) = views.uniforms.binding() else { return; };
     transforms.write_buffer(&device, &queue);
     let Some(affine_uniform) = transforms.binding() else {
         return;
@@ -327,15 +347,5 @@ fn draw_selection(
         &cache.get_bind_group_layout(&programs.composite_layout),
         &BindGroupEntries::single(&mask.default_view),
     );
-    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-        label: Some("editor_selection_outline"),
-        color_attachments: &[Some(target.get_unsampled_color_attachment())],
-        ..default()
-    });
-    if let Some(viewport) = &viewport {
-        pass.set_camera_viewport(viewport);
-    }
-    pass.set_render_pipeline(composite);
-    pass.set_bind_group(0, &outline, &[]);
-    pass.draw(0..3, 0..1);
+    prepared.0 = Some((entity, composite, outline));
 }
