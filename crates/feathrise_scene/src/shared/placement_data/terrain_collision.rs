@@ -11,12 +11,14 @@ use super::{
     source_grounding::{SourceGroundingReady, SourceGroundingRequired},
     source_mesh_properties::{SourceMeshProperties, collision_summary},
 };
-use crate::{MeshLodAuxiliary, StaticMeshLodOriginal, shared::world_asset_lifecycle::WorldAssetLifecycleIndex};
+use crate::{MeshLodAuxiliary, StaticMeshLodOriginal, SubsceneInstance,
+    scenes::dynamic_scene::SubsceneRetiring, shared::world_asset_lifecycle::WorldAssetLifecycleIndex};
 use avian3d::prelude::{Collider, ColliderConstructorHierarchyReady, ColliderDisabled, RigidBody, TrimeshFlags};
 use bevy::world_serialization::{WorldAsset, WorldInstance, WorldInstanceReady};
-use feathrise_scene_core::residency::{EntitySceneScope, InstanceResMut, SceneInstanceDetached, SceneInstanceOwner};
+use feathrise_scene_core::residency::{EntitySceneScope, InstanceAssetJournalEpoch, InstanceResMut};
 use bevy::{
     asset::{AssetEvent, AssetId},
+    ecs::{entity_disabling::Disabled, query::Allow},
     mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
@@ -31,6 +33,7 @@ use std::{
 mod components;
 mod partitioned;
 mod resources;
+mod source_proxy;
 mod static_shape; // 真正Trimesh查询，静态质量与包围球元数据不在插入帧重算。
 pub(crate) use static_shape::StaticTerrainShape; // 通用碰撞LOD只能后台适配真正静态包装，不猜测Custom几何。
 mod types;
@@ -43,8 +46,10 @@ pub use components::TerrainPatchCollisionRequest;
 pub(super) use components::TerrainColliderProxy;
 pub(crate) use components::TerrainPhysicsProxy;
 pub(crate) use components::PlacementColliderOwner;
+pub(crate) use components::SourceGlbPhysicsRoot;
+pub(crate) use source_proxy::set_subscene_placement_collision_activity;
 pub(super) use components::{PartitionColliderReady, SourceSceneCollision};
-use components::{AuthorCollisionSuppression, PartitionColliderBody, PartitionColliderPreparing, TerrainMeshSources, TerrainWorldReady};
+use components::{AuthorCollisionSuppression, PartitionColliderBody, PartitionColliderPreparing, ProxyCollisionSuppression, TerrainMeshSources, TerrainWorldReady};
 pub(super) use partitioned::discard_ready as discard_partition_ready;
 pub(super) use partitioned::discard_preparing as discard_partition_preparing;
 pub(crate) use resources::TerrainCollisionGarbage;
@@ -67,11 +72,11 @@ fn sync_proxy_participation(world: &mut World, proxy: Entity, enabled: bool) {
     }
     let Ok(mut proxy) = world.get_entity_mut(proxy) else { return; };
     if enabled {
-        if proxy.take::<AuthorCollisionSuppression>().is_some() {
+        if proxy.take::<ProxyCollisionSuppression>().is_some() {
             proxy.remove::<ColliderDisabled>();
         }
     } else if !proxy.contains::<ColliderDisabled>() {
-        proxy.insert((ColliderDisabled, AuthorCollisionSuppression));
+        proxy.insert((ColliderDisabled, ProxyCollisionSuppression));
     }
 }
 
@@ -87,7 +92,9 @@ impl ScenePlacementInstance {
             // 正在准备的新代理也读取这个标记，不会在异步结果迟到时恢复禁用碰撞。
             world.entity_mut(root).insert(AuthorCollisionSuppression);
         }
-        if let Some(proxy) = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0) {
+        if world.get::<SourceSceneCollision>(root).is_some() {
+            source_proxy::refresh_source_proxy(world, root);
+        } else if let Some(proxy) = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0) {
             sync_proxy_participation(world, proxy, enabled);
         }
     }
@@ -140,7 +147,9 @@ fn install_physics_proxy(
         ..default()
     };
     commands.queue(move |world: &mut World| {
-        if world.get::<TerrainPatchCollisionRequest>(root).is_none_or(|request| request.generation != generation) {
+        if world.get::<TerrainPatchCollisionRequest>(root).is_none_or(|request| request.generation != generation)
+            || world.get::<SourceSceneCollision>(root).is_some_and(|source| source.superseded)
+        {
             if let Some(mut garbage) = world.get_resource_mut::<TerrainCollisionGarbage>() {
                 garbage.retain_shape(&collider);
             }
@@ -162,21 +171,20 @@ fn install_physics_proxy(
             avian3d::prelude::Position(translation),
             avian3d::prelude::Rotation(rotation),
         );
+        let source = world.get::<SourceSceneCollision>(root).is_some();
         let proxy = if let Some(existing) = existing {
             world.entity_mut(existing).insert(bundle);
             // 所有权组件不能整项替换，否则Discard观察器会回收正在复用的物理实体。
             world.get_mut::<TerrainColliderProxy>(root).unwrap().1 = matrix;
             existing
         } else {
-            let source_owner = world.get::<SceneInstanceOwner>(root).copied();
-            let source = world.get::<SourceSceneCollision>(root).is_some();
-            let mut proxy = world.spawn_empty();
+            let proxy = world.spawn_empty().id();
             if source {
-                if let Some(owner) = source_owner { proxy.insert(owner); }
-                proxy.insert(SceneInstanceDetached); // 普通 GLB 换回单代理时保持已烘焙世界位姿。
+                source_proxy::tag_source_proxy(world, root, proxy);
+                // 单体同样先安装禁用标记，再插入 Collider，避免候选进入真实查询树。
+                world.entity_mut(proxy).insert((ColliderDisabled, ProxyCollisionSuppression));
             }
-            proxy.insert((bundle, TerrainPhysicsProxy, RigidBody::Static, Name::new("三维地形独立物理根")));
-            let proxy = proxy.id();
+            world.entity_mut(proxy).insert((bundle, TerrainPhysicsProxy, RigidBody::Static, Name::new("三维地形独立物理根")));
             world
                 .entity_mut(root)
                 .insert(TerrainColliderProxy(proxy, matrix));
@@ -190,7 +198,9 @@ fn install_physics_proxy(
         }) {
             world.entity_mut(proxy).insert(PlacementColliderOwner { placement: root, lod });
         }
-        if world.get::<AuthorCollisionSuppression>(root).is_some() {
+        if source {
+            source_proxy::refresh_source_proxy(world, root);
+        } else if world.get::<AuthorCollisionSuppression>(root).is_some() {
             sync_proxy_participation(world, proxy, false);
         }
     });
@@ -254,8 +264,8 @@ pub(super) fn sync_preview_physics_pose(
 
 pub(super) fn retire_physics_proxy(
     event: On<Discard<TerrainColliderProxy>>,
-    roots: Query<&TerrainColliderProxy>,
-    partition_bodies: Query<(), With<PartitionColliderBody>>,
+    roots: Query<&TerrainColliderProxy, Allow<Disabled>>,
+    partition_bodies: Query<(), (With<PartitionColliderBody>, Allow<Disabled>)>,
     mut commands: Commands,
 ) {
     if let Ok(proxy) = roots.get(event.entity) {
@@ -301,6 +311,9 @@ pub(super) fn sync_source_world_collision(
     context: EntitySceneScope,
     scene_assets: Option<Res<Assets<WorldAsset>>>,
     mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    subscenes: Query<&SubsceneInstance>,
+    live_batches: Query<(), Without<SubsceneRetiring>>,
+    mut epoch: Option<ResMut<InstanceAssetJournalEpoch>>,
     mut roots: Query<(
         &WorldInstance, &WorldAssetRoot, &ScenePlacementInstance, &mut SourceSceneCollision,
         Option<&TerrainPatchCollisionRequest>, Option<&PlacementPendingRevision>,
@@ -310,6 +323,15 @@ pub(super) fn sync_source_world_collision(
     let root = event.entity;
     let Ok((instance, asset_root, placement, mut source, request, pending)) = roots.get_mut(root) else { return; };
     if **instance != event.instance_id || !(placement.is_active() || placement.is_pending()) { return; }
+    let scope = context.instance(root);
+    if let Some(batch) = adopted_source_batch(scope, &subscenes, placement, &source) {
+        // World 热实例化可以早于外层切换。碰撞必须保持本批最初采用的形状，包括零形状。
+        source.superseded = true;
+        if live_batches.contains(batch) && let Some(epoch) = epoch.as_mut() {
+            epoch.0 = epoch.0.wrapping_add(1);
+        }
+        return;
+    }
     let summary = scene_assets.as_ref().and_then(|assets| assets.get(&asset_root.0)).map(collision_summary).unwrap_or_default();
     source.partitioned = summary.has_overrides;
     // 即使新源没有碰撞，也推进单调票据，避免迟到结果跨过无请求的间隙。
@@ -318,7 +340,7 @@ pub(super) fn sync_source_world_collision(
     if !placement.asset_target().has_scene_collision() && !summary.any_enabled {
         if request.is_some() {
             commands.queue(move |world: &mut World| {
-                if world.get::<SourceSceneCollision>(root).is_none_or(|source| source.generation != generation) { return; }
+                if world.get::<SourceSceneCollision>(root).is_none_or(|source| source.generation != generation || source.superseded) { return; }
                 if let Some(old) = world.get::<TerrainColliderProxy>(root).map(|proxy| proxy.0) {
                     sync_proxy_participation(world, old, false);
                 }
@@ -328,7 +350,7 @@ pub(super) fn sync_source_world_collision(
         return;
     }
     if !source.tracked
-        && let Some(state) = state.for_instance_mut(context.instance(root))
+        && let Some(state) = state.for_instance_mut(scope)
     {
         if let Some(staging) = state.staging.as_mut().filter(|staging| {
             pending.is_some_and(|pending| pending.generation == staging.generation && pending.revision == staging.revision)
@@ -341,7 +363,7 @@ pub(super) fn sync_source_world_collision(
         }
     }
     commands.queue(move |world: &mut World| {
-        if world.get::<SourceSceneCollision>(root).is_some_and(|source| source.generation == generation) {
+        if world.get::<SourceSceneCollision>(root).is_some_and(|source| source.generation == generation && !source.superseded) {
             world.entity_mut(root).insert((RigidBody::Static, TerrainPatchCollisionRequest { generation }, TerrainWorldReady));
         }
     });
@@ -349,18 +371,34 @@ pub(super) fn sync_source_world_collision(
 
 pub(super) fn invalidate_world_root(
     event: On<Insert<WorldAssetRoot>>,
-    mut roots: Query<&mut TerrainPatchCollisionRequest>,
+    context: EntitySceneScope,
+    subscenes: Query<&SubsceneInstance>,
+    mut roots: Query<(&mut TerrainPatchCollisionRequest, Option<&ScenePlacementInstance>, Option<&mut SourceSceneCollision>)>,
     mut commands: Commands,
 ) {
-    if let Ok(mut request) = roots.get_mut(event.entity) {
+    if let Ok((mut request, placement, source)) = roots.get_mut(event.entity) {
+        if let (Some(placement), Some(mut source)) = (placement, source)
+            && adopted_source_batch(context.instance(event.entity), &subscenes, placement, &source).is_some()
+        {
+            source.superseded = true; // 新 World 就绪后才通过实际来源推进外层日志。
+            return;
+        }
         request.generation = request.generation.wrapping_add(1).max(1);
         commands.entity(event.entity).remove::<TerrainWorldReady>();
     }
 }
 
+fn adopted_source_batch(
+    scope: Option<Entity>, subscenes: &Query<&SubsceneInstance>,
+    placement: &ScenePlacementInstance, source: &SourceSceneCollision,
+) -> Option<Entity> {
+    if source.generation == 0 || !placement.is_active() { return None; }
+    subscenes.get(scope?).ok().map(|instance| instance.batch)
+}
+
 pub(super) fn retire_ready_shape(
     event: On<Discard<TerrainPatchColliderReady>>,
-    ready: Query<&TerrainPatchColliderReady>,
+    ready: Query<&TerrainPatchColliderReady, Allow<Disabled>>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
 ) {
     if let Ok(ready) = ready.get(event.entity) {
@@ -372,7 +410,7 @@ pub(super) fn retire_ready_shape(
 /// Avian可能为非均匀缩放创建独立形状，正式Collider自身的最后引用也交后台释放。
 pub(super) fn retire_installed_shape(
     event: On<Discard<Collider>>,
-    installed: Query<&Collider, With<TerrainPhysicsProxy>>,
+    installed: Query<&Collider, (With<TerrainPhysicsProxy>, Allow<Disabled>)>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
 ) {
     if let Ok(shape) = installed.get(event.entity) {
@@ -408,13 +446,19 @@ pub(super) fn unregister_request(
         .try_remove::<(TerrainColliderProxy, PartitionColliderPreparing, PartitionColliderReady)>();
 }
 
+enum CaptureStep {
+    Pending,
+    Complete,
+    Invalidated,
+}
+
 fn capture_step(
     capture: &mut Capture,
     meshes: &Assets<Mesh>,
     children: &Query<&Children>,
     visuals: &Query<(&Mesh3d, &GlobalTransform, Option<&ChildOf>, Option<&StaticMeshLodOriginal>), Without<MeshLodAuxiliary>>,
     properties: &Query<&SourceMeshProperties>,
-) -> Result<bool, String> {
+) -> Result<CaptureStep, String> {
     let mut bytes = COPY_BYTES;
     let mut nodes = 64;
     let legacy_limits = !capture.streamed && !capture.scene_collision;
@@ -439,7 +483,7 @@ fn capture_step(
                 .extend(positions[from..end].iter().map(|p| Vec3::from_array(*p)));
             bytes -= (end - from) * 12;
             if end < positions.len() {
-                return Ok(false);
+                return Ok(CaptureStep::Pending);
             }
             let from = current.mesh.indices.len();
             let end = (from + bytes / 4).min(indices.len());
@@ -451,7 +495,7 @@ fn capture_step(
             }
             bytes -= (end - from) * 4;
             if end < indices.len() {
-                return Ok(false);
+                return Ok(CaptureStep::Pending);
             }
             let current = capture.current.take().expect("本帧正在捕获网格");
             // 矩阵变换移交后台，不把一次完整顶点变换塞到捕获结束帧。
@@ -459,23 +503,20 @@ fn capture_step(
             continue;
         }
         if nodes == 0 {
-            return Ok(false);
+            return Ok(CaptureStep::Pending);
         }
-        if let Some((entity, offset)) = capture.child_cursor {
-            if let Ok(children) = children.get(entity) {
-                let end = (offset + nodes).min(children.len());
-                capture
-                    .stack
-                    .extend(children.iter().skip(offset).take(end - offset));
-                nodes -= end - offset;
-                capture.child_cursor = (end < children.len()).then_some((entity, end));
-            } else {
-                capture.child_cursor = None;
-            }
+        if let Some((entity, offset, count)) = capture.child_cursor {
+            let Ok(children) = children.get(entity) else { return Ok(CaptureStep::Invalidated); };
+            // 热更或退役可能缩短列表，不能沿用上一帧的游标拼出半套碰撞。
+            if children.len() != count { return Ok(CaptureStep::Invalidated); }
+            let end = (offset + nodes).min(count);
+            capture.stack.extend(children.iter().skip(offset).take(end - offset));
+            nodes -= end - offset;
+            capture.child_cursor = (end < count).then_some((entity, end, count));
             continue; // 单个根有很多块时，子列表也分帧遍历，不能在首帧复制整条列表。
         }
         let Some(entity) = capture.stack.pop_front() else {
-            return Ok(true);
+            return Ok(CaptureStep::Complete);
         };
         nodes -= 1;
         capture.nodes += 1;
@@ -499,7 +540,7 @@ fn capture_step(
             let Some(mesh) = meshes.get(handle) else {
                 capture.stack.push_front(entity);
                 capture.nodes -= 1;
-                return Ok(false);
+                return Ok(CaptureStep::Pending);
             };
             if mesh.primitive_topology() != PrimitiveTopology::TriangleList
                 || mesh.contains_attribute(Mesh::ATTRIBUTE_JOINT_INDEX)
@@ -566,10 +607,10 @@ fn capture_step(
             if legacy_limits && capture.stack.len() + children.len() > 1024 {
                 return Err("三维地形节点超过1024项预算".into());
             }
-            capture.child_cursor = Some((entity, 0));
+            capture.child_cursor = Some((entity, 0, children.len()));
         }
     }
-    Ok(false)
+    Ok(CaptureStep::Pending)
 }
 
 // 与顶点数组同属唯一捕获快照；只在后台使用矩阵。
@@ -734,7 +775,7 @@ pub(super) fn drive_terrain_collision(
     mut runtime: ResMut<TerrainCollisionRuntime>,
     meshes: Res<Assets<Mesh>>,
     mut events: MessageReader<AssetEvent<Mesh>>,
-    children: Query<&Children>,
+    (children, cleanup_children): (Query<&Children>, Query<&Children, Allow<Disabled>>),
     visuals: Query<(&Mesh3d, &GlobalTransform, Option<&ChildOf>, Option<&StaticMeshLodOriginal>), Without<MeshLodAuxiliary>>,
     properties: Query<&SourceMeshProperties>,
     mut roots: Query<(
@@ -747,26 +788,36 @@ pub(super) fn drive_terrain_collision(
         Option<&TerrainMeshSources>,
         &GlobalTransform,
         Option<&FormalTerrainPatchCollider>,
-        Option<&SourceSceneCollision>,
+        Option<&mut SourceSceneCollision>,
         Option<&PartitionColliderReady>,
         Has<SourceGroundingRequired>,
         Option<&SourceGroundingReady>,
     )>,
-    mut state: ResMut<ScenePlacementRuntimeState>,
-    mut status: ResMut<ScenePlacementRuntimeStatus>,
+    mut state: InstanceResMut<ScenePlacementRuntimeState>,
+    mut status: InstanceResMut<ScenePlacementRuntimeStatus>,
     mut garbage: ResMut<TerrainCollisionGarbage>,
     world_assets: Option<Res<WorldAssetLifecycleIndex>>,
-    pending_roots: Query<&PlacementPendingRevision>,
+    (context, subscenes, live_batches, mut epoch, pending_roots): (
+        EntitySceneScope, Query<&SubsceneInstance>, Query<(), Without<SubsceneRetiring>>,
+        Option<ResMut<InstanceAssetJournalEpoch>>, Query<&PlacementPendingRevision>,
+    ),
     deferred: Query<(), With<DeferredTerrainPreviewCollider>>,
     uploading: Query<(), With<super::terrain_mesh_upload::TerrainMeshUpload>>,
     fields: Query<&crate::VolumeSurfaceFields>,
 ) {
+    // 内层摆放在分帧退役期间还可被查询。外层撤回后，任何捕获或回执都不能再推进它。
+    let source_current = |root, source: Option<&SourceSceneCollision>| {
+        source.is_none_or(|source| !source.superseded)
+            && context.instance(root).and_then(|owner| subscenes.get(owner).ok())
+                .is_none_or(|instance| live_batches.contains(instance.batch))
+    };
     let grounded = |required: bool, ready: Option<&SourceGroundingReady>, root: Entity, world: Option<&WorldAssetRoot>| {
         !required || ready.zip(world).is_some_and(|(ready, world)| {
             world_assets.as_ref().and_then(|lifecycle| lifecycle.current_ready_epoch(root, world.0.id())) == Some(ready.0)
         })
     };
-    partitioned::cleanup(&mut commands, &mut garbage, &children);
+    // 暖切已停放的代理也按叶回收，不能因默认查询过滤 Disabled 而整树递归销毁。
+    partitioned::cleanup(&mut commands, &mut garbage, &cleanup_children);
     let mesh_events_caught_up = {
         let runtime = &mut *runtime;
         // Bevy消息只有短寿命，先合并真实换代ID，再分帧撤销受影响根的旧就绪证明。
@@ -781,24 +832,38 @@ pub(super) fn drive_terrain_collision(
             });
         }
         if let Some(sweep) = &mut runtime.mesh_sweep {
+            let mut affected_subscene = false;
             let mut remaining = runtime.registered.range((sweep.cursor.map_or(Unbounded, Excluded), Unbounded));
             for &root in remaining.by_ref().take(ROOTS_PER_FRAME) {
                 sweep.cursor = Some(root);
-                let Ok((_, mut request, _, world, _, _, sources, ..)) = roots.get_mut(root) else { continue; };
+                let Ok((_, mut request, placement, world, _, _, sources, _, _, source, ..)) = roots.get_mut(root) else { continue; };
                 let source_changed = sources.is_some_and(|sources| !sources.0.is_disjoint(&sweep.changed));
                 let capture_changed = runtime.capture.as_ref().is_some_and(|capture| {
                     capture.root == root && !capture.sources.is_disjoint(&sweep.changed)
                 });
                 if source_changed || capture_changed {
+                    if let Some(mut source) = source
+                        && let Some(batch) = adopted_source_batch(context.instance(root), &subscenes, placement, &source)
+                    {
+                        // 精确网格句柄换代也要求整批重做，不能在旧碰撞上逐模型热换。
+                        source.superseded = true;
+                        affected_subscene |= live_batches.contains(batch);
+                        continue;
+                    }
                     request.generation = request.generation.wrapping_add(1).max(1);
                     let world_epoch = world.and_then(|world| {
                         world_assets.as_ref()?.current_ready_epoch(root, world.0.id())
                     });
-                    invalidate_candidate(root, &mut state, &mut commands, &pending_roots, world_epoch);
+                    if let Some(state) = state.for_instance_mut(context.instance(root)) {
+                        invalidate_candidate(root, state, &mut commands, &pending_roots, world_epoch);
+                    }
                 }
             }
             if remaining.next().is_none() {
                 runtime.mesh_sweep = None;
+            }
+            if affected_subscene && let Some(epoch) = epoch.as_mut() {
+                epoch.0 = epoch.0.wrapping_add(1);
             }
         }
         runtime.mesh_sweep.is_none() && runtime.pending_mesh_changes.is_empty()
@@ -811,16 +876,16 @@ pub(super) fn drive_terrain_collision(
     }
     if let Some((root, generation, started)) = runtime.started
         && started.elapsed().as_secs() >= 30
-        && !roots
+        && roots
             .get(root)
-            .is_ok_and(|(_, _, instance, ..)| {
-                instance.terrain_patch().is_some_and(|p| p.streamed_volume)
+            .is_ok_and(|(_, _, instance, _, _, _, _, _, _, source, ..)| {
+                source_current(root, source) && !instance.terrain_patch().is_some_and(|p| p.streamed_volume)
             })
         && runtime.failed.get(&root) != Some(&generation)
     {
         runtime.failed.insert(root, generation);
         reject(
-            root_is_pending(root, &state, &pending_roots),
+            root, context.instance(root), &pending_roots,
             &mut state,
             &mut status,
             "三维地形碰撞准备超过30秒，保留上一完整形状".into(),
@@ -845,8 +910,9 @@ pub(super) fn drive_terrain_collision(
     } // 同域单飞释放槽，不为每根创建任务。
     if let Some(mut install) = runtime.partition.take() {
         let root = install.root;
-        let valid = roots.get(root).ok().filter(|(_, request, _, world, _, _, _, global, _, _, _, requires_ground, ground)| {
+        let valid = roots.get(root).ok().filter(|(_, request, _, world, _, _, _, global, _, source, _, requires_ground, ground)| {
             request.generation == install.generation && global.to_matrix().inverse() == install.inverse_root
+                && source_current(root, *source)
                 && grounded(*requires_ground, *ground, root, *world)
         });
         let Some((_, _, instance, _, _, _, _, global, _, _, _, _, _)) = valid else {
@@ -857,16 +923,15 @@ pub(super) fn drive_terrain_collision(
         };
         let Some(ready) = partitioned::prepare(&mut install, &mut commands, *global) else {
             runtime.partition = Some(install);
-            if root_is_pending(root, &state, &pending_roots) { status.advance_progress(); }
+            advance_candidate_progress(root, context.instance(root), &pending_roots, &mut state, &mut status);
             return;
         };
         commands.entity(root)
             .try_remove::<(TerrainPatchColliderFailure, TerrainPatchColliderReady)>()
             .try_insert(ready)
             .try_remove::<PartitionColliderPreparing>();
-        if root_is_pending(root, &state, &pending_roots) {
-            status.advance_progress();
-        } else if instance.is_active() && !deferred.contains(root) {
+        let pending = advance_candidate_progress(root, context.instance(root), &pending_roots, &mut state, &mut status);
+        if !pending && instance.is_active() && !deferred.contains(root) {
             partitioned::install(&mut commands, root, *global, ready);
         }
         commands.trigger(ColliderConstructorHierarchyReady { entity: root });
@@ -881,6 +946,7 @@ pub(super) fn drive_terrain_collision(
                 |(_, request, instance, world, _, _, _, transform, _, source, _, requires_ground, ground)| {
                     request.generation == result.generation
                         && (instance.uses_async_mesh_collision() || source.is_some())
+                        && source_current(result.root, source)
                         && transform.to_matrix().inverse() == result.inverse_root
                         && grounded(requires_ground, ground, result.root, world)
                 },
@@ -901,7 +967,7 @@ pub(super) fn drive_terrain_collision(
             }
             Ok(CookedShape::Single { collider, physical, lod }) => {
                 completed_root = Some(result.root); // Ready命令尚未应用，本帧无需把刚完成的根再次排队。
-                let pending = root_is_pending(result.root, &state, &pending_roots);
+                let pending = advance_candidate_progress(result.root, context.instance(result.root), &pending_roots, &mut state, &mut status);
                 let update_active = !pending && roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal, source, ..)| {
                     instance.is_active()
                         && (formal.is_none() || source.is_some()
@@ -927,9 +993,6 @@ pub(super) fn drive_terrain_collision(
                 commands.trigger(ColliderConstructorHierarchyReady {
                     entity: result.root,
                 });
-                if pending {
-                    status.advance_progress();
-                }
             }
             Err(error) => {
                 runtime.failed.insert(result.root, result.generation);
@@ -937,7 +1000,7 @@ pub(super) fn drive_terrain_collision(
                     .entity(result.root)
                     .insert(TerrainPatchColliderFailure(error.clone()));
                 reject(
-                    root_is_pending(result.root, &state, &pending_roots),
+                    result.root, context.instance(result.root), &pending_roots,
                     &mut state,
                     &mut status,
                     format!("三维地形碰撞失败：{error}"),
@@ -952,9 +1015,10 @@ pub(super) fn drive_terrain_collision(
         runtime.failed.get(&capture.root) == Some(&capture.generation)
             || roots
                 .get(capture.root)
-            .map_or(true, |(_, request, _, world, _, _, _, transform, _, _, _, requires_ground, ground)| {
+            .map_or(true, |(_, request, _, world, _, _, _, transform, _, source, _, requires_ground, ground)| {
                     request.generation != capture.generation
                         || transform.to_matrix().inverse() != capture.inverse_root
+                        || !source_current(capture.root, source)
                         || !grounded(requires_ground, ground, capture.root, world)
                 })
     }) {
@@ -978,6 +1042,7 @@ pub(super) fn drive_terrain_collision(
                 continue;
             };
             if !(instance.uses_async_mesh_collision() || source.is_some())
+                || !source_current(root, source)
                 || uploading.contains(root)
                 || (world.is_some() && world_ready.is_none())
                 || !grounded(requires_ground, ground, root, world)
@@ -1039,17 +1104,22 @@ pub(super) fn drive_terrain_collision(
             .map(|mesh| mesh.mesh.vertices.len() + mesh.mesh.indices.len()),
         capture.meshes.len(),
     );
-    if before != after && root_is_pending(capture.root, &state, &pending_roots) {
-        status.advance_progress();
+    if before != after {
+        advance_candidate_progress(capture.root, context.instance(capture.root), &pending_roots, &mut state, &mut status);
     }
     match result {
-        Ok(false) => {}
-        Ok(true) => {
+        Ok(CaptureStep::Pending) => {}
+        Ok(CaptureStep::Complete) => {
             let mut capture = runtime.capture.take().expect("完整捕获已就绪");
             commands
                 .entity(capture.root)
                 .try_insert(TerrainMeshSources(std::mem::take(&mut capture.sources)));
             runtime.task = Some(AsyncComputeTaskPool::get().spawn(async move { cook(capture) }));
+        }
+        Ok(CaptureStep::Invalidated) => {
+            runtime.started = None;
+            let capture = runtime.capture.take();
+            runtime.release = Some(AsyncComputeTaskPool::get().spawn(async move { drop(capture); }));
         }
         Err(error) => {
             let capture = runtime.capture.take().expect("错误捕获存在");
@@ -1058,7 +1128,7 @@ pub(super) fn drive_terrain_collision(
                 .entity(capture.root)
                 .insert(TerrainPatchColliderFailure(error.clone()));
             reject(
-                root_is_pending(capture.root, &state, &pending_roots),
+                capture.root, context.instance(capture.root), &pending_roots,
                 &mut state,
                 &mut status,
                 if capture.scene_collision {
@@ -1085,6 +1155,19 @@ fn root_is_pending(
     })
 }
 
+fn advance_candidate_progress(
+    root: Entity,
+    instance: Option<Entity>,
+    pending_roots: &Query<&PlacementPendingRevision>,
+    state: &mut InstanceResMut<ScenePlacementRuntimeState>,
+    status: &mut InstanceResMut<ScenePlacementRuntimeStatus>,
+) -> bool {
+    // 后台推进属于真实摆放上下文，不能借父图同号修订确认子图或串写错误状态。
+    let pending = state.for_instance_mut(instance).is_some_and(|state| root_is_pending(root, state, pending_roots));
+    if pending && let Some(status) = status.for_instance_mut(instance) { status.advance_progress(); }
+    pending
+}
+
 fn invalidate_candidate(
     root: Entity,
     state: &mut ScenePlacementRuntimeState,
@@ -1109,12 +1192,17 @@ fn invalidate_candidate(
 }
 
 fn reject(
-    pending: bool,
-    state: &mut ScenePlacementRuntimeState,
-    status: &mut ScenePlacementRuntimeStatus,
+    root: Entity,
+    instance: Option<Entity>,
+    pending_roots: &Query<&PlacementPendingRevision>,
+    state: &mut InstanceResMut<ScenePlacementRuntimeState>,
+    status: &mut InstanceResMut<ScenePlacementRuntimeStatus>,
     error: String,
 ) {
-    if pending {
+    if let Some(state) = state.for_instance_mut(instance)
+        && root_is_pending(root, state, pending_roots)
+        && let Some(status) = status.for_instance_mut(instance)
+    {
         super::systems::fail_revision(state, status, error);
     } else {
         warn!("{error}");

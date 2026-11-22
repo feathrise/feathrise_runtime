@@ -10,6 +10,7 @@ use feathrise_scene_core::residency::{initialize_instance_context, retire_instan
 use feathrise_scene_core::state::ScenePhase;
 use std::{collections::BTreeMap, sync::Arc};
 use super::{components::*, planning, readiness, resources::*, schedules};
+use crate::shared::placement_data::{ScenePlacementRuntimeState, set_subscene_placement_collision_activity};
 
 const PREPARATION_SLOTS: usize = 2;
 const CONTEXT_BUDGET: usize = 2;
@@ -130,9 +131,18 @@ fn begin_batch(world: &mut World, runtime: &mut SubsceneRuntime, revision: u64,
         leases: Vec::new(), cursor: 0, prepared: 0, fall_thresholds: Default::default(), cleanup: Vec::new(), retirement_cursor: 0, cleanup_started: false }
 }
 
-fn hide(world: &mut World, batch: &mut Batch) {
+fn hide(world: &mut World, batch: &Batch) {
     if let Ok(mut root) = world.get_entity_mut(batch.root) {
-        root.insert((Visibility::Hidden, RigidBodyDisabled, TnuaNotPlatform)).remove::<SubsceneActive>();
+        root.insert((Visibility::Hidden, RigidBodyDisabled, TnuaNotPlatform, SubsceneRetiring))
+            .remove::<SubsceneActive>();
+    }
+    sync_placement_collisions(world, batch);
+}
+
+fn sync_placement_collisions(world: &mut World, batch: &Batch) {
+    // 只访问本批次掌握的上下文与其正式碰撞。退役游标晚于本次同步，不延长旧形状的可见期。
+    for context in &batch.contexts {
+        set_subscene_placement_collision_activity(world, batch.root, context.entity);
     }
 }
 
@@ -141,8 +151,8 @@ fn retire_stale_candidate(world: &mut World, runtime: &mut SubsceneRuntime, revi
     if runtime.candidate.as_ref().is_some_and(|batch| batch.revision != revision || runtime.journal_epoch != epoch)
         && runtime.retired.is_empty()
     {
-        let mut batch = runtime.candidate.take().unwrap();
-        hide(world, &mut batch);
+        let batch = runtime.candidate.take().unwrap();
+        hide(world, &batch);
         runtime.retired.push_back(batch);
     }
 }
@@ -293,8 +303,8 @@ pub(super) fn drive(world: &mut World) {
         world.resource_scope(|world, mut status: Mut<SubsceneRuntimeStatus>| {
             let requested = world.resource::<SceneInstanceRootRequest>().scene_id.clone();
             if runtime.root_scene_id != requested {
-                if let Some(mut batch) = runtime.candidate.take() { hide(world, &mut batch); runtime.retired.push_back(batch); }
-                if let Some(mut batch) = runtime.active.take() { hide(world, &mut batch); runtime.retired.push_back(batch); }
+                if let Some(batch) = runtime.candidate.take() { hide(world, &batch); runtime.retired.push_back(batch); }
+                if let Some(batch) = runtime.active.take() { hide(world, &batch); runtime.retired.push_back(batch); }
                 runtime.root_scene_id = requested.clone(); runtime.observed_revision = 0;
                 if let Some(hooks) = world.get_resource::<crate::SceneApplicationHooks>().copied() {
                     (hooks.reset_instances)(world, requested.clone());
@@ -380,11 +390,19 @@ pub(super) fn drive(world: &mut World) {
                 create_contexts(world, generation, batch, runtime_state.active.as_ref());
                 advance(world, batch, PREPARATION_SLOTS.saturating_sub(occupied), &mut status);
                 status.prepared = batch.prepared;
-                if batch.revision == revision && batch.next == batch.graph.len() && batch.prepared == batch.contexts.len() && retired_empty {
+                // 已就绪的子图也不能越过本帧尚待扫尾的资产失效，或沿用推进候选前的源代次。
+                let sources_current = world.resource::<InstanceAssetJournalEpoch>().0 == epoch
+                    && world.get_resource::<ScenePlacementRuntimeState>().is_none_or(|state| {
+                        state.world_asset_events_caught_up && state.collision_mesh_events_caught_up
+                    });
+                if batch.revision == revision && batch.next == batch.graph.len() && batch.prepared == batch.contexts.len()
+                    && retired_empty && sources_current
+                {
                     super::authoring_target::transfer_volume_previews(world, &batch.index);
-                    if let Some(mut old) = runtime_state.active.take() { hide(world, &mut old); runtime_state.retired.push_back(old); }
+                    if let Some(old) = runtime_state.active.take() { hide(world, &old); runtime_state.retired.push_back(old); }
                     let batch = runtime_state.candidate.take().unwrap();
                     world.entity_mut(batch.root).insert((Visibility::Inherited, SubsceneActive)).remove::<(RigidBodyDisabled, TnuaNotPlatform)>();
+                    sync_placement_collisions(world, &batch);
                     if let Some(hooks) = world.get_resource::<crate::SceneApplicationHooks>().copied() {
                         (hooks.expect_instances)(world, batch.graph.iter().skip(1).filter(|node| node.terrain.is_none()).count());
                     }

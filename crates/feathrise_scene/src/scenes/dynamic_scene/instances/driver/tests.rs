@@ -81,6 +81,7 @@ fn placement_epoch_retires_an_in_progress_outer_candidate_and_preserves_the_old_
     assert!(app.world().get::<RigidBodyDisabled>(candidate).is_some());
 }
 mod asset_feedback_tests;
+mod collision_adoption;
 
 #[test]
 fn startup_progress_reports_completed_instances_without_overwriting_later_stages() {

@@ -14,6 +14,10 @@ pub struct SubsceneInstance {
 #[derive(Component)]
 pub(super) struct SubsceneBatch;
 
+/// 已撤回的批次可能仍在分帧回收，其迟到资产回执不能再请求发布。
+#[derive(Component)]
+pub(crate) struct SubsceneRetiring;
+
 /// 只有已原子采用的根才能参与游戏与编辑器命中，候选根不提供选择和承托信用。
 #[derive(Component)]
 pub struct SubsceneActive;

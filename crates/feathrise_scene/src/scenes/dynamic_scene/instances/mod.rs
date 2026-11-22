@@ -20,6 +20,7 @@ mod physics_resume_tests; // 双时钟停止期间采用静态地形，再恢复
 mod mesh_profile_tests; // 独立网格必须消费正式树木/灌木/岩石请求，且共享原型可安全退役。
 
 pub use components::{SubsceneActive, SubsceneInstance};
+pub(crate) use components::SubsceneRetiring;
 pub use resources::SubsceneRuntimeStatus;
 pub(super) use resources::{SubsceneRuntime, TerrainInstanceLookup};
 /// 回归通过正式作者归属交接取得应用身份，避免测试私设状态而绕过生产门。
@@ -80,6 +81,7 @@ pub(super) fn install(app: &mut App) {
         .add_resident_systems(Update, driver::drive.after(SceneInstanceGraphPublishSet)
             .before(crate::SceneApplicationSet::PublishSource)
             .after(crate::shared::world_asset_lifecycle::WorldAssetLifecycleSystems::InvalidateRoots)
+            .after(crate::shared::placement_data::PlacementCollisionPreparation)
             .after(crate::shared::large_scene::DynamicWaterMeshOverrideSystems::ProcessPending))
         .add_resident_systems(Update, driver::publish_startup.after(driver::drive)
             .before(crate::shared::scene_runtime::complete_scene_startup))

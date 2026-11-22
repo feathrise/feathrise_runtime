@@ -10,7 +10,6 @@ use super::{
 };
 use avian3d::prelude::{ColliderOf, Position, Rotation};
 use bevy_tnua::TnuaNotPlatform;
-use feathrise_scene_core::residency::{SceneInstanceDetached, SceneInstanceOwner};
 
 // 同一帧最多登记或回收少量已烘焙形状；不随模型节点数扩大主线程工作批次。
 const SHAPES_PER_FRAME: usize = 32;
@@ -31,22 +30,19 @@ pub(super) fn prepare(
                 if world
                     .get::<TerrainPatchCollisionRequest>(root)
                     .is_none_or(|request| request.generation != generation)
+                    || world.get::<SourceSceneCollision>(root).is_some_and(|source| source.superseded)
                 {
                     world.despawn(body);
                     return;
                 }
-                let owner = world.get::<SceneInstanceOwner>(root).copied();
+                if world.get_entity(body).is_err() { return; }
+                source_proxy::tag_source_proxy(world, root, body);
                 let Ok(mut entity) = world.get_entity_mut(body) else {
                     return;
                 };
-                if let Some(owner) = owner {
-                    entity.insert(owner);
-                }
-                // 已是世界位姿。保留真实场景归属但避免被子场景的自动挂接再次变换。
                 entity.insert((
                     Name::new("GLB 网格物理"),
                     PartitionColliderBody::default(),
-                    SceneInstanceDetached,
                     RigidBody::Static,
                     TnuaNotPlatform,
                     pose,
@@ -76,7 +72,7 @@ pub(super) fn prepare(
                         GlobalTransform::IDENTITY,
                         Position(translation),
                         Rotation(rotation),
-                        ChildOf(body),
+                        ChildOf(body), // 叶随物理根取得真实地图驻留票据，暖切可及时离开物理树。
                         ColliderOf { body },
                         ColliderDisabled,
                         collider,
@@ -106,6 +102,7 @@ pub(super) fn install(
         let current = world
             .get::<TerrainPatchCollisionRequest>(root)
             .is_some_and(|request| ready.matches(request))
+            && world.get::<SourceSceneCollision>(root).is_none_or(|source| !source.superseded)
             && world
                 .get::<PartitionColliderReady>(root)
                 .is_some_and(|current| {
@@ -136,8 +133,6 @@ pub(super) fn install(
                     Rotation(rotation),
                 ));
             }
-            let enabled = world.get::<AuthorCollisionSuppression>(root).is_none();
-            set_enabled(world, body, enabled);
             if previous == Some(body) {
                 world.get_mut::<TerrainColliderProxy>(root).unwrap().1 = global.to_matrix();
             } else {
@@ -145,6 +140,7 @@ pub(super) fn install(
                     .entity_mut(root)
                     .insert(TerrainColliderProxy(body, global.to_matrix()));
             }
+            source_proxy::refresh_source_proxy(world, root);
         }
     });
 }
@@ -191,7 +187,7 @@ fn retire_body(world: &mut World, body: Entity) {
 pub(super) fn cleanup(
     commands: &mut Commands,
     garbage: &mut TerrainCollisionGarbage,
-    children: &Query<&Children>,
+    children: &Query<&Children, Allow<Disabled>>,
 ) {
     let mut remaining = SHAPES_PER_FRAME;
     while remaining != 0 {
@@ -214,7 +210,7 @@ pub(super) fn cleanup(
 
 pub(in crate::shared::placement_data) fn discard_ready(
     event: On<Discard<PartitionColliderReady>>,
-    ready: Query<(&PartitionColliderReady, Option<&TerrainColliderProxy>)>,
+    ready: Query<(&PartitionColliderReady, Option<&TerrainColliderProxy>), Allow<Disabled>>,
     mut commands: Commands,
 ) {
     if let Ok((ready, active)) = ready.get(event.entity)
@@ -227,7 +223,7 @@ pub(in crate::shared::placement_data) fn discard_ready(
 
 pub(in crate::shared::placement_data) fn discard_preparing(
     event: On<Discard<PartitionColliderPreparing>>,
-    roots: Query<(&PartitionColliderPreparing, Option<&PartitionColliderReady>)>,
+    roots: Query<(&PartitionColliderPreparing, Option<&PartitionColliderReady>), Allow<Disabled>>,
     mut commands: Commands,
 ) {
     if let Ok((preparing, ready)) = roots.get(event.entity)

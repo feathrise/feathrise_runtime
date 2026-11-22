@@ -10,6 +10,7 @@ use bevy::world_serialization::{WorldAssetRoot, WorldInstance, WorldInstanceRead
 use feathrise_scene_content::ScenePlacementAssetTarget; // 直接primitive碰撞完成后无需等待World门。
 
 use crate::shared::large_scene::DynamicWaterMeshOverrideStatus; // 水体接管是候选原子采用的显式必要条件。
+use crate::{SubsceneInstance, scenes::dynamic_scene::SubsceneRetiring};
 use crate::shared::world_asset_lifecycle::{
     WorldAssetLifecycleIndex, WorldAssetRootEpochInvalidated,
 }; // 同InstanceId热重载仍用资产epoch撤销旧WorldReady。
@@ -103,6 +104,8 @@ pub(super) fn invalidate_discarded_candidate_world_asset(
 pub(super) fn cancel_removed_candidate_world_asset(
     remove: On<Remove<WorldAssetRoot>>, // Replace不会触发Remove，因此不会误清新实例前的阻断票据。
     context: feathrise_scene_core::residency::EntitySceneScope, // 迟到完成按实体归属路由，拒绝写入父图或其他副本。
+    subscenes: Query<&SubsceneInstance>,
+    retiring: Query<(), With<SubsceneRetiring>>,
     roots: Query<&PlacementPendingRevision, With<PlacementPendingInstance>>, // Remove前仍可读取旧候选修订。
     mut invalidations: InstanceResMut<PlacementWorldAssetInvalidations>, // 实体不再等待任何新World实例。
     mut settlements: InstanceResMut<PlacementSettlementQueue>,           // 根移除必须O(1)取消队列席位。
@@ -116,6 +119,11 @@ pub(super) fn cancel_removed_candidate_world_asset(
     let Some(status) = status.for_instance_mut(instance_scope) else { return; };
     invalidations.clear(remove.entity); // 无论是否仍属当前候选，都释放轻量阻断身份。
     settlements.cancel(remove.entity); // 已移除根不再进入后续固定预算查询。
+    if instance_scope.and_then(|instance| subscenes.get(instance).ok())
+        .is_some_and(|instance| retiring.contains(instance.batch))
+    {
+        return; // 外层取消可以早于内层结算。资源表保留到实体回收结束，期间正常移除不属于活候选失败。
+    }
     let Ok(pending) = roots.get(remove.entity) else {
         return; // 已采用或退役根的正常清理不会改变当前事务。
     };

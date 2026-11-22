@@ -68,6 +68,7 @@ pub(in crate::shared::placement_data) struct SourceSceneCollision {
     pub(super) partitioned: bool,
     pub(super) generation: u64,
     pub(super) tracked: bool,
+    pub(super) superseded: bool, // 已采用子场景保留上一完整代理，等外层新批次重做来源。
 }
 
 impl SourceSceneCollision {
@@ -101,9 +102,17 @@ impl PartitionColliderReady {
     }
 }
 
-/// 记录作者对碰撞的临时遮蔽。摆放根负责迟到代理，代理只归还自己插入的禁用标记。
+/// 记录作者对碰撞的临时遮蔽，迟到的单体和多体代理均读取摆放根上的标记。
 #[derive(Component)]
 pub(super) struct AuthorCollisionSuppression;
+
+/// 单体代理只归还自己插入的 ColliderDisabled，保留其它系统的物理暂停。
+#[derive(Component)]
+pub(super) struct ProxyCollisionSuppression;
+
+/// 普通完整 GLB 的世界空间物理根，单体和分组都保留独立静态刚体。
+#[derive(Component)]
+pub(crate) struct SourceGlbPhysicsRoot;
 
 /// 独立物理根不会被GLB热重建删除；作者根拥有其唯一生命期。
 #[derive(Component)]

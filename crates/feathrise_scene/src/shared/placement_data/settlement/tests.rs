@@ -450,6 +450,43 @@ fn removing_world_asset_root_cancels_queued_settlement_and_fails_current_candida
 }
 
 #[test]
+fn retiring_subscene_removes_queued_world_root_without_failing_the_inner_candidate() {
+    use feathrise_scene_content::SceneInstancePath;
+    use feathrise_scene_core::residency::{InstanceResourceTable, SceneInstanceContextAppExt, SceneInstanceOwner, initialize_instance_context};
+
+    let mut app = App::new();
+    install_settlement_runtime(&mut app);
+    app.register_instance_resource::<ScenePlacementRuntimeState>()
+        .register_instance_resource::<ScenePlacementRuntimeStatus>()
+        .register_instance_resource::<PlacementSettlementQueue>()
+        .register_instance_resource::<PlacementWorldAssetInvalidations>();
+
+    let world = app.world_mut();
+    let scene = SceneId::parse("MAP-settlement-retiring").unwrap();
+    let batch = world.spawn(SubsceneRetiring).id();
+    let instance = world.spawn(SubsceneInstance {
+        path: SceneInstancePath::root(scene.clone()), source_scene_id: scene, generation: 1, batch,
+    }).id();
+    initialize_instance_context(world, instance);
+    let staging = world.spawn_empty().id();
+    let gate = PlacementInstanceGate::new(false);
+    let root = world.spawn((
+        SceneInstanceOwner(instance), ordinary_pending_instance("retiring-world-root", gate.clone()),
+        WorldAssetRoot(Handle::<WorldAsset>::default()), PlacementPendingInstance,
+        PlacementPendingRevision { generation: 10, revision: 6 },
+    )).id();
+    world.resource_mut::<InstanceResourceTable<ScenePlacementRuntimeState>>().values
+        .insert(instance, state_with_candidate(staging, root, 10, 6, false, gate));
+    world.resource_mut::<InstanceResourceTable<PlacementSettlementQueue>>().values.get_mut(&instance).unwrap().enqueue(root);
+
+    world.entity_mut(root).remove::<WorldAssetRoot>();
+
+    assert_eq!(world.resource::<InstanceResourceTable<PlacementSettlementQueue>>().values[&instance].len(), 0);
+    assert_ne!(world.resource::<InstanceResourceTable<ScenePlacementRuntimeStatus>>().values[&instance].phase,
+        ScenePlacementRuntimePhase::Failed);
+}
+
+#[test]
 fn stable_frames_with_8192_pending_roots_leave_directed_queue_empty() {
     let mut app = App::new(); // 构造场景允许的最坏普通placement根数量。
     install_settlement_runtime(&mut app); // 生产系统只有空FIFO检查。

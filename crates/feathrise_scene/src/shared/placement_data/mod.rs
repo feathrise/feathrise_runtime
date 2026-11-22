@@ -28,6 +28,7 @@ pub(crate) use terrain_collision::TerrainPatchColliderReady;
 pub(crate) use terrain_collision::StaticTerrainShape;
 pub(crate) use terrain_collision::TerrainPhysicsProxy;
 pub(crate) use terrain_collision::PlacementColliderOwner;
+pub(crate) use terrain_collision::{SourceGlbPhysicsRoot, set_subscene_placement_collision_activity};
 pub use terrain_collision::{
     DeferredTerrainPreviewCollider, TerrainPatchColliderFailure, TerrainPatchCollisionRequest,
     terrain_placement_collision,
@@ -61,6 +62,9 @@ use feathrise_scene_content::ScenePlacementRecord; // 可选建筑语义决定�
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InstancePlacementAdvance;
+
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct PlacementCollisionPreparation;
 
 /// 每个上下文拥有自己的系统游标，复用正式摆放事务与有界清理。
 pub(crate) fn add_instance_systems(schedule: &mut Schedule) {
@@ -138,6 +142,7 @@ impl Plugin for ScenePlacementDataPlugin {
                     terrain_collision::sync_preview_physics_pose,
                 )
                     .chain()
+                    .in_set(PlacementCollisionPreparation)
                     .after(WorldAssetLifecycleSystems::InvalidateRoots)
                     .before(crate::scenes::dynamic_scene::TerrainTopologySystems::Collect)
                     .before(systems::rebuild_data_driven_placements),

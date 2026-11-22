@@ -34,7 +34,7 @@ pub(super) struct Capture {
     pub(super) partitioned: bool, // 只有带源节点碰撞设定的普通 GLB 才按节点划分。
     pub(super) excluded_mesh: bool, // 区分作者明确关闭全部网格与坏资产没有真实网格。
     pub(super) streamed: bool,
-    pub(super) child_cursor: Option<(Entity, usize)>,
+    pub(super) child_cursor: Option<(Entity, usize, usize)>, // 父、已登记子项数、捕获时的子项总数。
 }
 pub(super) struct Cooked {
     pub(super) inverse_root: Mat4,

@@ -23,6 +23,7 @@ mod mesh_profiles; // 树木、灌木和岩石按需复用正式四级LOD与风�
 mod resources; // 动态场景加载事务和公开阶段。
 mod instances; // 同一父世界内的完整引用场景实例。
 pub use instances::{SubsceneActive, SubsceneInstance, SubsceneRuntimeStatus, TerrainObjectInstance, TerrainObjectTransformPreview};
+pub(crate) use instances::SubsceneRetiring;
 #[cfg(feature = "runtime_test_support")]
 pub use instances::runtime_test_support;
 pub use instances::TerrainObjectAuthoringTarget;

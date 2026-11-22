@@ -1,6 +1,7 @@
 //! 使用正式捕获/后台任务/采用系统复验同句柄Mesh热更与真实洞底。
 use super::*;
 use feathrise_scene_content::{SceneId, ScenePlacementRecord};
+use feathrise_scene_core::residency::SceneInstanceOwner;
 
 fn installed(world: &World, root: Entity) -> &Collider {
     world
@@ -63,6 +64,88 @@ fn source_collision_app() -> App {
     app.finish();
     app.cleanup();
     app
+}
+
+#[test]
+fn source_collision_nested_batch_uses_both_publication_and_author_gates() {
+    use crate::{SubsceneActive, SubsceneInstance};
+    use avian3d::{collider_tree::ColliderTrees, prelude::{SpatialQuery, SpatialQueryFilter}};
+    use bevy::ecs::system::RunSystemOnce;
+    use feathrise_scene_content::SceneInstancePath;
+    use feathrise_scene_core::residency::{InstanceResourceTable, ResidentSceneEntity, ResidentSceneToken};
+    use super::super::{components::PlacementInstanceGate, resources::PlacementActiveBatch};
+
+    for (lod, shapes) in [(None, 1), (Some(MeshLodMode::Override(default())), 2)] {
+        let mut app = source_collision_app();
+        app.init_resource::<InstanceAssetJournalEpoch>();
+        let world = app.world_mut();
+        let map = SceneId("SCENE-source-collision-outer".into());
+        let resident = ResidentSceneEntity(ResidentSceneToken(37));
+        let batch = world.spawn_empty().id();
+        let instance = world.spawn((GlobalTransform::IDENTITY, SubsceneInstance {
+            path: SceneInstancePath::root(map.clone()), source_scene_id: map.clone(), generation: 1, batch,
+        })).id();
+        let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+            "id":"nested-source", "asset_path":"models/shared.glb",
+            "asset_target":{"kind":"scene0","collision":false},
+            "translation":[8,0,0], "yaw_degrees":0, "scale":[1,1,1]
+        })).unwrap();
+        let root = world.spawn((
+            ScenePlacementInstance::new(&map, &record), Transform::from_xyz(8., 0., 0.),
+            TerrainPatchCollisionRequest { generation: 1 }, SceneInstanceOwner(instance), resident,
+            SourceSceneCollision { partitioned: true, generation: 1, ..default() },
+        )).id();
+        let mesh = world.resource_mut::<Assets<Mesh>>().add(floor(0.));
+        for x in [0., 6.] {
+            let node = world.spawn((Transform::from_xyz(x, 0., 0.), ChildOf(root),
+                SourceMeshProperties { collision: Some(true), collision_lod: lod, ..default() })).id();
+            world.spawn((Mesh3d(mesh.clone()), Transform::IDENTITY, ChildOf(node)));
+        }
+        let mut states = InstanceResourceTable::<ScenePlacementRuntimeState>::default();
+        states.values.insert(instance, ScenePlacementRuntimeState {
+            active: Some(PlacementActiveBatch { root, roots: vec![root], primitive_collision_roots: vec![root],
+                terrain_roots: Vec::new(), gate: PlacementInstanceGate::new(true), building_preset_revision: 0,
+                marker_cleanup_cursor: 0 }), ..default()
+        });
+        world.insert_resource(states);
+        let proxy_count = |app: &App| app.world().resource::<ColliderTrees>().static_tree.proxies.len();
+        let hit = |app: &mut App| app.world_mut().run_system_once(|query: SpatialQuery| {
+            query.cast_ray(Vec3::new(8., 5., 0.), Dir3::NEG_Y, 10., true, &SpatialQueryFilter::default())
+        }).unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while app.world().get::<TerrainColliderProxy>(root).is_none() {
+            app.update();
+            assert_eq!(proxy_count(&app), 0, "内层准备过程中不能登记真实代理");
+            assert!(Instant::now() < deadline, "子场景碰撞未准备完毕");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let proxy = app.world().get::<TerrainColliderProxy>(root).unwrap().0;
+        assert_eq!(app.world().get::<SceneInstanceOwner>(proxy), Some(&SceneInstanceOwner(instance)));
+        assert_eq!(app.world().get::<ResidentSceneEntity>(proxy), Some(&resident));
+        assert!(app.world().get::<SourceGlbPhysicsRoot>(proxy).is_some());
+        assert!(hit(&mut app).is_none(), "内层已采用也不能提前通过原生射线");
+
+        ScenePlacementInstance::set_editor_collision_participation(app.world_mut(), root, false);
+        app.world_mut().entity_mut(batch).insert(SubsceneActive);
+        set_subscene_placement_collision_activity(app.world_mut(), batch, instance);
+        assert_eq!(proxy_count(&app), 0, "外层放行要继续尊重作者遮蔽");
+        ScenePlacementInstance::set_editor_collision_participation(app.world_mut(), root, true);
+        app.update();
+        assert_eq!(proxy_count(&app), shapes);
+        assert!((hit(&mut app).unwrap().distance - 5.).abs() < 1e-4);
+
+        app.world_mut().write_message(AssetEvent::Modified { id: mesh.id() });
+        app.update();
+        assert!(app.world().get::<SourceSceneCollision>(root).unwrap().superseded);
+        assert_eq!(app.world().resource::<InstanceAssetJournalEpoch>().0, 1);
+        assert_eq!(app.world().get::<TerrainPatchCollisionRequest>(root).unwrap().generation, 1);
+        assert_eq!(proxy_count(&app), shapes, "热更应保留本批当前已采用碰撞");
+        app.world_mut().entity_mut(batch).remove::<SubsceneActive>();
+        set_subscene_placement_collision_activity(app.world_mut(), batch, instance);
+        ScenePlacementInstance::set_editor_collision_participation(app.world_mut(), root, true);
+        assert_eq!(proxy_count(&app), 0, "撤回外层后编辑器打开碰撞不能复活旧代理");
+        assert!(hit(&mut app).is_none());
+    }
 }
 
 #[test]
