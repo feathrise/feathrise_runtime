@@ -8,7 +8,7 @@ use super::{
     types::PartitionInstall,
     *,
 };
-use avian3d::prelude::{ColliderOf, Position, RigidBodyDisabled, Rotation};
+use avian3d::prelude::{ColliderOf, Position, Rotation};
 use bevy_tnua::TnuaNotPlatform;
 use feathrise_scene_core::residency::{SceneInstanceDetached, SceneInstanceOwner};
 
@@ -23,8 +23,8 @@ pub(super) fn prepare(
     if !install.shapes.is_empty() {
         let root = install.root;
         let generation = install.generation;
+        let (_, rotation, translation) = global.to_scale_rotation_translation();
         let body = *install.body.get_or_insert_with(|| {
-            let (_, rotation, translation) = global.to_scale_rotation_translation();
             let pose = Transform::from_translation(translation).with_rotation(rotation);
             let body = commands.spawn_empty().id();
             commands.queue(move |world: &mut World| {
@@ -45,10 +45,9 @@ pub(super) fn prepare(
                 // 已是世界位姿。保留真实场景归属但避免被子场景的自动挂接再次变换。
                 entity.insert((
                     Name::new("GLB 网格物理"),
-                    PartitionColliderBody,
+                    PartitionColliderBody::default(),
                     SceneInstanceDetached,
                     RigidBody::Static,
-                    RigidBodyDisabled,
                     TnuaNotPlatform,
                     pose,
                     GlobalTransform::from(pose),
@@ -66,7 +65,7 @@ pub(super) fn prepare(
             let Some((collider, lod)) = install.shapes.pop_front() else {
                 break;
             };
-            // 两个关联都有明确作用：本地恒等位姿随共同刚体，物理归属也是同一禁用门。
+            // 准备期只装 ECS 形状，不进入 Avian 查询树。RigidBodyDisabled 仍允许命中与接触事件。
             // 先给 Avian 精确单位尺度，再让 Transform 传播恢复世界位姿。
             commands.queue(move |world: &mut World| {
                 if world.get::<PartitionColliderBody>(body).is_some() {
@@ -75,8 +74,11 @@ pub(super) fn prepare(
                         PlacementColliderOwner { placement, lod },
                         Transform::IDENTITY,
                         GlobalTransform::IDENTITY,
+                        Position(translation),
+                        Rotation(rotation),
                         ChildOf(body),
                         ColliderOf { body },
+                        ColliderDisabled,
                         collider,
                     ));
                 } else {
@@ -125,12 +127,15 @@ pub(super) fn install(
         if let Some(body) = ready.body {
             let (_, rotation, translation) = global.to_scale_rotation_translation();
             let pose = Transform::from_translation(translation).with_rotation(rotation);
-            world.entity_mut(body).insert((
-                pose,
-                GlobalTransform::from(pose),
-                Position(translation),
-                Rotation(rotation),
-            ));
+            // 位姿通常已在分帧登记时放好，重复写入会再触发整组子形状变换。
+            if world.get::<Transform>(body) != Some(&pose) {
+                world.entity_mut(body).insert((
+                    pose,
+                    GlobalTransform::from(pose),
+                    Position(translation),
+                    Rotation(rotation),
+                ));
+            }
             let enabled = world.get::<AuthorCollisionSuppression>(root).is_none();
             set_enabled(world, body, enabled);
             if previous == Some(body) {
@@ -145,11 +150,25 @@ pub(super) fn install(
 }
 
 pub(super) fn set_enabled(world: &mut World, body: Entity, enabled: bool) {
-    // 与内置网格候选使用相同的物理和角色承托开关，分组之间不需要重复刚体。
-    if world.get::<PartitionColliderBody>(body).is_some()
-        && world.get::<RigidBodyDisabled>(body).is_some() == enabled
-    {
-        super::super::builtin::set_builtin_placement_batch_enabled_world(world, body, enabled);
+    let Some(mut participation) = world.get_mut::<PartitionColliderBody>(body) else { return; };
+    if participation.0 == enabled { return; }
+    participation.0 = enabled;
+
+    // 真正独立的档位只能在整组采用时登记或撤销，不重复触发刚体门的逐形状遍历。
+    let mut index = 0;
+    while let Some(child) = world.get::<Children>(body).and_then(|children| children.get(index)).copied() {
+        let mut child = world.entity_mut(child);
+        if enabled {
+            child.remove::<ColliderDisabled>();
+        } else {
+            child.insert(ColliderDisabled);
+        }
+        index += 1;
+    }
+    if enabled {
+        world.entity_mut(body).remove::<TnuaNotPlatform>();
+    } else {
+        world.entity_mut(body).insert(TnuaNotPlatform);
     }
 }
 
@@ -182,7 +201,7 @@ pub(super) fn cleanup(
         if let Ok(children) = children.get(body)
             && !children.is_empty()
         {
-            for child in children.iter().take(remaining) {
+            for child in children.iter().rev().take(remaining) {
                 commands.entity(child).try_despawn();
             }
             return; // 要等删除命令真正落地才可回收父刚体，避免链接组件一次性递归删除。

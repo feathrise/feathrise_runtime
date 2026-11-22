@@ -47,12 +47,8 @@ fn floor(y: f32) -> Mesh {
     mesh
 }
 
-#[test]
-fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes() {
-    use avian3d::prelude::{PhysicsPlugins, SpatialQuery, SpatialQueryFilter};
-    use bevy::ecs::system::RunSystemOnce;
-    use feathrise_scene_content::{MeshLodMode, ScenePlacementAssetTarget};
-
+fn source_collision_app() -> App {
+    use avian3d::prelude::PhysicsPlugins;
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, TransformPlugin, PhysicsPlugins::default()))
         .init_resource::<Assets<Mesh>>()
@@ -66,6 +62,16 @@ fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes(
     super::super::terrain_topology_test_support::install_proxy_observers(&mut app);
     app.finish();
     app.cleanup();
+    app
+}
+
+#[test]
+fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes() {
+    use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
+    use bevy::ecs::system::RunSystemOnce;
+    use feathrise_scene_content::ScenePlacementAssetTarget;
+
+    let mut app = source_collision_app();
     let (original, displayed) = {
         let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
         (meshes.add(floor(0.0)), meshes.add(floor(3.0)))
@@ -102,7 +108,9 @@ fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes(
     app.world_mut().entity_mut(on).insert(SceneInstanceOwner(scoped_root));
     let wait_for_generation = |app: &mut App, root: Entity, generation| {
         let deadline = Instant::now() + std::time::Duration::from_secs(5);
-        while app.world().get::<PartitionColliderReady>(root).is_none_or(|ready| ready.generation != generation) {
+        while !app.world().get::<PartitionColliderReady>(root).is_some_and(|ready| ready.generation == generation)
+            && !app.world().get::<TerrainPatchColliderReady>(root).is_some_and(|ready| ready.generation == generation)
+        {
             app.update();
             assert!(Instant::now() < deadline, "分组碰撞未完成");
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -139,6 +147,106 @@ fn source_glb_node_collision_inherits_per_reference_and_can_publish_zero_shapes(
     assert!(app.world().get::<TerrainColliderProxy>(off).is_none());
     assert!(ground_hit(&mut app, 12.0).is_none());
     assert_eq!(ground_hit(&mut app, 42.0), Some(explicit));
+}
+
+#[test]
+fn source_collision_batch_uses_only_the_proxies_its_lod_policy_requires() {
+    use avian3d::{collider_tree::ColliderTrees, prelude::{ContactGraph, GravityScale, SpatialQuery, SpatialQueryFilter}};
+    use bevy::ecs::system::RunSystemOnce;
+
+    const NODES: usize = 96; // 多于两次现有代理登记预算，分别覆盖共享、不宜合并和独立档位。
+    let cases = [
+        (None, 6.0, 1),
+        (Some(MeshLodMode::Disabled), 6.0, 1),
+        (Some(MeshLodMode::Disabled), 4.0, NODES), // 边界接触时保留各自法线。
+        (Some(MeshLodMode::Override(default())), 6.0, NODES),
+    ];
+    for (lod, spacing, expected_proxies) in cases {
+        let mut app = source_collision_app();
+        let floor = app.world_mut().resource_mut::<Assets<Mesh>>().add(floor(0.0));
+        let record: ScenePlacementRecord = serde_json::from_value(serde_json::json!({
+            "id":"many-source-meshes", "asset_path":"models/shared.glb",
+            "asset_target":{"kind":"scene0","collision":false},
+            "translation":[0,0,0], "yaw_degrees":0, "scale":[1,1,1]
+        })).unwrap();
+        let world = app.world_mut();
+        let root = world.spawn((
+            ScenePlacementInstance::new(&SceneId("SCENE-source-collision-batch".into()), &record),
+            Transform::IDENTITY, DeferredTerrainPreviewCollider,
+            TerrainPatchCollisionRequest { generation: 1 },
+            SourceSceneCollision { partitioned: true, ..default() },
+        )).id();
+        for i in 0..NODES {
+            let node = world.spawn((
+                SourceMeshProperties { collision: Some(true), collision_lod: lod, ..default() },
+                Transform::from_xyz(i as f32 * spacing, 0.0, 0.0), ChildOf(root),
+            )).id();
+            world.spawn((Mesh3d(floor.clone()), ChildOf(node), Transform::IDENTITY));
+        }
+        let xs = [0.0, (NODES - 1) as f32 * spacing];
+        let probes = xs.map(|x| world.spawn((
+            RigidBody::Dynamic, GravityScale(0.0), Collider::cuboid(0.4, 0.4, 0.4),
+            Transform::from_xyz(x, 0.18, 0.0),
+        )).id());
+        let contacts = |app: &App| {
+            let graph = app.world().resource::<ContactGraph>();
+            probes.map(|probe| graph.contact_pairs_with(probe).filter(|pair| pair.is_touching())
+                .fold((0, 0), |(touching, supporting), pair| (touching + 1, supporting + usize::from(pair.generates_constraints()))))
+        };
+        let ray_hits = |app: &mut App| app.world_mut().run_system_once(move |query: SpatialQuery| {
+            xs.map(|x| query.cast_ray(Vec3::new(x, 5.0, 1.0), Dir3::NEG_Y, 10.0, true, &SpatialQueryFilter::default()).map(|hit| hit.entity))
+        }).unwrap();
+        let static_proxies = |app: &App| app.world().resource::<ColliderTrees>().static_tree.proxies.len();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            app.update();
+            assert_eq!(contacts(&app), [(0, 0); 2], "准备中的批次不能产生接触");
+            assert_eq!(static_proxies(&app), 0, "候选还未进入原生空间查询树");
+            if app.world().get::<TerrainPatchColliderReady>(root).is_some()
+                || app.world().get::<PartitionColliderReady>(root).is_some()
+            { break; }
+            assert!(Instant::now() < deadline, "源 GLB 碰撞未完成");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(ray_hits(&mut app), [None, None]);
+        let started = Instant::now();
+        app.world_mut().entity_mut(root).insert(InstallTerrainPatchCollider);
+        app.world_mut().flush();
+        let install = started.elapsed();
+        app.update();
+        let frame = started.elapsed();
+        let registered = static_proxies(&app);
+        eprintln!("源碰撞 {NODES} 节点，档位 {lod:?}，间距 {spacing}，树代理 {registered}，采用 {install:?}，含物理帧 {frame:?}");
+        assert_eq!(registered, expected_proxies);
+        assert_eq!(contacts(&app), [(1, 1); 2], "采用后的同一物理帧必须包含首末支撑且无叠加");
+        let [first, last] = ray_hits(&mut app).map(|hit| hit.expect("首末原形均可命中"));
+        assert_eq!(first == last, expected_proxies == 1);
+        assert_eq!(app.world().get::<PlacementColliderOwner>(first).unwrap().lod, lod);
+        if matches!(lod, Some(MeshLodMode::Override(_))) {
+            let old_body = app.world().get::<TerrainColliderProxy>(root).unwrap().0;
+            app.world_mut().get_mut::<TerrainPatchCollisionRequest>(root).unwrap().generation += 1;
+            let deadline = Instant::now() + std::time::Duration::from_secs(5);
+            while app.world().get::<PartitionColliderReady>(root).is_none_or(|ready| ready.generation != 2) {
+                app.update();
+                assert_eq!(static_proxies(&app), NODES);
+                assert_eq!(ray_hits(&mut app), [Some(first), Some(last)]); // 热更准备中仍只能看见旧一代。
+                assert!(Instant::now() < deadline, "替代碰撞未完成");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let started = Instant::now();
+            app.world_mut().entity_mut(root).insert(InstallTerrainPatchCollider);
+            app.world_mut().flush();
+            let install = started.elapsed();
+            assert_eq!(static_proxies(&app), NODES, "同一采用命令必须撤回旧树代理，避免双份碰撞");
+            assert_eq!(app.world().get::<Children>(old_body).unwrap().len(), NODES);
+            app.update();
+            eprintln!("源碰撞 {NODES} 独立节点热替换，采用 {install:?}，含物理帧 {:?}", started.elapsed());
+            let remaining = app.world().get::<Children>(old_body).unwrap().len();
+            assert!(remaining > 0 && remaining < NODES, "已经离开物理树的旧实体应分帧回收");
+            assert_eq!(static_proxies(&app), NODES);
+            assert!(ray_hits(&mut app).into_iter().zip([first, last]).all(|(hit, old)| hit.is_some_and(|hit| hit != old)));
+        }
+    }
 }
 
 #[test]
@@ -423,7 +531,9 @@ fn cooked_scaled_collider_installs_without_rebuilding_scaled_bvh() {
         child_cursor: None,
     });
     assert_eq!(cooked.scale, scale);
-    let CookedShape::Single(query, mut collider) = cooked.shape.unwrap() else { panic!("单体形状") };
+    let CookedShape::Single { collider: query, physical: mut collider, .. } = cooked.shape.unwrap() else {
+        panic!("单体形状")
+    };
     assert_eq!(collider.scale(), Vec3::ONE);
     let prepared = collider.shape_scaled().clone();
     collider.set_scale(Vec3::ONE, 10); // 独立物理实体应用单位GlobalTransform；必须直接命中准备缓存。
@@ -485,6 +595,7 @@ fn physical_proxy_keeps_unit_scale_and_owned_pose_with_real_physics_hooks() {
             TerrainPatchColliderReady {
                 collider: physical.clone(),
                 physical,
+                lod: None,
                 scale: global.scale(),
                 generation: 1,
                 meshes: std::sync::Arc::default(),

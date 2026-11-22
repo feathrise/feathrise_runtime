@@ -381,7 +381,8 @@ pub(super) fn process_numeric_input_scrub(
         .active_scrub
         .button
         .expect("活动拖动必须保存左右键职责"); // 捕获构造保证按键身份完整。
-    if interactions.keyboard.just_pressed(KeyCode::Escape) || ordered.canceled
+    // 禁用可能发生在同一个根重绑属性时。旧捕获取消后仍持有松手，不能提交到新属性。
+    if state.disabled_query.contains(root) || interactions.keyboard.just_pressed(KeyCode::Escape) || ordered.canceled
         || (ordered.owned && ordered.release.is_none() && !interactions.mouse.pressed(mouse_button(button)))
     {
         cancel_drag(root, button, interactions, state);

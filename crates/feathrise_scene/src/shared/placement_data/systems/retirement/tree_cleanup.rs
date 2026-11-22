@@ -6,7 +6,8 @@ use super::super::super::resources::ScenePlacementRuntimeState; // 唯一运行�
 use super::PLACEMENT_TREE_CLEANUP_BUDGET_PER_FRAME; // 每帧树操作硬预算由退役功能域统一声明。
 use super::super::super::components::{ScenePlacementInstance, PlacementPendingInstance, PlacementPendingRevision};
 use super::super::super::terrain_collision::{
-    InstallTerrainPatchCollider, PartitionColliderReady, SourceSceneCollision, TerrainPatchCollisionRequest,
+    InstallTerrainPatchCollider, PartitionColliderReady, SourceSceneCollision, TerrainPatchColliderReady,
+    TerrainPatchCollisionRequest,
 };
 
 /// 每帧以固定操作数静默并回收退役树，绝不对仍有Children的实体调用linked-spawn递归despawn。
@@ -105,8 +106,10 @@ fn restore_carried_collision(world: &mut World, root: Entity) {
         // 先前已跟踪碰撞的根不参加复用，这里只归还其在候选期首次取得的所有权。
         active.primitive_collision_roots.push(root);
     }
-    if world.get::<PartitionColliderReady>(root).zip(world.get::<TerrainPatchCollisionRequest>(root))
-        .is_some_and(|(ready, request)| ready.matches(request))
+    if world.get::<TerrainPatchCollisionRequest>(root).is_some_and(|request| {
+        world.get::<PartitionColliderReady>(root).is_some_and(|ready| ready.matches(request))
+            || world.get::<TerrainPatchColliderReady>(root).is_some_and(|ready| ready.matches(request))
+    })
     {
         world.entity_mut(root).insert(InstallTerrainPatchCollider);
     } // 未准备完成的结果在下一次分帧碰撞推进时按活动根正常采用。

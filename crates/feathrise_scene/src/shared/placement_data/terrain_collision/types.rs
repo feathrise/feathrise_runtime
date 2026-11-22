@@ -46,7 +46,11 @@ pub(super) struct Cooked {
 }
 
 pub(super) enum CookedShape {
-    Single(Collider, Collider), // 作者局部查询、已缩放物理，同次后台结果。
+    Single {
+        collider: Collider, // 作者局部查询。
+        physical: Collider, // 已缩放的同代物理。
+        lod: Option<CollisionMode>,
+    },
     Partitioned(VecDeque<(Collider, Option<CollisionMode>)>),
 }
 

@@ -21,6 +21,7 @@ use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task, futures::check_ready},
 };
+use feathrise_scene_content::MeshLodMode;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     ops::Bound::{Excluded, Unbounded},
@@ -49,7 +50,7 @@ pub(super) use partitioned::discard_preparing as discard_partition_preparing;
 pub(crate) use resources::TerrainCollisionGarbage;
 pub(super) use resources::TerrainCollisionRuntime;
 use resources::MeshChangeSweep;
-use types::{Capture, CapturedMesh, Cooked, CookedShape, MeshCapture, PartitionInstall};
+use types::{Capture, CapturedMesh, CollisionMode, Cooked, CookedShape, MeshCapture, PartitionInstall};
 
 const COPY_BYTES: usize = 128 * 1024;
 const ROOTS_PER_FRAME: usize = 128; // 分帧查询预算，只控制一次推进的工作量。
@@ -109,6 +110,8 @@ pub(super) fn install_ready_collider(
             event.entity,
             *transform,
             single.physical.clone(),
+            single.lod,
+            single.generation,
         );
     } else {
         return;
@@ -126,6 +129,8 @@ fn install_physics_proxy(
     root: Entity,
     global: GlobalTransform,
     collider: Collider,
+    lod: Option<CollisionMode>,
+    generation: u64,
 ) {
     let matrix = global.to_matrix();
     let (_, rotation, translation) = global.to_scale_rotation_translation();
@@ -135,7 +140,7 @@ fn install_physics_proxy(
         ..default()
     };
     commands.queue(move |world: &mut World| {
-        if world.get_entity(root).is_err() {
+        if world.get::<TerrainPatchCollisionRequest>(root).is_none_or(|request| request.generation != generation) {
             if let Some(mut garbage) = world.get_resource_mut::<TerrainCollisionGarbage>() {
                 garbage.retain_shape(&collider);
             }
@@ -183,7 +188,7 @@ fn install_physics_proxy(
         if world.get::<ScenePlacementInstance>(root).is_some_and(|instance| {
             !instance.is_terrain_patch() && !instance.has_building_preset()
         }) {
-            world.entity_mut(proxy).insert(PlacementColliderOwner { placement: root, lod: None });
+            world.entity_mut(proxy).insert(PlacementColliderOwner { placement: root, lod });
         }
         if world.get::<AuthorCollisionSuppression>(root).is_some() {
             sync_proxy_participation(world, proxy, false);
@@ -211,6 +216,7 @@ pub(super) fn sync_preview_physics_pose(
             &GlobalTransform,
             &ScenePlacementInstance,
             Option<&TerrainColliderProxy>,
+            Has<SourceSceneCollision>,
         ),
         (
             Without<DeferredTerrainPreviewCollider>,
@@ -225,11 +231,11 @@ pub(super) fn sync_preview_physics_pose(
     }
     for root in poll_roots(&runtime.registered, *cursor) {
         *cursor = Some(root);
-        let Ok((ready, request, global, instance, proxy)) = roots.get(root) else {
+        let Ok((ready, request, global, instance, proxy, source)) = roots.get(root) else {
             continue;
         };
         if !instance.is_active()
-            || !instance.uses_async_mesh_collision()
+            || !(instance.uses_async_mesh_collision() || source)
             || !ready.matches(request)
             || ready.scale != global.scale()
         {
@@ -242,7 +248,7 @@ pub(super) fn sync_preview_physics_pose(
         {
             continue;
         }
-        install_physics_proxy(&mut commands, root, *global, ready.physical.clone());
+        install_physics_proxy(&mut commands, root, *global, ready.physical.clone(), ready.lod, ready.generation);
     }
 }
 
@@ -568,23 +574,42 @@ fn capture_step(
 
 // 与顶点数组同属唯一捕获快照；只在后台使用矩阵。
 fn cook(capture: Capture) -> Cooked {
+    let single = |meshes, lod| {
+        cook_meshes(meshes, capture.streamed, capture.scale)
+            .map(|(collider, physical)| CookedShape::Single { collider, physical, lod })
+    };
     let shape = if capture.partitioned {
         if capture.meshes.is_empty() && !capture.excluded_mesh {
             Err("GLB 没有可用的真实网格".into())
         } else {
-            // 继承项沿用一个 Trimesh，仅需独立档位的节点保有独立物理形状。
             let mut groups = BTreeMap::<_, (_, Vec<_>)>::new();
             for mesh in capture.meshes {
                 let (key, policy) = mesh.group.unzip();
                 groups.entry(key).or_insert_with(|| (policy, Vec::new())).1.push(mesh);
             }
-            groups.into_values().map(|(policy, meshes)| {
-                cook_meshes(meshes, false, capture.scale).map(|(_, physical)| (physical, policy))
-            }).collect::<Result<_, _>>().map(CookedShape::Partitioned)
+            let (originals, mut groups): (Vec<_>, Vec<_>) = groups.into_values()
+                .partition(|(lod, _)| *lod == Some(MeshLodMode::Disabled));
+            // 保原没有各自的近区及接触回退。只合并彼此分离且索引可表示的网格，避免焊接改变接缝法线。
+            // 自适应档位即使参数相同，也需要原有各自的空间范围和接触判断。
+            if originals.len() > 1 && u32::try_from(capture.vertices).is_ok()
+                && capture.triangles <= PARRY_BVH_MAX_LEAVES && original_bounds_are_disjoint(&originals)
+            {
+                groups.push((Some(MeshLodMode::Disabled), originals.into_iter().flat_map(|(_, meshes)| meshes).collect()));
+            } else {
+                groups.extend(originals);
+            }
+            if groups.len() == 1 {
+                // 单形状只在正式采用时登记，无需跨帧预放一个禁用刚体与子代理。
+                let (lod, meshes) = groups.pop().expect("已有唯一碰撞组");
+                single(meshes, lod)
+            } else {
+                groups.into_iter().map(|(lod, meshes)| {
+                    cook_meshes(meshes, false, capture.scale).map(|(_, physical)| (physical, lod))
+                }).collect::<Result<_, _>>().map(CookedShape::Partitioned)
+            }
         }
     } else {
-        cook_meshes(capture.meshes, capture.streamed, capture.scale)
-            .map(|(collider, physical)| CookedShape::Single(collider, physical))
+        single(capture.meshes, None)
     };
     Cooked {
         root: capture.root,
@@ -594,6 +619,22 @@ fn cook(capture: Capture) -> Cooked {
         shape,
         meshes: capture.mesh_entities.into(),
     }
+}
+
+fn original_bounds_are_disjoint(groups: &[(Option<CollisionMode>, Vec<CapturedMesh>)]) -> bool {
+    use avian3d::parry::{bounding_volume::Aabb, partitioning::Bvh};
+
+    let mut bounds = Bvh::default();
+    groups.iter().enumerate().all(|(index, (_, meshes))| {
+        let aabb = Aabb::from_points(meshes.iter().flat_map(|mesh| {
+            mesh.vertices.iter().map(|&point| mesh.matrix.transform_point3(point))
+        }));
+        if !aabb.mins.is_finite() || !aabb.maxs.is_finite() || bounds.intersect_aabb(&aabb).next().is_some() {
+            return false;
+        }
+        bounds.insert(aabb, index as u32); // 组数不超过上面已核验的三角数。
+        true
+    })
 }
 
 fn cook_meshes(meshes: Vec<CapturedMesh>, streamed: bool, scale: Vec3) -> Result<(Collider, Collider), String> {
@@ -858,16 +899,18 @@ pub(super) fn drive_terrain_collision(
                 });
                 return;
             }
-            Ok(CookedShape::Single(collider, physical)) => {
+            Ok(CookedShape::Single { collider, physical, lod }) => {
                 completed_root = Some(result.root); // Ready命令尚未应用，本帧无需把刚完成的根再次排队。
-                let update_active = roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal, ..)| {
+                let pending = root_is_pending(result.root, &state, &pending_roots);
+                let update_active = !pending && roots.get(result.root).is_ok_and(|(_, _, instance, _, _, _, _, _, formal, source, ..)| {
                     instance.is_active()
-                        && (formal.is_none() || (!instance.is_terrain_patch() && instance.asset_target().has_scene_collision()))
+                        && (formal.is_none() || source.is_some()
+                            || (!instance.is_terrain_patch() && instance.asset_target().has_scene_collision()))
                 });
                 // 完整模型热更无需地形拓扑接管，可在新形状准备完成后更新活动代理。
                 if update_active && !deferred.contains(result.root) {
                     let global = *roots.get(result.root).expect("已复验当前根").7;
-                    install_physics_proxy(&mut commands, result.root, global, physical.clone());
+                    install_physics_proxy(&mut commands, result.root, global, physical.clone(), lod, result.generation);
                 }
                 commands
                     .entity(result.root)
@@ -875,6 +918,7 @@ pub(super) fn drive_terrain_collision(
                     .try_insert(TerrainPatchColliderReady {
                         collider,
                         physical,
+                        lod,
                         scale: result.scale,
                         generation: result.generation,
                         meshes: result.meshes,
@@ -883,7 +927,7 @@ pub(super) fn drive_terrain_collision(
                 commands.trigger(ColliderConstructorHierarchyReady {
                     entity: result.root,
                 });
-                if root_is_pending(result.root, &state, &pending_roots) {
+                if pending {
                     status.advance_progress();
                 }
             }
@@ -1088,6 +1132,7 @@ pub(super) fn collision_fixture(
         TerrainPatchCollisionRequest { generation },
         TerrainPatchColliderReady {
             physical: collider.clone(),
+            lod: None,
             scale: Vec3::ONE,
             collider,
             generation,

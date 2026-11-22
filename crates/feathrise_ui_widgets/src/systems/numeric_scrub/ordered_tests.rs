@@ -95,6 +95,33 @@ fn numeric_scrub_ordered_escape_restores_once_and_late_release_cannot_commit() {
 }
 
 #[test]
+fn numeric_scrub_disabled_root_cancels_and_keeps_mouse_until_quiet_frame() {
+    let (mut app, root, window) = fixture();
+    cursor(&mut app, window, 100.);
+    button(&mut app, window, ButtonState::Pressed);
+    app.update();
+    cursor(&mut app, window, 140.);
+    app.update();
+    assert_eq!(app.world().get::<NumericInputValue>(root).unwrap().0, NumericValue::F32(5.));
+
+    app.world_mut().entity_mut(root).insert(crate::NumericInputDisabled);
+    app.update();
+    let scrub = app.world().resource::<ActiveNumericInputScrub>();
+    assert!(scrub.entity.is_none() && scrub.owns_mouse());
+    assert_eq!(app.world().get::<NumericInputValue>(root).unwrap().0, NumericValue::F32(1.));
+
+    app.world_mut().entity_mut(root).remove::<crate::NumericInputDisabled>();
+    button(&mut app, window, ButtonState::Released);
+    app.update();
+    assert!(app.world().resource::<ActiveNumericInputScrub>().owns_mouse());
+    app.update();
+    assert!(!app.world().resource::<ActiveNumericInputScrub>().owns_mouse());
+    let committed = &app.world().resource::<FeedbackMessages>().business_committed;
+    assert_eq!(committed.len(), 1);
+    assert_eq!(committed[0].outcome, NumericInputCommitOutcome::Canceled);
+}
+
+#[test]
 fn numeric_scrub_ordered_event_overflow_cancels_and_restores_instead_of_losing_release() {
     let (mut app, root, window) = fixture();
     cursor(&mut app, window, 100.);

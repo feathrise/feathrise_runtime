@@ -31,6 +31,7 @@ impl TerrainPatchColliderReady {
 pub(crate) struct TerrainPatchColliderReady {
     pub(crate) collider: Collider,
     pub(super) physical: Collider, // 已烘焙世界缩放，物理实体自身固定单位缩放。
+    pub(super) lod: Option<super::types::CollisionMode>, // 单形状也可能显式保原或使用源节点档位。
     pub(crate) scale: Vec3,
     pub(super) generation: u64,
     pub(crate) meshes: std::sync::Arc<[(Entity, Handle<Mesh>)]>, // 与碰撞同代的真实可视源，正式光追事务只读复用。
@@ -79,9 +80,9 @@ impl SourceSceneCollision {
     }
 }
 
-/// 分组代理共享单位缩放刚体门。热更时旧的一组保持可用，直到新的整组完成。
-#[derive(Component)]
-pub(in crate::shared::placement_data) struct PartitionColliderBody;
+/// 分组代理共享单位缩放刚体，记录当前整组是否已在物理树采用。
+#[derive(Component, Default)]
+pub(in crate::shared::placement_data) struct PartitionColliderBody(pub(super) bool);
 
 /// 分帧登记期间也由真实摆放持有代理，场景关闭时不会遗留半成品刚体。
 #[derive(Component)]
