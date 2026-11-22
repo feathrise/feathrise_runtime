@@ -43,6 +43,9 @@ impl Plugin for GridRenderPlugin {
                 .add_systems(RenderStartup, init_pipeline)
                 .add_systems(Render, queue_grid
                     .in_set(RenderSystems::Queue)
+                    // 先完成透明网格的 swap_remove，避免同键排序把参考网格换到工作底色之前。
+                    .after(RenderSystems::QueueMeshes)
+                    .after(RenderSystems::QueueSweep)
                     .after(super::render::AuthorColorQueue)
                     .before(GizmoRenderSystems::QueueLineGizmos3d))
                 .add_systems(Render, prepare_grid_bindings.in_set(RenderSystems::PrepareBindGroups));
@@ -108,8 +111,7 @@ fn queue_grid(
         if cache.get_render_pipeline(id).is_none() {
             continue; // 异步管线尚未就绪时保留原画面，禁止同步等待或提交半成品。
         }
-        // Bevy 0.19的AlwaysOnTop键是负无穷，IndexMap::sort_by_key稳定保留同键插入顺序。
-        // 本系统严格早于Gizmo排队，因此网格先画，随后才画选中高亮、落点十字和变换手柄。
+        // 同为 AlwaysOnTop 的图元按入队顺序绘制：先着色和选中轮廓，再参考网格和手柄。
         // 复用相机身份，每个作者视图只追加一个临时项，不新增场景实体、网格或逐线编码。
         phase.add_transient(Transparent3d {
             sorting_info: TransparentSortingInfo3d::AlwaysOnTop,

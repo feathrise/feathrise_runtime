@@ -135,11 +135,12 @@ pub(in crate::project::embedded) fn collect(world: &mut World) {
             .get_resource::<Assets<GizmoAsset>>()
             .ok_or("正式Gizmo资产尚未建立")?;
         let groups = [
-            TypeId::of::<tools::AuthorToolsGizmos>(),
-            TypeId::of::<tools::AuthorSpatialToolsGizmos>(),
+            (TypeId::of::<tools::AuthorToolsGizmos>(), false),
+            (TypeId::of::<tools::AuthorSpatialToolsGizmos>(), true),
+            (TypeId::of::<tools::AuthorTransformGizmos>(), false),
         ];
         let mut vertices = 0;
-        for (index, group) in groups.into_iter().enumerate() {
+        for (index, (group, spatial)) in groups.into_iter().enumerate() {
             digest.update([index as u8]);
             let before = segments.len();
             if let Some(asset) = handles
@@ -155,10 +156,11 @@ pub(in crate::project::embedded) fn collect(world: &mut World) {
                     &mut vertices,
                 )?;
             }
-            if index == 0 {
-                evidence.ordinary_segments = segments.len() - before;
+            // 普通变换前景组仍纳入原普通线段计数及实际几何摘要。
+            if spatial {
+                evidence.spatial_segments += segments.len() - before;
             } else {
-                evidence.spatial_segments = segments.len() - before;
+                evidence.ordinary_segments += segments.len() - before;
             }
         }
         Ok::<_, String>(())
