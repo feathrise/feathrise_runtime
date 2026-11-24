@@ -47,6 +47,7 @@ pub(crate) fn closing_candidate(id: SceneId, container: Entity) -> ScenePlacemen
         dirty: false,
         terrain_patch_active: true,
         pending: Some(PendingPlacementRevision {
+            motion_clips: None,
             terrain_patch_count: 0,
             terrain_holes: Arc::default(),
             generation: 4,

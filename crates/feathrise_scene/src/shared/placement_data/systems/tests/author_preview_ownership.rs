@@ -43,6 +43,7 @@ fn install_followup_candidate(app: &mut App, map: &SceneId, record: &ScenePlacem
         verification_cursor: 0,
     });
     state.pending = Some(PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 5,

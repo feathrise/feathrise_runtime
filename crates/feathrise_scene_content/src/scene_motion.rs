@@ -15,6 +15,76 @@ const ASSET_LABEL: &str = "SceneMotion";
 
 type TrackTable = Arc<HashMap<String, Arc<SceneMotionTrack>>>;
 
+/// 跟随标准片段定义的播放方式，作者仍使用同一 GLB extras 保存。
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneMotionPlayback {
+    #[default]
+    Once,
+    Loop,
+    PingPong,
+}
+
+/// 标准 glTF 片段及已装配轨道，身份独立于可改的显示名称。
+#[derive(Debug)]
+pub struct SceneMotionClip {
+    pub id: String,
+    pub name: String,
+    pub duration: f64,
+    pub playback: SceneMotionPlayback,
+    pub auto_play: bool,
+    tracks: HashMap<String, Arc<SceneMotionTrack>>,
+}
+
+/// 摆放通过索引直接取得自己的轨道，固定步共享同一份资产。
+#[derive(Debug)]
+pub struct SceneMotionPlacementTrack {
+    pub clip_index: usize,
+    pub track: Arc<SceneMotionTrack>,
+}
+
+/// 主场景 GLB 的只读片段目录。所有索引都在 GLB 后台载入阶段建立。
+#[derive(Debug, Default)]
+pub struct SceneMotionClips {
+    clips: Vec<SceneMotionClip>,
+    indices: HashMap<String, usize>,
+    placements: HashMap<String, Arc<[SceneMotionPlacementTrack]>>,
+    automatic: Vec<usize>,
+}
+
+impl SceneMotionClips {
+    fn from_clips(clips: Vec<SceneMotionClip>) -> Result<Self, String> {
+        let mut indices = HashMap::new();
+        let mut placements = HashMap::<String, Vec<SceneMotionPlacementTrack>>::new();
+        let mut automatic = Vec::new();
+        for (clip_index, clip) in clips.iter().enumerate() {
+            if indices.insert(clip.id.clone(), clip_index).is_some() {
+                return Err(format!("场景 GLB 的动画片段 ID 重复：{}", clip.id));
+            }
+            if clip.auto_play { automatic.push(clip_index); }
+            for (id, track) in &clip.tracks {
+                placements.entry(id.clone()).or_default().push(SceneMotionPlacementTrack {
+                    clip_index, track: track.clone(),
+                });
+            }
+        }
+        Ok(Self {
+            clips, indices, automatic,
+            placements: placements.into_iter().map(|(id, tracks)| (id, Arc::from(tracks))).collect(),
+        })
+    }
+
+    pub fn clips(&self) -> &[SceneMotionClip] { &self.clips }
+
+    pub fn automatic(&self) -> &[usize] { &self.automatic }
+
+    pub fn clip_index(&self, id: &str) -> Option<usize> { self.indices.get(id).copied() }
+
+    pub fn placement(&self, id: &str) -> Option<&Arc<[SceneMotionPlacementTrack]>> {
+        self.placements.get(id)
+    }
+}
+
 /// 已冻结的只读对象动画；同一轨道供候选、实例和物理采样共享。
 #[derive(Debug)]
 pub struct SceneMotionTrack {
@@ -138,9 +208,12 @@ struct TrackEntry {
 /// 不在帧内解析文件或重建索引。失败结果独立于地形等原清单数据。
 #[derive(Asset, TypePath, Debug)]
 pub struct SceneMotionAsset {
+    /// 兼容旧 SDK 读取入口，保留旧旁档轨道及主 GLB 默认自动播放的轨道。
     pub tracks: Result<TrackTable, String>,
     /// 主 GLB 已提供场景动画。手动或删光关键帧后的空表仍覆盖旧运动旁档。
     pub authoritative: bool,
+    /// 所有可按身份触发的主 GLB 片段。旧旁档继续使用原轨道入口。
+    pub clips: Arc<SceneMotionClips>,
     // 同一文件另有摆放元数据读取器。保留标准 GLB 根句柄，文件热更新才会同时重走两种类型。
     #[dependency]
     _standard_source: Option<Handle<Gltf>>,
@@ -221,15 +294,24 @@ impl GltfExtensionHandler for SceneGltfAnimation {
         {
             return;
         }
-        let (tracks, authoritative) = match gltf_tracks::read(file) {
-            Ok((tracks, authoritative)) => (Ok(Arc::new(tracks)), authoritative),
-            Err(error) => (Err(error), true),
+        let (tracks, authoritative, clips) = match gltf_tracks::read(file) {
+            Ok((clips, authoritative)) => {
+                // 保留默认自动轨道的旧公开视图，片段目录还包含所有手动片段。
+                let mut tracks = HashMap::new();
+                for clip in clips.clips().iter().filter(|clip| clip.auto_play) {
+                    for (id, track) in &clip.tracks {
+                        tracks.entry(id.clone()).or_insert_with(|| track.clone());
+                    }
+                }
+                (Ok(Arc::new(tracks)), authoritative, Arc::new(clips))
+            }
+            Err(error) => (Err(error), true, Arc::default()),
         };
         let source = context.path().clone_owned();
         let result: Result<_, std::convert::Infallible> = context.labeled_asset_scope(ASSET_LABEL, |child| {
             // 父 GLB 已由同一次载入在途。子资产持有其句柄，父资产不回持有本标签。
             let source = child.load::<Gltf>(source);
-            Ok(SceneMotionAsset { tracks, authoritative, _standard_source: Some(source) })
+            Ok(SceneMotionAsset { tracks, authoritative, clips, _standard_source: Some(source) })
         });
         let _ = result.unwrap();
     }
@@ -246,6 +328,6 @@ pub(crate) async fn load_with_manifest(context: &mut LoadContext<'_>, scene: &cr
         Err(error) => Err(error.to_string()),
     };
     context.add_labeled_asset(ASSET_LABEL, SceneMotionAsset {
-        tracks: tracks.map(Arc::new), authoritative: false, _standard_source: None,
+        tracks: tracks.map(Arc::new), authoritative: false, clips: Arc::default(), _standard_source: None,
     });
 }

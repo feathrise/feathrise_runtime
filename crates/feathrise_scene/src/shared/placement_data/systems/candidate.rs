@@ -46,7 +46,7 @@ pub(super) fn advance_placement_candidate(
     if state.staging.is_none() {
         let pending = state.pending.as_ref().expect("上方已确认候选计划存在");
         let gate = PlacementInstanceGate::new(false); // 候选根从创建到整批采用前共享同一个关闭作者门。
-        let root = commands
+        let mut root = commands
             .spawn((
                 Name::new(format!("场景显式实例候选_{scene_id}")),
                 PlacementStagingRoot,
@@ -55,8 +55,11 @@ pub(super) fn advance_placement_candidate(
                 RigidBody::Static,
                 RigidBodyDisabled, // 候选期所有内置盒均无玩法碰撞；原子采用时才解除共享刚体门。
                 bevy_tnua::TnuaNotPlatform, // Tnua按ColliderOf读取共享刚体门，隐藏候选不参与角色悬浮地面探测。
-            ))
-            .id();
+            ));
+        if let Some(clips) = &pending.motion_clips {
+            root.insert(super::super::motion::MotionController::new(scene_id.clone(), clips.clone(), gate.clone()));
+        }
+        let root = root.id();
         state.staging = Some(PlacementStaging {
             reuse: Default::default(),
             terrain_roots: Vec::new(),
@@ -446,6 +449,7 @@ pub(super) fn finish_placement_candidate(
         commands.entity(carry).insert(ChildOf(staging.root));
     }
     if let Some(old) = state.active.take() {
+        super::super::motion::carry_playback(commands, old.root, staging.root);
         old.gate.retire(); // 先O(1)永久撤销旧批次作者与保存证据身份。
         super::super::terrain_collision::retire_formal_terrain(commands, &old.terrain_roots);
         super::super::terrain_collision::retire_formal_terrain(commands, &old.primitive_collision_roots);

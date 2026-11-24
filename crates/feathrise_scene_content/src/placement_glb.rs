@@ -663,7 +663,10 @@ mod tests {
                 "feathrise_duration":2.0,"feathrise_playback":"ping_pong"},
              "samplers":[{"input":time,"output":position},{"input":time,"output":rotation}],
              "channels":[{"sampler":0,"target":{"node":1,"path":"translation"}},
-                         {"sampler":1,"target":{"node":1,"path":"rotation"}}]}
+                         {"sampler":1,"target":{"node":1,"path":"rotation"}}]},
+            {"name":"开门","extras":{"feathrise_scene_animation":true,"feathrise_clip_id":"door-open"},
+             "samplers":[{"input":time,"output":position}],
+             "channels":[{"sampler":0,"target":{"node":2,"path":"translation"}}]}
         ]);
         let animated = write_chunks(&document, &bin).unwrap();
         draft.placements.swap(0, 1);
@@ -671,6 +674,7 @@ mod tests {
         let (mut rebound, contents) = read_chunks(&saved).unwrap();
         assert_eq!(rebound["animations"][0]["channels"][0]["target"]["node"], 1);
         assert_eq!(rebound["animations"][1]["channels"][1]["target"]["node"], 2);
+        assert_eq!(rebound["animations"][2]["channels"][0]["target"]["node"], 1);
         assert_eq!(rebound["animations"][1]["samplers"], document["animations"][1]["samplers"]);
         assert_eq!(rebound["nodes"][2]["extras"]["feathrise_motion_collider"],
             document["nodes"][1]["extras"]["feathrise_motion_collider"]);
@@ -684,6 +688,7 @@ mod tests {
         let manual_path = "manual/scene.glb";
         files.insert_asset(Path::new(manual_path), write_chunks(&manual, contents).unwrap());
         manual["animations"][1].as_object_mut().unwrap().remove("extras");
+        manual["animations"].as_array_mut().unwrap().remove(2);
         let blender_path = "blender/scene.glb";
         files.insert_asset(Path::new(blender_path), write_chunks(&manual, contents).unwrap());
         let source = files.clone();
@@ -718,6 +723,16 @@ mod tests {
                     assert!(source.authoritative && source.tracks.as_ref().unwrap().is_empty(),
                         "省略自动播放时主 GLB 继续覆盖旧运动旁档且沿用普通摆放");
                 }
+                assert_eq!(asset.clips.clips().len(), 2, "只登记带场景动画标记的两个片段");
+                let legacy = &asset.clips.clips()[asset.clips.clip_index("scene-clip-1").unwrap()];
+                assert!(legacy.auto_play, "已有片段使用 glTF 的绝对动画序号");
+                let door_index = asset.clips.clip_index("door-open").unwrap();
+                assert_eq!(asset.clips.clips()[door_index].name, "开门");
+                assert!(!asset.clips.clips()[door_index].auto_play);
+                assert_eq!(asset.clips.placement("other").unwrap()[0].clip_index, door_index);
+                assert_eq!(manual.clips.clips().len(), 2, "关闭自动播放仍保留两个可触发片段");
+                assert_eq!(blender.clips.clips().len(), 1, "未标记的 Blender 文件沿用第一个相容片段");
+                assert_eq!(blender.clips.clip_index("scene-clip-0"), Some(0));
                 let tracks = asset.tracks.as_ref().unwrap();
                 assert_eq!(tracks.len(), 1, "优先播放已标记的场景片段");
                 let track = &tracks["bank-floor"];
@@ -733,7 +748,7 @@ mod tests {
 
         // 删除管理片段后，场景根标记保留，其他标准片段不能被误认成当前场景动画。
         rebound["nodes"][0]["extras"]["feathrise_scene_animation"] = json!(true);
-        rebound["animations"].as_array_mut().unwrap().remove(1);
+        rebound["animations"].as_array_mut().unwrap().truncate(1);
         let empty = write_chunks(&rebound, contents).unwrap();
         let empty = write_scene_placements_glb(&draft, PATH, Some(&empty)).unwrap();
         files.insert_asset(Path::new(PATH), empty);
@@ -742,7 +757,7 @@ mod tests {
         loop {
             app.update();
             let data = app.world().resource::<Assets<SceneMotionAsset>>();
-            if let Some(asset) = data.get(&motion).filter(|asset| asset.authoritative) {
+            if let Some(asset) = data.get(&motion).filter(|asset| asset.authoritative && asset.clips.clips().is_empty()) {
                 assert!(asset.tracks.as_ref().unwrap().is_empty());
                 break;
             }

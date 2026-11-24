@@ -106,6 +106,7 @@ fn begin(app: &mut App, records: Vec<feathrise_scene_content::ScenePlacementReco
     let mut state = app.world_mut().resource_mut::<ScenePlacementRuntimeState>();
     state.revision += 1;
     state.pending = Some(super::super::super::resources::PendingPlacementRevision {
+        motion_clips: None,
         terrain_patch_count: 0,
         terrain_holes: Default::default(),
         generation: state.generation,

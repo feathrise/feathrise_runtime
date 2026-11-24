@@ -9,21 +9,12 @@ use bevy::{
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use super::{Curves, SceneMotionCollider, SceneMotionTrack};
+use super::{Curves, SceneMotionClip, SceneMotionClips, SceneMotionCollider, SceneMotionPlayback as Playback, SceneMotionTrack};
 use crate::{MAX_SCENE_PLACEMENT_SCALE, MIN_SCENE_PLACEMENT_SCALE};
 
 trait MotionCurve<T>: Curve<T> + Debug + Send + Sync {}
 impl<T, C: Curve<T> + Debug + Send + Sync> MotionCurve<T> for C {}
 type Channel<T> = Box<dyn MotionCurve<T>>;
-
-#[derive(Debug, Clone, Copy, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-enum Playback {
-    #[default]
-    Once,
-    Loop,
-    PingPong,
-}
 
 #[derive(Debug, Default)]
 pub(super) struct ObjectCurves {
@@ -69,6 +60,7 @@ impl ObjectCurves {
 struct ClipExtras {
     #[serde(default)]
     feathrise_scene_animation: bool,
+    feathrise_clip_id: Option<String>,
     #[serde(default)]
     feathrise_duration: Option<f64>,
     #[serde(default)]
@@ -92,9 +84,11 @@ fn extras<T: Default + for<'de> Deserialize<'de>>(value: &gltf::json::Extras) ->
     serde_json::from_str(raw.get()).map_err(|error| error.to_string())
 }
 
-pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotionTrack>>, bool), String> {
+type Bindings = HashMap<usize, (String, Option<SceneMotionCollider>)>;
+
+pub(super) fn read(file: &gltf::Gltf) -> Result<(SceneMotionClips, bool), String> {
     let Some(scene) = file.default_scene().or_else(|| file.scenes().next()) else {
-        return Ok((HashMap::new(), false));
+        return Ok((SceneMotionClips::default(), false));
     };
     let authoritative = scene.nodes().any(|node| {
         node.extras().as_ref().is_some_and(|raw| raw.get().contains("\"feathrise_scene_animation\""))
@@ -103,7 +97,7 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
             })
     });
     if file.animations().next().is_none() {
-        return Ok((HashMap::new(), authoritative));
+        return Ok((SceneMotionClips::default(), authoritative));
     }
     let mut bindings = HashMap::new();
     let mut visit: Vec<_> = scene.nodes().collect();
@@ -124,29 +118,39 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
     };
 
     let mut fallback = None;
-    let mut selected = None;
+    let mut clips = Vec::new();
     for animation in file.animations() {
         let extra = extras::<ClipExtras>(animation.extras())?;
         if extra.feathrise_scene_animation {
-            selected = Some((animation, extra));
-            break;
-        }
-        if fallback.is_none() && animation.channels().any(relevant) {
+            clips.push(read_clip(file, animation, extra, &bindings)?);
+        } else if !authoritative && fallback.is_none() && animation.channels().any(relevant) {
             fallback = Some((animation, extra));
         }
     }
-    let chosen = if authoritative { selected } else { selected.or(fallback) };
-    let Some((animation, extra)) = chosen else { return Ok((HashMap::new(), authoritative)); };
-    if !extra.feathrise_autoplay {
-        // 已匹配的主 GLB 片段优先，包括 Blender 原生片段。手动沿用普通摆放的初始变换和碰撞。
-        return Ok((HashMap::new(), true));
+    // 无场景作者标记的 Blender 文件继续选择第一个相容片段。旧显式删除标记仍压住旧旁档。
+    if clips.is_empty() && let Some((animation, extra)) = fallback {
+        clips.push(read_clip(file, animation, extra, &bindings)?);
     }
+    let authoritative = authoritative || !clips.is_empty();
+    Ok((SceneMotionClips::from_clips(clips)?, authoritative))
+}
+
+fn read_clip(
+    file: &gltf::Gltf, animation: gltf::Animation<'_>, extra: ClipExtras, bindings: &Bindings,
+) -> Result<SceneMotionClip, String> {
+    // 兼容 ID 必须使用 glTF 的绝对片段索引，与显示顺序、名称及未标记外部片段无关。
+    let id = extra.feathrise_clip_id.unwrap_or_else(|| format!("scene-clip-{}", animation.index()));
+    if id.trim().is_empty() { return Err("场景 GLB 的动画片段 ID 为空".into()); }
+    let name = animation.name().unwrap_or(&id).to_owned();
     let mut tracks = HashMap::<usize, ObjectCurves>::new();
     let mut duration = extra.feathrise_duration.unwrap_or(0.0);
     if !duration.is_finite() || duration < 0.0 || duration > f64::from(f32::MAX) {
         return Err("场景 GLB 的动画时长无效".into());
     }
-    for channel in animation.channels().filter(|channel| relevant(channel.clone())) {
+    for channel in animation.channels().filter(|channel| {
+        matches!(channel.target().property(), Property::Translation | Property::Rotation | Property::Scale)
+            && bindings.contains_key(&channel.target().node().index())
+    }) {
         let node = channel.target().node().index();
         let reader = channel.reader(|buffer| (buffer.index() == 0).then_some(file.blob.as_deref()).flatten());
         let times = reader.read_inputs().ok_or("场景动画关键帧时间未内嵌在 GLB 中")?.collect::<Vec<_>>();
@@ -179,18 +183,24 @@ pub(super) fn read(file: &gltf::Gltf) -> Result<(HashMap<String, Arc<SceneMotion
             _ => return Err("场景 GLB 中同一个对象的动画属性重复或无效".into()),
         }
     }
-    let tracks = tracks.into_iter().map(|(node, mut curves)| {
+    let mut compiled = HashMap::with_capacity(tracks.len());
+    for (node, mut curves) in tracks {
         curves.duration = duration;
         curves.playback = extra.feathrise_playback; // 同一场景动作的对象共用时间长度和播放方向。
-        let (id, collider) = bindings.remove(&node).expect("已校验动画节点的稳定摆放身份");
+        let (placement_id, collider) = &bindings[&node];
         if collider.is_some_and(|shape| !shape.center.is_finite()
             || !(shape.half_extents * 2.0).is_finite() || shape.half_extents.min_element() <= 0.0)
         {
-            return Err(format!("对象 {id} 的动画碰撞盒无效"));
+            return Err(format!("对象 {placement_id} 的动画碰撞盒无效"));
         }
-        Ok((id, Arc::new(SceneMotionTrack { curves: Curves::Gltf(curves), collider })))
-    }).collect::<Result<HashMap<_, _>, _>>()?;
-    Ok((tracks, authoritative))
+        if compiled.insert(placement_id.clone(), Arc::new(SceneMotionTrack {
+            curves: Curves::Gltf(curves), collider: *collider,
+        })).is_some() {
+            return Err(format!("场景动画片段 {id} 的摆放目标 {placement_id} 重复"));
+        }
+    }
+    Ok(SceneMotionClip { id, name, duration, playback: extra.feathrise_playback,
+        auto_play: extra.feathrise_autoplay, tracks: compiled })
 }
 
 fn scale_min() -> Vec3 { Vec3::splat(MIN_SCENE_PLACEMENT_SCALE) }

@@ -12,7 +12,7 @@ use bevy::world_serialization::WorldAsset; // 规划为每条记录建立强Worl
 use feathrise_scene_content::{
     BuildingPresetRegistry, BuildingWorldQuad, MAX_SCENE_PLACEMENT_WATER_NAME_CHARS,
     MAX_SCENE_PLACEMENT_WATER_NODE_PATH_CHARS, MAX_SCENE_PLACEMENT_WATER_NODE_PATH_DEPTH,
-    SceneId, ScenePlacementRecord, ScenePlacementWaterSurface,
+    SceneId, ScenePlacementAssetTarget, ScenePlacementRecord, ScenePlacementWaterSurface,
     ScenePlacementsAsset, valid_building_preset_id,
 }; // 运行时与编辑器复用同一水体格式与数量硬门。
 
@@ -117,6 +117,7 @@ pub(super) fn begin_planning(
     PlacementPlanning {
         terrain_filter: Default::default(),
         motion_tracks: None,
+        motion_clips: None,
         terrain_patch_count: 0,
         terrain_holes: Vec::new(),
         generation,                      // 迟到规划必须同时匹配代次。
@@ -370,18 +371,29 @@ pub(super) fn advance_planning_bound(
             planning.queued_scene_ids.insert(scene_id); // 初始检查队列与去重集同步建立。
             planning.scene_checks.push_back(scene_id); // 收尾时只移动队列，不遍历全部计划。
         }
-        let motion = planning.motion_tracks.as_ref()
-            .and_then(|tracks| tracks.get(&current.record.id)).cloned();
-        if let Some(track) = &motion {
-            let record = &current.record;
+        use super::super::motion::PlacementMotion;
+        let record = &current.record;
+        let automatic = planning.motion_tracks.as_ref().and_then(|tracks| tracks.get(&record.id));
+        // 地形、建筑和赋水节点仍由各自的系统持有。没有合法移动碰撞盒的旧手动对象保留原正式碰撞。
+        let independent = record.terrain_patch.is_none() && record.building_preset_id.is_none()
+            && record.courtyard.is_none() && record.water_surfaces.is_empty();
+        if !independent && automatic.is_some() {
+            return Err(format!("场景动画对象 {} 必须是独立的普通摆放", record.id));
+        }
+        let motion = if let Some(clips) = &planning.motion_clips {
+            clips.placement(&record.id).and_then(|tracks| {
+                let first = &tracks.first()?.track;
+                let needs_collider = record.asset_target.has_gltf_collision()
+                    || matches!(&record.asset_target, ScenePlacementAssetTarget::EditableCuboid { collision: true, .. }
+                        | ScenePlacementAssetTarget::EditableMesh { collision: true, .. });
+                (independent && (automatic.is_some() || !needs_collider || first.collider_for(record).is_some()))
+                    .then(|| PlacementMotion::Glb(tracks.clone()))
+            })
+        } else {
+            automatic.cloned().map(PlacementMotion::Legacy)
+        };
+        if let Some(track) = motion.as_ref().map(PlacementMotion::first_track) {
             // 普通对象的绑定只提供已解析底姿；位置通道在播放时仍是场景轴绝对位置。
-            // 地形自身、建筑和赋水网格由各自的系统拥有，不能把其根交给对象动画。
-            if record.terrain_patch.is_some()
-                || record.building_preset_id.is_some() || record.courtyard.is_some()
-                || !record.water_surfaces.is_empty()
-            {
-                return Err(format!("场景动画对象 {} 必须是独立的普通摆放", record.id));
-            }
             if !track.compatible_origin(current.transform.translation)
                 || track.collider_for(record).is_some_and(|shape| !(shape.center / current.transform.scale).is_finite())
             {
@@ -411,6 +423,7 @@ pub(super) fn finish_planning(
     debug_assert_eq!(planning.next_record, planning.total_records); // 内部误用不能发布半份计划。
     debug_assert!(planning.current_record.is_none()); // 含水记录必须已完成全部绑定校验。
     let pending = PendingPlacementRevision {
+        motion_clips: planning.motion_clips,
         terrain_patch_count: planning.terrain_patch_count,
         terrain_holes: Arc::from(planning.terrain_holes),
         generation: planning.generation, // 候选根继承规划代次。

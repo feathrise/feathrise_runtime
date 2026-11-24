@@ -8,7 +8,7 @@ use bevy::prelude::*; // Entity、Transform、Rect与Resource。
 use bevy::world_serialization::{InstanceId, WorldAsset}; // 候选场景强句柄与换代阻断票据都只保存轻量身份。
 use feathrise_scene_content::{
     BuildingWorldQuad, SceneId, SceneManifestAsset, ScenePlacementRecord, ScenePlacementWaterSurface,
-    SceneMotionAsset, SceneMotionTrack, ScenePlacementsAsset,
+    SceneMotionAsset, SceneMotionClips, SceneMotionTrack, ScenePlacementsAsset,
 }; // 增量规划冻结输入资产身份、单记录快照及其水体退役游标。
 use feathrise_scene_core::state::ScenePhase; // 识别切换场景并清理旧实例。
 
@@ -178,7 +178,7 @@ pub(crate) struct PendingPlacementPrimitive {
 /// 完整校验后持有的一项场景或单primitive实例计划。
 #[derive(Debug)]
 pub(crate) struct PendingPlacementPlan {
-    pub(crate) motion: Option<Arc<SceneMotionTrack>>,
+    pub(crate) motion: Option<super::motion::PlacementMotion>,
     pub(crate) record: ScenePlacementRecord, // 强句柄等待期保留文件内目标、原始变换与赋水数组的同一完整JSON快照。
     pub(crate) scene: Handle<WorldAsset>,  // Scene0继续作为同源GLTF解析与完整场景依赖的强句柄。
     pub(crate) primitive: Option<PendingPlacementPrimitive>, // Some时候选直接生成唯一网格而不实例化整棵Scene0。
@@ -188,6 +188,7 @@ pub(crate) struct PendingPlacementPlan {
 /// 一次不可拆分的显式实例修订。
 #[derive(Debug)]
 pub(crate) struct PendingPlacementRevision {
+    pub(crate) motion_clips: Option<Arc<SceneMotionClips>>,
     pub(crate) terrain_patch_count: usize,
     pub(crate) terrain_holes: Arc<[feathrise_scene_content::SceneTerrainCutout]>, // 至多32个完整世界洞口，只在全记录通过后发布。
     pub(crate) generation: u32,
@@ -217,6 +218,7 @@ pub(crate) struct PlacementRecordPlanning {
 #[derive(Debug)]
 pub(crate) struct PlacementPlanning {
     pub(crate) motion_tracks: Option<Arc<HashMap<String, Arc<SceneMotionTrack>>>>,
+    pub(crate) motion_clips: Option<Arc<SceneMotionClips>>,
     /// 地形域只接管旧图的三维地形记录，场景容器只处理普通实例，防止迁移后重复生成。
     pub(crate) terrain_filter: TerrainPlacementFilter,
     pub(crate) terrain_patch_count: usize,

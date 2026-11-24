@@ -200,9 +200,13 @@ impl TerrainObjectQueries<'_, '_> {
     /// 整体子场景预览与取证只按稳定地址定位当前活动根，不扫描实体或借用候选批次。
     pub fn subscene_instance(&self, owner: &SceneId, id: &feathrise_scene_content::SceneInstanceId) -> Option<Entity> {
         let path = feathrise_scene_content::SceneInstancePath::root(owner.clone()).child(id.clone());
-        let entity = self.runtime.as_ref()?.active_entity(&path)?;
+        self.active_subscene_at(&path)
+    }
+
+    pub(crate) fn active_subscene_at(&self, path: &feathrise_scene_content::SceneInstancePath) -> Option<Entity> {
+        let entity = self.runtime.as_ref()?.active_entity(path)?;
         let instance = self.contexts.get(entity).ok()?;
-        (instance.path == path && self.active.contains(instance.batch)).then_some(entity)
+        (&instance.path == path && self.active.contains(instance.batch)).then_some(entity)
     }
     /// 内容仍属于场景容器；同源多实例通过完整路径查询，不能用TerrainId跨实例借姿态。
     pub fn binding_pose(&self, owner: &SceneId, scope: Option<Entity>, binding: &feathrise_scene_content::SceneTerrainBinding)

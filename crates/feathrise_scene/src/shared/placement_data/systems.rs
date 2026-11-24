@@ -22,7 +22,7 @@ use crate::BuildingVegetationClearanceState; // 正式placement原子采用时�
 use super::components::PlacementStagingRoot; // 重建系统把候选容器Query交给原子采用子模块。
 use super::resources::{
     ScenePlacementRuntimePhase, ScenePlacementRuntimeState, ScenePlacementRuntimeStatus,
-    PendingPlacementPrimitive,
+    PendingPlacementPrimitive, TerrainPlacementFilter,
 };
 
 pub(crate) use candidate::cleanup_active_placement_markers; // 插件层保持原有系统路径不变。
@@ -275,9 +275,10 @@ pub(crate) fn rebuild_data_driven_placements(
             };
             Some(asset)
         } else { None };
-        let motion_tracks = if let Some(tracks) = glb_motion.filter(|asset| {
+        let glb_motion = glb_motion.filter(|asset| {
             asset.authoritative || !asset.tracks.as_ref().is_ok_and(|tracks| tracks.is_empty())
-        }).map(|asset| &asset.tracks).or_else(|| {
+        });
+        let motion_tracks = if let Some(tracks) = glb_motion.map(|asset| &asset.tracks).or_else(|| {
             let asset = motion_assets.as_ref()?.get(state.motion_asset.as_ref()?)?;
             Some(&asset.tracks)
         }) {
@@ -328,6 +329,11 @@ pub(crate) fn rebuild_data_driven_placements(
         );
         planning.terrain_filter = terrain_inputs.filter(manifest, &scene_id);
         planning.motion_tracks = motion_tracks;
+        // 普通摆放由源场景容器持有，每块地形的独立资源域不另起同源动画时钟。
+        if !matches!(planning.terrain_filter, TerrainPlacementFilter::Terrain(_)) {
+            planning.motion_clips = glb_motion.filter(|motion| !motion.clips.clips().is_empty())
+                .map(|motion| motion.clips.clone());
+        }
         state.planning = Some(planning);
         state.asset_retry_requested = false; // Scene失败重试门只在规划完成后有意义。
         state.dirty = false;

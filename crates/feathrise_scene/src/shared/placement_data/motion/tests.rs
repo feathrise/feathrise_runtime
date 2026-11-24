@@ -1,9 +1,17 @@
 use super::*;
-use crate::shared::placement_data::{builtin, components::PlacementInstanceGate};
-use avian3d::PhysicsPlugins;
-use bevy::{asset::AssetPlugin, mesh::MeshPlugin, time::TimeUpdateStrategy, transform::TransformPlugin};
-use feathrise_scene_content::{SceneId, ScenePlacementAssetTarget};
-use std::time::Duration;
+use crate::shared::placement_data::{
+    builtin, components::PlacementInstanceGate, resources::{PlacementActiveBatch, ScenePlacementRuntimeState},
+};
+use avian3d::{PhysicsPlugins, prelude::PhysicsSystems};
+use bevy::{
+    asset::{AssetPlugin, io::{AssetSourceBuilder, AssetSourceId, memory::{Dir, MemoryAssetReader}}},
+    gltf::GltfPlugin, mesh::MeshPlugin, time::TimeUpdateStrategy, transform::TransformPlugin,
+    world_serialization::WorldAsset,
+};
+use feathrise_scene_content::{SceneContentPlugin, SceneId, SceneInstancePath, SceneMotionAsset, SceneMotionClips, ScenePlacementAssetTarget};
+use feathrise_scene_core::residency::InstanceResourceTable;
+use serde_json::{Value, json};
+use std::{path::Path, time::{Duration, Instant}};
 
 #[test]
 fn scene_motion_collision_carries_a_rider_and_retires() {
@@ -74,20 +82,14 @@ fn scene_motion_collision_carries_a_rider_and_retires() {
 
 #[test]
 fn scene_motion_standard_glb_rotation_and_scale_update_the_offset_collision() {
-    use avian3d::prelude::{PhysicsSystems, SpatialQuery, SpatialQueryFilter};
-    use bevy::{
-        asset::io::{AssetSourceBuilder, AssetSourceId, memory::{Dir, MemoryAssetReader}},
-        ecs::system::RunSystemOnce, gltf::GltfPlugin, world_serialization::WorldAsset,
-    };
-    use feathrise_scene_content::{SceneContentPlugin, SceneMotionAsset};
-    use serde_json::json;
-    use std::{path::Path, time::Instant};
+    use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
+    use bevy::ecs::system::RunSystemOnce;
 
     let quarter = std::f32::consts::FRAC_1_SQRT_2;
     let binary: Vec<_> = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, quarter, 0.0, quarter,
         2.0, 1.0, 3.0, 4.0, 2.0, 1.5]
         .into_iter().flat_map(f32::to_le_bytes).collect();
-    let mut document = serde_json::to_vec(&json!({
+    let document = json!({
         "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
         "nodes":[{"extras":{"feathrise_id":"旋转盒",
             "feathrise_motion_collider":{"center":[0.4,0,0],"half_extents":[1,0.2,0.3]}}}],
@@ -102,43 +104,10 @@ fn scene_motion_standard_glb_rotation_and_scale_update_the_offset_collision() {
                        "channels":[{"sampler":0,"target":{"node":0,"path":"rotation"}},
                                    {"sampler":1,"target":{"node":0,"path":"scale"}}],
                        "samplers":[{"input":0,"output":1},{"input":0,"output":2}]}]
-    })).unwrap();
-    document.resize(document.len().next_multiple_of(4), b' ');
-    let mut glb = b"glTF".to_vec();
-    glb.extend(2_u32.to_le_bytes());
-    glb.extend(((28 + document.len() + binary.len()) as u32).to_le_bytes());
-    glb.extend((document.len() as u32).to_le_bytes());
-    glb.extend(b"JSON");
-    glb.extend(document);
-    glb.extend((binary.len() as u32).to_le_bytes());
-    glb.extend(b"BIN\0");
-    glb.extend(binary);
-
-    let files = Dir::default();
-    files.insert_asset(Path::new("scene.glb"), glb);
-    let mut app = App::new();
-    app.register_asset_source(AssetSourceId::Default, AssetSourceBuilder::new(move || {
-        Box::new(MemoryAssetReader { root: files.clone() })
-    }))
-    .add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, MeshPlugin,
-        GltfPlugin::default(), SceneContentPlugin, PhysicsPlugins::default()))
-    .init_asset::<AnimationClip>()
-    .init_asset::<WorldAsset>()
-    .init_asset::<StandardMaterial>()
-    .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 64.0)))
-    .add_systems(FixedUpdate, drive.before(PhysicsSystems::Prepare));
-    app.finish();
-    app.cleanup();
-    let motion = app.world().resource::<AssetServer>().load::<SceneMotionAsset>("scene.glb#SceneMotion");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let track = loop {
-        app.update();
-        if let Some(asset) = app.world().resource::<Assets<SceneMotionAsset>>().get(&motion) {
-            break asset.tracks.as_ref().unwrap()["旋转盒"].clone();
-        }
-        assert!(Instant::now() < deadline, "真实 GLB 旋转片段未加载");
-        std::thread::sleep(Duration::from_millis(1));
-    };
+    });
+    let (mut app, motion) = motion_app(document, binary);
+    let track = app.world().resource::<Assets<SceneMotionAsset>>().get(&motion)
+        .unwrap().tracks.as_ref().unwrap()["旋转盒"].clone();
     let record: ScenePlacementRecord = serde_json::from_value(json!({
         "id":"旋转盒","translation":[0,1,0],"yaw_degrees":0,"scale":[2,1,3],
         "asset_target":ScenePlacementAssetTarget::DEFAULT_CUBOID,
@@ -164,4 +133,198 @@ fn scene_motion_standard_glb_rotation_and_scale_update_the_offset_collision() {
             .map(|hit| hit.entity)
     }).unwrap();
     assert_eq!(hit, Some(shape), "射线能命中新缩放后延伸的碰撞范围");
+}
+
+#[derive(Resource, Default)]
+struct FinishedClips(Vec<SceneMotionFinished>);
+
+#[test]
+fn scene_motion_commands_control_independent_targets_and_finish_once() {
+    let (mut app, clips) = manual_motion_app();
+    let scene = SceneId::parse("SCENE-motion").unwrap();
+    let instance = SceneInstancePath::root(scene.clone());
+    let [door, lift] = use_motion_clips(app.world_mut(), &scene, clips, None);
+    let step = |app: &mut App, frames| {
+        for _ in 0..frames { app.update(); }
+    };
+    let position = |app: &App, entity| app.world().get::<Position>(entity).unwrap().0;
+    let command = |app: &mut App, id: &str, action| {
+        app.world_mut().write_message(SceneMotionCommand {
+            instance: instance.clone(), clip_id: id.into(), action,
+        });
+    };
+
+    step(&mut app, 4);
+    assert_eq!(position(&app, door).x, 0.0);
+    assert_eq!(position(&app, lift).y, 1.0);
+    command(&mut app, "door", SceneMotionAction::Play);
+    step(&mut app, 30);
+    assert!(position(&app, door).x > 1.0);
+    assert_eq!(position(&app, lift).y, 1.0);
+    command(&mut app, "lift", SceneMotionAction::Play);
+    command(&mut app, "door", SceneMotionAction::Pause);
+    step(&mut app, 4);
+    let paused = position(&app, door);
+    step(&mut app, 80);
+    assert_eq!(position(&app, door), paused);
+    assert!((position(&app, lift).y - 3.0).abs() < 0.001);
+
+    command(&mut app, "door", SceneMotionAction::Reverse);
+    command(&mut app, "lift", SceneMotionAction::Stop);
+    step(&mut app, 70);
+    assert!(position(&app, door).x.abs() < 0.001);
+    assert!((position(&app, lift).y - 1.0).abs() < 0.001);
+    assert!(app.world().get::<MotionPlatform>(lift).unwrap().collider_ready(app.world(), lift));
+    assert!(app.world().get::<RigidBodyDisabled>(lift).is_none());
+    assert_eq!(app.world().resource::<FinishedClips>().0, [
+        SceneMotionFinished { instance: instance.clone(), clip_id: "lift".into(), direction: SceneMotionDirection::Forward },
+        SceneMotionFinished { instance: instance.clone(), clip_id: "door".into(), direction: SceneMotionDirection::Backward },
+    ]);
+
+    command(&mut app, "door", SceneMotionAction::Play);
+    command(&mut app, "door-alternate", SceneMotionAction::Play);
+    step(&mut app, 18);
+    assert!(position(&app, door).x < 0.0, "同一对象由后发的明确播放命令接管");
+    command(&mut app, "door", SceneMotionAction::Play);
+    step(&mut app, 8);
+    assert!(position(&app, door).x > 0.0, "原片段可再次接管，沿其自己的时钟继续");
+}
+
+#[cfg(feature = "runtime_test_support")]
+#[test]
+fn scene_motion_commands_address_one_of_two_instances_of_the_same_source() {
+    use feathrise_scene_content::{SceneInstanceId, SceneInstancePlacement};
+
+    let (mut app, clips) = manual_motion_app();
+    let owner = SceneId::parse("SCENE-main").unwrap();
+    let source = SceneId::parse("SCENE-shared").unwrap();
+    crate::runtime_test_support::install_active_terrain_instances(app.world_mut(), &owner, &[]);
+    let mut install_subscene = |id: &str| {
+        let placement = SceneInstancePlacement {
+            id: SceneInstanceId::parse(id).unwrap(), source_scene_id: source.clone(),
+            label: String::new(), transform: default(),
+        };
+        let entity = crate::runtime_test_support::install_active_subscene_instance(app.world_mut(), &owner, &placement);
+        use_motion_clips(app.world_mut(), &source, clips.clone(), Some(entity))[0]
+    };
+    let left = install_subscene("left");
+    let right = install_subscene("right");
+    let instance = SceneInstancePath::root(owner).child(SceneInstanceId::parse("right").unwrap());
+    app.world_mut().write_message(SceneMotionCommand {
+        instance: instance.clone(), clip_id: "door".into(), action: SceneMotionAction::Play,
+    });
+    for _ in 0..75 { app.update(); }
+    assert_eq!(app.world().get::<Position>(left).unwrap().0.x, 0.0);
+    assert!((app.world().get::<Position>(right).unwrap().0.x - 4.0).abs() < 0.001);
+    assert_eq!(app.world().resource::<FinishedClips>().0, [
+        SceneMotionFinished { instance, clip_id: "door".into(), direction: SceneMotionDirection::Forward },
+    ]);
+}
+
+fn use_motion_clips(world: &mut World, scene: &SceneId, clips: Arc<SceneMotionClips>, owner: Option<Entity>) -> [Entity; 2] {
+    let gate = PlacementInstanceGate::new(true);
+    let root = world.spawn((
+        Transform::IDENTITY, InheritedVisibility::VISIBLE, MotionController::new(scene.clone(), clips.clone(), gate.clone()),
+    )).id();
+    if let Some(owner) = owner { world.entity_mut(root).insert((ChildOf(owner), SceneInstanceOwner(owner))); }
+    let objects = [("door", 0.0), ("lift", 4.0)].map(|(id, z)| {
+        let record: ScenePlacementRecord = serde_json::from_value(json!({
+            "id":id, "translation":[0,1,z], "yaw_degrees":0, "scale":[1,1,1],
+            "asset_target":ScenePlacementAssetTarget::DEFAULT_CUBOID,
+        })).unwrap();
+        let origin = Transform::from_xyz(0.0, 1.0, z);
+        let entity = world.spawn((origin, ChildOf(root), ScenePlacementInstance::new_pending(scene, &record, gate.clone()))).id();
+        if let Some(owner) = owner { world.entity_mut(entity).insert(SceneInstanceOwner(owner)); }
+        let motion = PlacementMotion::Glb(clips.placement(id).unwrap().clone());
+        spawn(&mut world.commands().entity(entity), origin, &record, motion);
+        entity
+    });
+    let state = ScenePlacementRuntimeState {
+        active_scene_id: Some(scene.clone()),
+        active: Some(PlacementActiveBatch {
+            building_preset_revision: 0, terrain_roots: Vec::new(), primitive_collision_roots: Vec::new(),
+            root, roots: objects.to_vec(), gate, marker_cleanup_cursor: 0,
+        }),
+        ..default()
+    };
+    if let Some(owner) = owner {
+        world.get_resource_or_init::<InstanceResourceTable<ScenePlacementRuntimeState>>().values.insert(owner, state);
+    } else {
+        world.insert_resource(state);
+    }
+    world.flush();
+    objects
+}
+
+fn manual_motion_app() -> (App, Arc<SceneMotionClips>) {
+    let binary: Vec<_> = [0.0, 1.0, 0.0, 1.0, 0.0, 4.0, 1.0, 0.0, 0.0, 1.0, 4.0, 0.0, 3.0, 4.0,
+        0.0, 1.0, 0.0, -2.0, 1.0, 0.0]
+        .into_iter().flat_map(f32::to_le_bytes).collect();
+    let nodes = ["door", "lift"].map(|id| json!({"extras":{"feathrise_id":id}}));
+    let animations = [("door", 0, 1), ("lift", 1, 2), ("door-alternate", 0, 3)].map(|(id, node, output)| json!({
+        "name":id, "extras":{"feathrise_scene_animation":true,"feathrise_clip_id":id},
+        "channels":[{"sampler":0,"target":{"node":node,"path":"translation"}}],
+        "samplers":[{"input":0,"output":output}],
+    }));
+    let document = json!({
+        "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":nodes,
+        "buffers":[{"byteLength":binary.len()}],
+        "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":8},
+                       {"buffer":0,"byteOffset":8,"byteLength":24},
+                       {"buffer":0,"byteOffset":32,"byteLength":24},
+                       {"buffer":0,"byteOffset":56,"byteLength":24}],
+        "accessors":[{"bufferView":0,"componentType":5126,"count":2,"type":"SCALAR","min":[0],"max":[1]},
+                     {"bufferView":1,"componentType":5126,"count":2,"type":"VEC3"},
+                     {"bufferView":2,"componentType":5126,"count":2,"type":"VEC3"},
+                     {"bufferView":3,"componentType":5126,"count":2,"type":"VEC3"}],
+        "animations":animations,
+    });
+    let (app, motion) = motion_app(document, binary);
+    let clips = app.world().resource::<Assets<SceneMotionAsset>>().get(&motion).unwrap().clips.clone();
+    (app, clips)
+}
+
+fn motion_app(document: Value, binary: Vec<u8>) -> (App, Handle<SceneMotionAsset>) {
+    let mut document = serde_json::to_vec(&document).unwrap();
+    document.resize(document.len().next_multiple_of(4), b' ');
+    let mut glb = b"glTF".to_vec();
+    glb.extend(2_u32.to_le_bytes());
+    glb.extend(((28 + document.len() + binary.len()) as u32).to_le_bytes());
+    glb.extend((document.len() as u32).to_le_bytes());
+    glb.extend(b"JSON");
+    glb.extend(document);
+    glb.extend((binary.len() as u32).to_le_bytes());
+    glb.extend(b"BIN\0");
+    glb.extend(binary);
+
+    let files = Dir::default();
+    files.insert_asset(Path::new("scene.glb"), glb);
+    let mut app = App::new();
+    app.register_asset_source(AssetSourceId::Default, AssetSourceBuilder::new(move || {
+        Box::new(MemoryAssetReader { root: files.clone() })
+    }))
+    .add_plugins((MinimalPlugins, AssetPlugin::default(), TransformPlugin, MeshPlugin,
+        GltfPlugin::default(), SceneContentPlugin, PhysicsPlugins::default()))
+    .init_asset::<AnimationClip>()
+    .init_asset::<WorldAsset>()
+    .init_asset::<StandardMaterial>()
+    .init_resource::<FinishedClips>()
+    .add_message::<SceneMotionCommand>()
+    .add_message::<SceneMotionFinished>()
+    .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(1.0 / 64.0)))
+    .add_systems(PostUpdate, apply_commands)
+    .add_systems(FixedUpdate, (advance_playback, drive).chain().before(PhysicsSystems::Prepare))
+    .add_systems(Last, |mut events: MessageReader<SceneMotionFinished>, mut clips: ResMut<FinishedClips>| {
+        clips.0.extend(events.read().cloned());
+    });
+    app.finish();
+    app.cleanup();
+    let motion = app.world().resource::<AssetServer>().load::<SceneMotionAsset>("scene.glb#SceneMotion");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        app.update();
+        if app.world().resource::<Assets<SceneMotionAsset>>().get(&motion).is_some() { return (app, motion); }
+        assert!(Instant::now() < deadline, "真实 GLB 片段未加载");
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }

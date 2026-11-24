@@ -9,7 +9,6 @@ use crate::shared::world_asset_lifecycle::WorldAssetLifecycleIndex;
 use avian3d::prelude::ColliderOf;
 use bevy::camera::primitives::Aabb;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct PlacementReuseInputs<'w, 's> {
@@ -114,7 +113,7 @@ pub(super) fn reuse_placement(
     }
     match (motion, plan.motion.as_ref()) {
         (None, None) => {}
-        (Some(platform), Some(track)) if Arc::ptr_eq(&platform.track, track) => {}
+        (Some(platform), Some(track)) if platform.motion.shares_definition(track) => {}
         _ => return None, // 同批动画更新一起更换相位。未更新的动画根保留当前相位。
     }
     if !instance.matches_record(

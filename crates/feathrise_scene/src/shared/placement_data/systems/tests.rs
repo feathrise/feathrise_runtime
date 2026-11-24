@@ -105,6 +105,7 @@ fn world_asset_lifecycle_revokes_ready_credit_before_candidate_finish() {
     let mut state = ScenePlacementRuntimeState::default();
     state.active_scene_id = Some(scene_id.clone());
     state.pending = Some(PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 17,
@@ -270,6 +271,7 @@ fn candidate_app(total: usize, ready: bool) -> (App, Vec<Entity>) {
     });
     state.active_scene_id = Some(scene_id.clone());
     state.pending = Some(PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 5,
@@ -300,6 +302,7 @@ fn spawn_and_finish_zero_candidate(
             .id(); // 生产路径同样只拿到Commands预留Entity，本帧Query尚不可见。
         state.active_scene_id = Some(scene_id.clone());
         state.pending = Some(PendingPlacementRevision {
+            motion_clips: None,
             terrain_holes: Default::default(),
             terrain_patch_count: 0,
             generation: 2,

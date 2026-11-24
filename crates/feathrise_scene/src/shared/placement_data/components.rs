@@ -47,7 +47,7 @@ impl PlacementInstanceGate {
             .store(PlacementInstanceState::Retired as u8, Ordering::Release); // 切换场景、取消或替换时永久撤销本批保存与作者资格。
     }
 
-    fn is_active(&self) -> bool {
+    pub(super) fn is_active(&self) -> bool {
         self.state() == PlacementInstanceState::Active // F12读取时与采用侧Release建立完整身份边界。
     }
 

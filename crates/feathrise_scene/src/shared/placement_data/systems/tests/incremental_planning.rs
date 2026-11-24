@@ -492,6 +492,7 @@ fn cancelled_large_planning_prefix_is_released_with_a_fixed_budget() {
 fn adopted_large_candidate_moves_plans_and_ids_into_the_same_retirement_slot() {
     let scene_id = SceneId::parse("MAP-placement-retire-adopted").expect("测试场景ID合法"); // 模拟完整候选原子采用后的大数据所有权。
     let pending = PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 9, // 候选代次仅作为固定大小壳保留。
@@ -574,6 +575,7 @@ fn nested_water_paths_cannot_hide_inside_one_top_level_plan_drop() {
         })
         .collect(); // 一个PendingPlacementPlan内部共有四千零九十六个路径段。
     let pending = PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 1,                                           // 测试候选身份。
@@ -615,6 +617,7 @@ fn nested_water_strings_obey_the_shared_byte_budget() {
         .collect(); // 全部合法绑定合计远超单帧三十二KiB。
     let mut state = ScenePlacementRuntimeState::default(); // 构造采用终止边界。
     state.pending = Some(PendingPlacementRevision {
+        motion_clips: None,
         terrain_holes: Default::default(),
         terrain_patch_count: 0,
         generation: 1,                                           // 测试代次。
