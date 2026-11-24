@@ -33,6 +33,22 @@ pub struct PaintedWaterSurfaceSpawn {
 }
 
 impl PaintedWaterSurfaceSpawn {
+    /// 暂停或恢复玩法互动，保留渲染实体与足迹供同批水面再次启用。
+    pub fn set_interaction_enabled(&self, commands: &mut Commands, enabled: bool) {
+        let entity = self.entity;
+        commands.queue(move |world: &mut World| {
+            let Ok(mut entity) = world.get_entity_mut(entity) else { return; };
+            let interactive = enabled && entity.get::<DynamicWaterSurface>().is_some_and(|surface|
+                !matches!(&surface.interaction_footprint, WaterInteractionFootprint::Disabled));
+            // 纯视觉水面和已退役的实体没有可恢复的互动足迹。
+            match (entity.contains::<DynamicWaterCpuInteraction>(), interactive) {
+                (false, true) => { entity.insert(DynamicWaterCpuInteraction); }
+                (true, false) => { entity.remove::<DynamicWaterCpuInteraction>(); }
+                _ => {}
+            }
+        });
+    }
+
     pub fn retire(self, commands: &mut Commands) {
         super::super::retirement::retire_surface(
             commands,
@@ -58,6 +74,13 @@ pub struct StagedWaterSurface {
     additional_meshes: Vec<Handle<Mesh>>,
     additional_entities: Vec<Entity>,
     candidate_root: Option<Entity>, // 子块登记到隐藏根，采用时只切换一个根。
+}
+
+impl StagedWaterSurface {
+    /// 静水候选的稳定层 ID，供采用时套用对应来源的预览显隐。
+    pub fn still_water_id(&self) -> Option<&str> {
+        (self.descriptor.kind == super::WaterSurfaceKind::Still).then_some(self.descriptor.id.as_str())
+    }
 }
 
 /// 从完整水面描述创建项目统一的透明PBR动态水材质。

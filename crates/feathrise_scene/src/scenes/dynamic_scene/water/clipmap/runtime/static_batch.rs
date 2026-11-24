@@ -213,6 +213,7 @@ pub(super) fn stage_layer(
         coverage_bounds: prepared.coverage_bounds.expect("后台已过滤空层"),
         mask: prepared.pixels.clone(),
         volume: false,
+        participation: Arc::new(AtomicBool::new(true)),
         published: Some(batch.published.clone()),
     };
     let interaction = DynamicWaterSurface::from_clipmap(
@@ -272,7 +273,8 @@ pub(super) fn stage_density_layer(commands:&mut Commands,materials:&mut Assets<C
         extension:ClipmapWaterExtension::for_density(layer.image.clone().expect("完整静水遮罩"),bounds,prepared.layer.water_level,minimum_depth,fallback)});
     let surface=ClipmapWaterSurface {scene_id:scene_id.clone(),layer_id:prepared.layer.id.clone(),resolution:prepared.layer.resolution,
         world_min:bounds.0,world_max:bounds.1,water_level:prepared.layer.water_level,minimum_depth,height_revision:snapshot.revision,
-        coverage_bounds:prepared.coverage_bounds.expect("非空静水层"),mask:prepared.pixels.clone(),volume:false,published:Some(batch.published.clone())};
+        coverage_bounds:prepared.coverage_bounds.expect("非空静水层"),mask:prepared.pixels.clone(),volume:false,
+        participation:Arc::new(AtomicBool::new(true)),published:Some(batch.published.clone())};
     let interaction=DynamicWaterSurface::from_clipmap(&surface,snapshot,prepared.descriptor.flow_direction,prepared.descriptor.flow_speed);
     let entity=commands.spawn((Name::new(format!("原生静水作者层_{}",prepared.layer.id)),surface,interaction,MeshMaterial3d(material.clone()),
         Transform::IDENTITY,Visibility::Hidden,ChildOf(batch.root))).id();

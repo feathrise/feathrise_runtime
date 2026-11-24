@@ -272,11 +272,19 @@ pub(in crate::scenes::dynamic_scene) fn drive_dynamic_mesh_residency(
         .as_ref()
         .map_or(0, |snapshot| snapshot.revision); // 零表示尚未有任何建筑净空来源。
     let completed = state.mesh_chunk_task.as_mut().and_then(check_ready); // 主线程只执行一次非阻塞轮询。
-    if completed.is_some() {
+    let completed_identity = if completed.is_some() {
         state.mesh_chunk_task = None; // 完成任务立即释放single-flight槽。
-        state.mesh_chunk_task_identity = None; // 完成身份不再参与队列去重。
-    }
+        state.mesh_chunk_task_identity.take()
+    } else {
+        None
+    };
     let completed = match completed {
+        Some(result) if completed_identity.is_some_and(|(generation, revision, ..)| {
+            !state.current(generation, revision)
+        }) => {
+            AsyncComputeTaskPool::get().spawn(async move { drop(result) }).detach();
+            None // 已退役块的错误不能把关闭分类改成运行时失败。
+        }
         Some(Ok(outcome)) => Some(outcome),
         Some(Err(error)) => {
             state.queued_mesh_chunks.clear(); // 明确失败后停止同修订继续生成，等待资产事件或作者修复重试。

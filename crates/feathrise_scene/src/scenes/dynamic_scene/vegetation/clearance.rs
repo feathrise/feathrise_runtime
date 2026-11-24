@@ -193,7 +193,7 @@ pub(in crate::scenes::dynamic_scene) fn drive_dynamic_blade_clearance(
     let completed = state.blade_clearance_task.as_mut().and_then(check_ready); // 稳定帧只有一次Option和非阻塞轮询。
     if let Some(result) = completed {
         state.blade_clearance_task = None;
-        state.blade_clearance_task_identity = None;
+        let completed_identity = state.blade_clearance_task_identity.take();
         match result {
             Ok(build)
                 if state.current(build.generation, build.revision)
@@ -257,12 +257,17 @@ pub(in crate::scenes::dynamic_scene) fn drive_dynamic_blade_clearance(
                 state.blade_clearance_applied_revision = Some((build.clearance_revision, build.draft_revision)); // 草窗组原子换密度，不重建根。
                 status.applied_density_revision = build.draft_revision; // 只在当前根的全部窗口同次绑定后发布，单纯草稿publish不能取得此回执。
             }
-            Ok(_) => {} // 植被、场景或建筑净空换代后的迟到结果直接丢弃。
-            Err(error) => {
+            Ok(obsolete) => {
+                AsyncComputeTaskPool::get().spawn(async move { drop(obsolete) }).detach();
+            }
+            Err(error) if completed_identity.is_some_and(|(generation, revision, clearance, density)| {
+                state.current(generation, revision) && clearance == clearance_revision && density == density_revision
+            }) => {
                 status.phase = DynamicVegetationPhase::Failed;
                 status.detail = format!("Blade建筑植被净空生成失败：{error}");
                 return; // 保留上一完整密度句柄并停止同修订忙重试。
             }
+            Err(_) => {}
         }
     }
 

@@ -306,3 +306,41 @@ fn the_formal_container_projection_keeps_empty_vegetation_ready() {
     assert_eq!(status.scene_id, Some(fixture.map));
     assert_eq!(status.phase, DynamicVegetationPhase::Ready);
 }
+
+#[test]
+fn scene_layer_category_retires_vegetation_and_preserves_preview_adoption() {
+    let mut fixture = Fixture::new();
+    fixture.prepare();
+    fixture.start();
+    fixture.finish_task();
+    let world = fixture.app.world_mut();
+    let root = world.resource::<DynamicVegetationState>().active_root.unwrap();
+    let revision = world.resource::<DynamicVegetationStatus>().revision;
+    SceneManifestAsset::set_layer_preview_state(world, Some(fixture.map.clone()), (true, true), (true, false));
+    fixture.prepare();
+    let world = fixture.app.world_mut();
+    assert_eq!(world.get::<Visibility>(root), Some(&Visibility::Hidden));
+    assert_eq!(world.resource::<DynamicVegetationStatus>().revision, revision);
+
+    SceneManifestAsset::set_layer_preview_state(world, None, (true, true), (true, true));
+    let manifest = world.resource::<SceneContentRegistry>().handles(&fixture.map).unwrap().manifest.clone();
+    world.resource_mut::<Assets<SceneManifestAsset>>().get_mut(&manifest).unwrap()
+        .set_layer_category_state(true, false, false);
+    fixture.prepare();
+    let world = fixture.app.world_mut();
+    assert!(world.get_entity(root).is_err());
+    let state = world.resource::<DynamicVegetationState>();
+    assert!(state.category_disabled && state.active_root.is_none() && state.task.is_none());
+    assert!(state.candidate_ready_for_terrain(&fixture.map, 7, true));
+    assert_eq!(world.resource::<DynamicVegetationStatus>().phase, DynamicVegetationPhase::Ready);
+
+    world.resource_mut::<Assets<SceneManifestAsset>>().get_mut(&manifest).unwrap()
+        .set_layer_category_state(true, true, false);
+    fixture.prepare();
+    fixture.start();
+    fixture.finish_task();
+    let world = fixture.app.world();
+    let new_root = world.resource::<DynamicVegetationState>().active_root.unwrap();
+    assert_ne!(root, new_root);
+    assert_eq!(world.get::<Visibility>(new_root), Some(&Visibility::Inherited));
+}

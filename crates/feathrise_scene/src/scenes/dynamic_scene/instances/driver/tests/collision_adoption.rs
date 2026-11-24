@@ -109,6 +109,7 @@ fn seed_assets() -> Dir {
             published: true, placements_glb: true, surface_path: None, vegetation_path: None, water_path: None,
             boundary_path: None, characters_path: None };
         let manifest = SceneManifestAsset {
+            scene_layers: Default::default(),
             vegetation_paint_groups: Default::default(), schema_version: SCENE_SCHEMA_VERSION,
             id: id(scene), display_name: scene.into(), notes: String::new(), runtime_scene: "data_driven".into(),
             world_min: [-32.; 2], world_max: [32.; 2], default_spawn: [0., 4., 0.], environment: Default::default(),

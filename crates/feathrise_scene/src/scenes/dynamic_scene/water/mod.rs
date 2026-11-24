@@ -8,6 +8,7 @@ mod build; // 消费共享R8作者源快照并在后台调用统一静水与样�
 mod clipmap; // Geometry Clipmap共享正式环带/高度页的静水专用后端。
 mod resources; // 公开阶段、诊断与唯一写侧事务资源。
 mod runtime_batch; // 三类水体作者值冻结与统一实体安装，保持系统编排文件紧凑。
+mod still_water; // 单体参与使用实际来源，作者眼睛保持独立。
 mod systems; // R8/内存高度输入冻结、任务启动、迟到丢弃和原子实体替换。
 pub(super) fn install_volume(app:&mut bevy::prelude::App){clipmap::install_volume(app);}
 pub(in crate::scenes::dynamic_scene) use clipmap::add_volume_instance_systems;

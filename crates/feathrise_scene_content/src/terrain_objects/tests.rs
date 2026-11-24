@@ -11,6 +11,26 @@ fn blank() -> SceneManifestAsset {
     })).unwrap()
 }
 
+#[test]
+fn scene_layer_categories_round_trip_and_project_to_terrain() {
+    let mut scene = blank();
+    assert_eq!(scene.layer_category_state(false), (true, false));
+    assert_eq!(scene.layer_category_state(true), (true, false));
+    assert!(serde_json::to_value(&scene).unwrap().get("scene_layers").is_none());
+
+    scene.set_layer_category_state(false, false, true);
+    scene.set_layer_category_state(true, true, true);
+    let saved = serde_json::to_value(&scene).unwrap();
+    assert_eq!(saved["scene_layers"]["water"]["enabled"], false);
+    let mut reopened: SceneManifestAsset = serde_json::from_value(saved).unwrap();
+    assert_eq!(reopened.layer_category_state(false), (false, true));
+    assert_eq!(reopened.layer_category_state(true), (true, true));
+    assert_eq!(glb().source_manifest(&reopened).scene_layers, scene.scene_layers);
+    reopened.set_layer_category_state(false, true, false);
+    reopened.set_layer_category_state(true, true, false);
+    assert!(serde_json::to_value(&reopened).unwrap().get("scene_layers").is_none());
+}
+
 fn glb() -> SceneTerrainObject {
     SceneTerrainObject {clipmap_stitches: Default::default(),
         mesh_lod: None,
@@ -241,4 +261,25 @@ fn vertical_flat_terrain_expands_with_finite_projected_bounds_and_full_pose() {
         assert!(terrain.world_pose().transform_point(point)
             .abs_diff_eq(object.transform.as_transform().transform_point(point), 0.0001));
     }
+}
+#[test]
+fn still_water_controls_keep_same_id_sources_independent_and_default_fields_sparse() {
+    let terrain = TerrainId::parse("WATER-PRIVATE").unwrap();
+    let mut scene = blank();
+    assert_eq!(scene.still_water_layer_state(None, "lake"), (true, false));
+    scene.set_still_water_layer_state(None, "lake", false, false);
+    let root_disabled = scene.still_water_disabled_layers(None).unwrap().clone();
+    scene.set_still_water_layer_state(None, "lake", false, true);
+    scene.set_still_water_layer_state(Some(&terrain), "lake", true, true);
+    assert!(std::sync::Arc::ptr_eq(&root_disabled, scene.still_water_disabled_layers(None).unwrap()));
+    assert!(scene.still_water_disabled_layers(Some(&terrain)).is_none());
+
+    let saved = serde_json::to_value(&scene).unwrap();
+    assert_eq!(saved["scene_layers"]["still_water"]["root"]["disabled"], serde_json::json!(["lake"]));
+    let mut reopened: SceneManifestAsset = serde_json::from_value(saved).unwrap();
+    assert_eq!(reopened.still_water_layer_state(None, "lake"), (false, true));
+    assert_eq!(reopened.still_water_layer_state(Some(&terrain), "lake"), (true, true));
+    reopened.set_still_water_layer_state(None, "lake", true, false);
+    reopened.set_still_water_layer_state(Some(&terrain), "lake", true, false);
+    assert!(serde_json::to_value(reopened).unwrap().get("scene_layers").is_none());
 }

@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize}; // 编辑器与运行时共享同一文件�
 use crate::{SCENE_SCHEMA_VERSION, SceneId}; // 水域文件通过稳定场景ID归属场景私有目录。
 
 mod network; // 三维河流、急流和瀑布独立维护类型、预算与纯校验逻辑。
+mod still_water_state;
+
+pub use still_water_state::{SceneStillWaterPreviewState, SceneStillWaterSettings};
 
 pub use network::{
     SCENE_WATER_DOWNHILL_EPSILON_METERS, MAX_SCENE_WATER_FLOW_SPEED, MAX_SCENE_WATER_RIVER_POINTS,

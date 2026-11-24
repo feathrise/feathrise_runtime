@@ -1,6 +1,7 @@
 //! 模型植被来源捕获、单飞后台编译和完整身份采用；几何与密度都不在输入帧重建。
 use super::super::DynamicModelVegetationDraft;
 use super::{index::ModelSourceIndex, resources::*};
+use crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog;
 use crate::{ScenePlacementInstance, ScenePlacementRuntimeStatus};
 use bevy::{
     ecs::system::SystemParam,
@@ -9,7 +10,7 @@ use bevy::{
 };
 use feathrise_scene_content::{
     ActiveDynamicScene, RuntimeAssetRoot, SceneContentRegistry, SceneId, SceneInstancePath,
-    SceneVegetationAsset, SurfaceTarget, VegetationPresetRegistry,
+    SceneManifestAsset, SceneVegetationAsset, SurfaceTarget, VegetationPresetRegistry,
 };
 use feathrise_scene_core::residency::{InstanceFrame, InstanceQuery, InstanceRes, InstanceResMut};
 use std::sync::Arc;
@@ -18,6 +19,8 @@ use std::sync::Arc;
 pub(super) struct Inputs<'w, 's> {
     active: InstanceRes<'w, ActiveDynamicScene>,
     registry: InstanceRes<'w, SceneContentRegistry>,
+    catalog: SceneRuntimeCatalog<'w>,
+    manifests: Res<'w, Assets<SceneManifestAsset>>,
     definitions: Res<'w, Assets<SceneVegetationAsset>>,
     draft: Res<'w, DynamicModelVegetationDraft>,
     presets: Option<Res<'w, VegetationPresetRegistry>>,
@@ -192,6 +195,39 @@ pub(super) fn drive(
             ..default()
         };
     }
+    let (enabled, visible) = input.catalog.layer_category_runtime(scene, &input.manifests, true);
+    if !enabled {
+        if !state.category_disabled || !status.ready {
+            state.category_disabled = true;
+            cancel_waiting(&mut commands, &mut state);
+            clear_roots(&mut commands, &mut state);
+            state.building = None; // 在途模型源继续占唯一席位，关闭前的值一律拒收。
+            state.source = None;
+            state.failed = None;
+            *status = DynamicModelVegetationStatus {
+                scene_id: Some(scene.clone()),
+                ready: true,
+                runtime_revision: status.runtime_revision.wrapping_add(1),
+                detail: "场景植被图层分类已关闭".into(),
+                ..default()
+            };
+        }
+        if let Some(obsolete) = state.task.as_mut().and_then(check_ready) {
+            state.task = None;
+            AsyncComputeTaskPool::get().spawn(async move { drop(obsolete) }).detach();
+        }
+        return;
+    }
+    if state.category_disabled {
+        state.category_disabled = false;
+    }
+    let visibility = if visible { Visibility::Inherited } else { Visibility::Hidden };
+    if state.category_hidden == visible {
+        state.category_hidden = !visible;
+        for root in state.roots.values() {
+            commands.entity(*root).try_insert(visibility);
+        }
+    }
     let Some((draft, definition)) = input.source(&mut state, scene) else {
         // 尚未读到已登记文档时保持上一完整根；真正未声明文档的空场景立即就绪。
         if input
@@ -279,7 +315,7 @@ pub(super) fn drive(
                 // 全部对象的层/LOD/原型已齐，只有此处可撤销旧集合、一次显示新集合。
                 clear_roots(&mut commands, &mut state);
                 for root in waiting.retained.values() {
-                    commands.entity(*root).insert(Visibility::Inherited);
+                    commands.entity(*root).insert(visibility);
                 }
                 state.roots = std::mem::take(&mut waiting.retained);
                 status.applied_document = Some(identity.document);

@@ -260,6 +260,9 @@ fn splash_loading_clears_pool_and_wrap_preserves_delta() {
 
 #[test]
 fn splash_real_water_candidates_emit_and_weather_gates_clear() {
+    use bevy::ecs::world::CommandQueue;
+    use super::super::PaintedWaterSurfaceSpawn;
+
     // 实际足迹、目标选择、材质采样和池发射全链回归。
     let mut app = app(); // 生产系统和固定池已经初始化。
     let water = install_water(&mut app); // 复用真实水体安装路径。
@@ -281,6 +284,22 @@ fn splash_real_water_candidates_emit_and_weather_gates_clear() {
         && point.x.abs() < 6.0
         && point.z.abs() < 6.0
         && point.y.abs() < 1.0)); // 动态起点保持真实水域附近且有限。
+    let surface = PaintedWaterSurfaceSpawn {
+        entity: water,
+        mesh: default(),
+        material: app.world().get::<MeshMaterial3d<DynamicWaterMaterial>>(water).unwrap().0.clone(),
+        additional_meshes: Vec::new(),
+        additional_entities: Vec::new(),
+    };
+    let mut queue = CommandQueue::default();
+    app.world_mut().entity_mut(water).insert(Visibility::Hidden); // 眼睛隐藏仍保留互动资格。
+    for (enabled, expected) in [(false, None), (true, Some(water))] {
+        surface.set_interaction_enabled(&mut Commands::new(&mut queue, app.world()), enabled);
+        queue.apply(app.world_mut());
+        app.update();
+        assert_eq!(app.world().resource::<SplashWaterTarget>().0, expected);
+        assert_eq!(app.world().get::<Visibility>(water), Some(&Visibility::Hidden));
+    }
     app.world_mut()
         .resource_mut::<SurfaceWeatherGpu>()
         .weather

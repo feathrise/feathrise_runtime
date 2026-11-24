@@ -47,6 +47,7 @@ fn fixture() -> Fixture {
         .world_mut()
         .resource_mut::<Assets<SceneManifestAsset>>()
         .add(SceneManifestAsset {
+            scene_layers: Default::default(),
             schema_version: SCENE_SCHEMA_VERSION,
             id: map.clone(),
             display_name: "自有整体姿态回归".into(),

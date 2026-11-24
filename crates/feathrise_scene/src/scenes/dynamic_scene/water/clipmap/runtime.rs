@@ -112,7 +112,9 @@ pub(crate) struct ClipmapWaterRuntime {
     static_retired: VecDeque<StaticBatch>,
     spline_installed: Vec<InstalledSplineLayer>,
     installed_scene_id: Option<SceneId>,
+    installed_generation: u64,
     observed_draft_revision: Option<u64>,
+    category_hidden: bool,
     attempted: Option<PrepareIdentity>,
 }
 
@@ -121,6 +123,8 @@ impl ClipmapWaterRuntime {
     pub(in crate::scenes::dynamic_scene) fn background_finished(&self) -> bool {
         self.task.as_ref().is_none_or(|task| task.is_finished())
     }
+
+    pub(super) fn installed_generation(&self) -> u64 { self.installed_generation }
 }
 
 /// 标记由Clipmap水域事务安装的世界坐标Ribbon，F12草稿预览不得把它当成GLB旧批次隐藏。
@@ -141,15 +145,21 @@ pub struct ClipmapWaterSurface {
     pub coverage_bounds: [u32; 4],
     mask: Arc<[u8]>,
     volume: bool, // 外表面和三维派生水面互斥授权，防止同一洞内接触被处理两次。
+    participation: Arc<AtomicBool>, // 洞内副本与已冻结的互动足迹共享同一单体参与门。
     published: Option<Arc<AtomicBool>>, // 静水候选可逐帧建实体，渲染和CPU仍在同一整批边沿生效。
 }
 
 impl ClipmapWaterSurface {
     /// 分帧候选或已退役层不能用于编辑器高亮、选择和玩家互动。
     pub fn is_published(&self) -> bool {
-        self.published
+        self.participation.load(Ordering::Acquire) && self.published
             .as_ref()
             .is_none_or(|state| state.load(Ordering::Acquire))
+    }
+    pub(super) fn set_participating(&self, participating: bool) {
+        if self.participation.load(Ordering::Relaxed) != participating {
+            self.participation.store(participating, Ordering::Release);
+        }
     }
     #[cfg(test)]
     pub(super) fn with_test_mask(mut self, resolution: [u32; 2], mask: Vec<u8>) -> Self {
@@ -267,6 +277,7 @@ pub(crate) fn test_clipmap_water_surface() -> ClipmapWaterSurface {
         coverage_bounds: [0, 0, 2, 2],
         mask: Arc::from(vec![255; 4]),
         volume: false,
+        participation: Arc::new(AtomicBool::new(true)),
         published: None,
     }
 }
@@ -293,6 +304,7 @@ fn remove_installed(
         installed.spawn.retire(commands);
     }
     runtime.installed_scene_id = None;
+    runtime.installed_generation = 0;
 }
 
 /// 切换场景、热更或失败时回收尚未发布的样条候选；迟到RenderApp回执按ticket自然失效。
@@ -507,6 +519,28 @@ pub(crate) fn drive_clipmap_water(
         mut status,
         mut runtime,
     } = params;
+    if state.category_disabled {
+        discard_pending(&mut commands, &mut meshes, &mut dynamic_materials, &mut uploads, &mut runtime);
+        if runtime.installed_scene_id.is_some() {
+            remove_installed(&mut commands, &mut meshes, &mut clip_materials, &mut dynamic_materials,
+                &mut runtime, &mut uploads);
+        }
+        if let Some((_, result)) = runtime.task.as_mut().and_then(check_ready) {
+            runtime.task = None; // 关闭分类也保留后台席位到完成，避免快速切换并行建整图。
+            crate::retire_water_cpu(&mut commands, result);
+        }
+        return;
+    }
+    if runtime.category_hidden != state.category_hidden {
+        runtime.category_hidden = state.category_hidden;
+        let visibility = state.category_visibility();
+        if let Some(batch) = &runtime.static_installed {
+            commands.entity(batch.root).try_insert(visibility);
+        }
+        for layer in &runtime.spline_installed {
+            commands.entity(layer.spawn.entity).try_insert(visibility);
+        }
+    }
     let Some(scene_id) = active.scene_id.as_ref() else {
         return;
     };
@@ -969,6 +1003,7 @@ pub(crate) fn drive_clipmap_water(
             commands.entity(spawn.entity).insert((
                 ClipmapSplineWaterSurface,
                 DespawnOnExit(ScenePhase::Active),
+                state.category_visibility(),
             )); // 世界XYZ Ribbon独立于移动环带，但仍属于同一Clipmap水域原子批次。
             next_spline.push(InstalledSplineLayer { spawn });
         }
@@ -989,11 +1024,15 @@ pub(crate) fn drive_clipmap_water(
         );
         if let Some(batch) = &next_static {
             batch.publish(&mut commands);
+            if state.category_hidden {
+                commands.entity(batch.root).insert(Visibility::Hidden);
+            }
         }
         let native_static=density && next_static.as_ref().is_some_and(|batch|!batch.layers.is_empty());
         runtime.static_installed = next_static;
         runtime.spline_installed = next_spline;
         runtime.installed_scene_id = Some(scene_id.clone());
+        runtime.installed_generation = generation;
         state.installed_scene_id = Some(scene_id.clone());
         status.phase = if native_static {DynamicWaterPhase::Building} else {DynamicWaterPhase::Ready};
         status.scene_id = Some(scene_id.clone());
@@ -1085,6 +1124,7 @@ pub(crate) fn drive_clipmap_water(
     let paths = definition
         .layers
         .iter()
+        .filter(|layer| state.still_water.enabled(&layer.id))
         .map(|layer| (layer.id.clone(), layer.mask_source_path.clone()))
         .collect::<BTreeMap<_, _>>();
     if draft_sources.is_none() && state.mask_paths != paths {
@@ -1103,6 +1143,7 @@ pub(crate) fn drive_clipmap_water(
 
     let mut frozen = Vec::with_capacity(definition.layers.len());
     for layer in &definition.layers {
+        if !state.still_water.enabled(&layer.id) { continue; }
         let descriptor = if layer.preset_id.is_empty() {
             WaterSurfaceDescriptor::from_layer(layer)
         } else {
@@ -1288,6 +1329,7 @@ pub(crate) fn follow_clipmap_water(
     >,
     mut materials: ResMut<Assets<ClipmapWaterMaterial>>,
     runtime: InstanceRes<ClipmapWaterRuntime>,
+    state: Option<InstanceRes<DynamicWaterState>>,
     mut status: InstanceResMut<DynamicWaterStatus>,
 ) {
     let Some(installed_batch) = runtime.static_installed.as_ref() else {
@@ -1309,7 +1351,10 @@ pub(crate) fn follow_clipmap_water(
         else {
             continue;
         };
-        if !ready {
+        let controls = state.as_deref().map(|state| &state.still_water);
+        let participating = controls.is_none_or(|controls| controls.enabled(&surface.layer_id));
+        surface.set_participating(participating);
+        if !participating || !ready {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -1327,7 +1372,7 @@ pub(crate) fn follow_clipmap_water(
         if *transform != *source_transform {
             *transform = *source_transform;
         }
-        *visibility = Visibility::Inherited;
+        *visibility = controls.map_or(Visibility::Inherited, |controls| controls.visibility(&surface.layer_id));
         surface.height_revision = snapshot.revision;
         interaction.sync_clipmap_footprint(&surface, snapshot); // 高度换代不清空玩家波纹历史，只替换同代查询绑定。
         if let Some(mut material) = materials.get_mut(&installed.material) {
@@ -1356,6 +1401,22 @@ mod tests {
     use crate::scenes::dynamic_scene::clipmap::test_ground_snapshot;
     use feathrise_scene_content::{SceneWaterRiver, SceneWaterSplinePoint};
 
+    #[test]
+    fn still_water_participation_revokes_existing_surface_and_volume_samples() {
+        let water = surface(vec![255; 9]);
+        let volume = water.clone().volume_copy();
+        let sibling = surface(vec![255; 9]);
+        assert_eq!(water.coverage_at(Vec2::ONE), 1.);
+        assert_eq!(volume.coverage_at(Vec2::ONE), 1.);
+        water.set_participating(false);
+        assert!(!volume.is_published());
+        assert_eq!(water.coverage_at(Vec2::ONE), 0.);
+        assert_eq!(volume.coverage_at(Vec2::ONE), 0.);
+        assert_eq!(sibling.coverage_at(Vec2::ONE), 1., "同名兄弟来源不能被撤销");
+        water.set_participating(true);
+        assert_eq!(volume.coverage_at(Vec2::ONE), 1.);
+    }
+
     fn surface(mask: Vec<u8>) -> ClipmapWaterSurface {
         ClipmapWaterSurface {
             scene_id: SceneId::parse("MAP-ground-test").unwrap(),
@@ -1369,6 +1430,7 @@ mod tests {
             coverage_bounds: [0, 0, 3, 3],
             mask: Arc::from(mask),
             volume: false,
+            participation: Arc::new(AtomicBool::new(true)),
             published: None,
         }
     }

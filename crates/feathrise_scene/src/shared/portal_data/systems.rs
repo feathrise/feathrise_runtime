@@ -617,6 +617,7 @@ mod tests {
         let target_scene_id = SceneId::parse("MAP-default-arrival").expect("测试场景ID有效");
         let mut manifests = Assets::<SceneManifestAsset>::default(); // 只登记目标清单，不登记目标传送图。
         let manifest_handle = manifests.add(SceneManifestAsset {
+            scene_layers: Default::default(),
             vegetation_paint_groups: Default::default(),
             terrains: None,
             subscenes: Default::default(),

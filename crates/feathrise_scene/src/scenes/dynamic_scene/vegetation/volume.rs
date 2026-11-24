@@ -348,6 +348,8 @@ struct State {
     collision_sources: Arc<Vec<collision::Source>>,
     valid: bool,
     blade_only: bool,
+    category_disabled: bool,
+    category_hidden: bool,
 }
 
 pub(super) fn install(app: &mut App) {
@@ -433,6 +435,32 @@ fn drive(
     work: Option<Res<super::super::voxel_objects::VoxelWorkBudget>>,
     mut banks: Option<ResMut<GpuBladeProfileBanks>>,
 ) {
+    if vegetation.category_disabled || state.category_disabled {
+        if !state.category_disabled {
+            let task = state.task.take();
+            let boundary_revision = state.boundary_revision.wrapping_add(1);
+            let retired = std::mem::replace(&mut *state, State {
+                category_disabled: true,
+                task,
+                boundary_revision,
+                ..default()
+            });
+            if let Some(root) = retired.root {
+                commands.entity(root).try_despawn();
+            }
+            if retired.active.is_some() || retired.waiting.is_some() {
+                AsyncComputeTaskPool::get().spawn(async move { drop(retired) }).detach();
+            }
+        }
+        if let Some(obsolete) = state.task.as_mut().and_then(check_ready) {
+            state.task = None;
+            AsyncComputeTaskPool::get().spawn(async move { drop(obsolete) }).detach();
+        }
+        if vegetation.category_disabled || state.task.is_some() {
+            return; // 关闭与重新参与之间不并行启动全量三维派生。
+        }
+        state.category_disabled = false;
+    }
     let Some(ground) = ground.snapshot.as_ref().filter(|g| g.ready) else {
         state.valid = false; // 同时撤销近场碰撞的授权，不能只暂停源派生。
         status.volume_ready = false;
@@ -496,15 +524,16 @@ fn drive(
         .as_ref()
         .is_some_and(|active| active.same_support(&identity));
     status.volume_ready = state.valid;
-    if was_valid != state.valid
+    if (was_valid != state.valid || state.category_hidden != vegetation.category_hidden)
         && let Some(root) = state.root
     {
         commands.entity(root).insert(if state.valid {
-            Visibility::Inherited
+            vegetation.category_visibility()
         } else {
             Visibility::Hidden
         });
     } // 暂停时停用旧显示/碰撞；同一完整版本恢复时必须一起恢复，不能留下永久隐藏根。
+    state.category_hidden = vegetation.category_hidden;
     // 每窗只同步固定参数，作者源像素只在完整身份变化时派生。
     for (_, layer, mut window) in &mut windows {
         if let Some((_, _, prototype, _, _)) = prototypes
@@ -596,7 +625,7 @@ fn drive(
                                 VolumeVegetationRoot,
                                 Name::new("三维GPU植被"),
                                 Transform::IDENTITY,
-                                Visibility::Inherited,
+                                vegetation.category_visibility(),
                                 DespawnOnExit(feathrise_scene_core::state::ScenePhase::Active),
                             ))
                             .id()

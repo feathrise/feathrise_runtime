@@ -6,6 +6,7 @@ use std::sync::Arc; // Clipmap作者草稿共享R8，不在主线程复制4096²
 use bevy::prelude::*; // Entity、Handle、Mesh与Resource。
 use bevy::tasks::Task; // 同一场景最多一个全水域建网格任务。
 use feathrise_scene_content::{SceneId, SceneWaterAsset, SceneWaterMaskAsset}; // R8作者资产和稳定场景身份进入任务状态。
+use super::still_water::{StillWaterDisplay, StillWaterRuntime};
 
 use crate::shared::large_scene::{
     BuiltWaterSurface, PaintedWaterSurfaceSpawn, StagedWaterSurface, WaterGpuUploadTicket,
@@ -22,7 +23,7 @@ pub(super) type DynamicWaterTaskResult = (
 /// 动态场景水域运行时阶段。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DynamicWaterPhase {
-    /// 当前目录未声明水域文件。
+    /// 当前目录未声明水域文件或所属水域分类已关闭。
     #[default]
     Disabled,
     /// JSON、无Mip R8作者源或GLB派生内存高度仍在异步准备。
@@ -158,6 +159,17 @@ pub struct TerrainWaterRebuildRequest {
 /// 一个当前已安装静水、河流或瀑布水面的资产所有权。
 pub(super) struct InstalledDynamicWaterLayer {
     pub(super) spawn: PaintedWaterSurfaceSpawn,
+    pub(super) still_water: Option<StillWaterDisplay>,
+}
+
+impl InstalledDynamicWaterLayer {
+    pub(super) fn retire(self, commands: &mut Commands) {
+        self.spawn.retire(commands);
+        if let Some(still_water) = self.still_water {
+            // 水面先拆入隐藏回收根，作者显隐父级此时已为空。
+            commands.entity(still_water.root).try_despawn();
+        }
+    }
 }
 
 /// CPU整批成功后逐帧登记的不可见候选；完整GPU回执前旧正式水面继续显示。
@@ -188,6 +200,11 @@ pub(crate) struct DynamicWaterState {
     pub(super) generation: u64,
     /// 最新输入尚未提交后台构建。
     pub(super) dirty: bool,
+    /// 分类关闭后原子回收水网，GLB地形提交无需等待水域候选。
+    pub(super) category_disabled: bool,
+    /// 作者眼睛和草稿参与只改变呈现，不中止保存所需的正式回执。
+    pub(super) category_hidden: bool,
+    pub(super) still_water: StillWaterRuntime,
     /// 当前层ID到无Mip R8作者源强句柄。
     pub(super) mask_handles: BTreeMap<String, Handle<SceneWaterMaskAsset>>,
     pub(super) mask_asset_ids: std::collections::HashSet<AssetId<SceneWaterMaskAsset>>, // 事件帧O(1)身份反查，不扫描全部水层。
@@ -201,6 +218,8 @@ pub(crate) struct DynamicWaterState {
     pub(super) pending: Option<PendingDynamicWaterBatch>,
     /// 上一完整有效结果；热更失败时继续显示。
     pub(super) installed: Vec<InstalledDynamicWaterLayer>,
+    /// 分类显隐拥有单独父根，单水面继续允许作者预览临时接管。
+    pub(super) display_root: Option<Entity>,
 }
 
 /// 宿主只把并发席位归还给真正结清后台工作的实例。
@@ -214,6 +233,10 @@ impl DynamicWaterState {
 }
 
 impl DynamicWaterState {
+    pub(super) fn category_visibility(&self) -> Visibility {
+        if self.category_hidden { Visibility::Hidden } else { Visibility::Inherited }
+    }
+
     /// 全局地形提交门查询当前水域是否已为指定GLB候选准备完整隐藏批次。
     pub(crate) fn candidate_ready_for_terrain(
         &self,
@@ -221,8 +244,8 @@ impl DynamicWaterState {
         terrain_generation: u64,
         required: bool,
     ) -> bool {
-        if !required {
-            return true; // 未声明水域的场景没有待切换水体。
+        if !required || self.category_disabled {
+            return true; // 未声明或关闭水域的场景没有待切换水体。
         }
         self.pending.as_ref().is_some_and(|pending| {
             pending.scene_id == *scene_id

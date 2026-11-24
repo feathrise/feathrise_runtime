@@ -1,6 +1,7 @@
 //! 运行时来源视图与正式目录分离；场景容器不再加载属于兼容主地形的画布、植被和水域。
 use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_scene_content::{ActiveDynamicScene, SceneContentRegistry, SceneId, SceneInstanceAuthorPreview, SceneManifestAsset, SceneTerrainDescriptor};
+use feathrise_scene_content::SceneLayerPreviewState;
 use feathrise_scene_core::residency::{InstanceRes, SceneResidencyAppExt};
 
 #[derive(Resource, Default)]
@@ -17,12 +18,45 @@ pub struct SceneRuntimeCatalog<'w> {
     scope: feathrise_scene_core::residency::InstanceFrame<'w>,
     active: Res<'w, ActiveDynamicScene>,
     container: Option<Res<'w, ContainerSource>>,
+    layer_preview: Option<Res<'w, SceneLayerPreviewState>>,
 }
 
 impl SceneRuntimeCatalog<'_> {
     /// 同目录作者资产沿登记清单查找。容器清单是没有资产路径的内存投影。
     pub(crate) fn registered_manifest(&self, scene: &SceneId) -> Option<&Handle<SceneManifestAsset>> {
         self.registry.handles(scene).map(|handles| &handles.manifest)
+    }
+
+    /// 正式作者开关读取原场景，避免已驻场的私有地形继续使用早期清单投影。
+    pub(super) fn published_manifest<'a>(
+        &self,
+        scene: &SceneId,
+        manifests: &'a Assets<SceneManifestAsset>,
+    ) -> Option<&'a SceneManifestAsset> {
+        self.registry.for_instance(None)
+            .and_then(|registered| registered.handles(scene))
+            .and_then(|handles| manifests.get(&handles.manifest))
+            .or_else(|| manifests.get(self.registered_manifest(scene)?))
+            .filter(|manifest| &manifest.id == scene)
+    }
+
+    /// 地形投影跟随所属源场景的正式开关，源清单改动无需等待重建该投影。
+    pub(super) fn layer_category_runtime(
+        &self,
+        scene: &SceneId,
+        manifests: &Assets<SceneManifestAsset>,
+        vegetation: bool,
+    ) -> (bool, bool) {
+        if self.active.scene_id.as_ref() == Some(scene)
+            && let Some((enabled, visible)) = self.layer_preview.as_deref()
+                .and_then(|preview| preview.state(scene, vegetation))
+        {
+            // 编辑器只切换呈现，保留构建及 GPU 回执，使隐藏时仍可正常保存水域与植被草稿。
+            return (true, enabled && visible);
+        }
+        let enabled = self.published_manifest(scene, manifests)
+            .is_none_or(|manifest| manifest.layer_category_state(vegetation).0);
+        (enabled, true)
     }
 }
 
@@ -118,6 +152,53 @@ mod tests {
             let source = view.registered_manifest(&scene).unwrap();
             assert_eq!(source, &manifest);
             assert_eq!(SceneMotionAsset::path(source).unwrap().to_string(), format!("mounted://{PATH}#SceneMotion"));
+        }).unwrap();
+    }
+
+    #[test]
+    fn scene_layer_category_reads_live_owner_and_keeps_child_scene_independent() {
+        use feathrise_scene_core::residency::{InstanceResourceTable, SceneRuntimeScope};
+
+        fn handles(manifest: Handle<SceneManifestAsset>) -> SceneContentHandles {
+            SceneContentHandles { manifest, portals: default(), placements: default(), characters_path: None,
+                surface: None, vegetation: None, water: None, boundaries: None }
+        }
+        fn manifest(id: &SceneId) -> SceneManifestAsset {
+            serde_json::from_value(serde_json::json!({ "schema_version": SCENE_SCHEMA_VERSION,
+                "id": id, "display_name": "分类运行域", "runtime_scene": "data_driven",
+                "world_min": [0, 0], "world_max": [10, 10], "default_spawn": [0, 0, 0] })).unwrap()
+        }
+
+        let owner = SceneId::parse("SCENE-layer-owner").unwrap();
+        let child = SceneId::parse("SCENE-layer-child").unwrap();
+        let mut world = World::default();
+        let private_terrain = world.spawn_empty().id();
+        let mut owner_manifest = manifest(&owner);
+        let mut manifests = Assets::<SceneManifestAsset>::default();
+        let stale_projection = manifests.add(owner_manifest.clone());
+        owner_manifest.set_layer_category_state(false, false, false);
+        let owner_handle = manifests.add(owner_manifest);
+        let child_handle = manifests.add(manifest(&child));
+        world.insert_resource(manifests);
+        world.insert_resource(ActiveDynamicScene { scene_id: Some(owner.clone()) });
+        world.insert_resource(SceneContentRegistry { scenes: std::collections::BTreeMap::from([
+            (owner.clone(), handles(owner_handle)), (child.clone(), handles(child_handle)),
+        ]), ..default() });
+        world.insert_resource(SceneRuntimeScope { instance: Some(private_terrain), ..default() });
+        world.insert_resource(InstanceResourceTable { values: std::collections::BTreeMap::from([(
+            private_terrain, SceneContentRegistry { scenes: std::collections::BTreeMap::from([
+                (owner.clone(), handles(stale_projection)),
+            ]), ..default() },
+        )]) });
+
+        let scene = owner.clone();
+        world.run_system_once(move |catalog: SceneRuntimeCatalog, manifests: Res<Assets<SceneManifestAsset>>| {
+            assert_eq!(catalog.layer_category_runtime(&scene, &manifests, false), (false, true));
+        }).unwrap();
+        SceneManifestAsset::set_layer_preview_state(&mut world, Some(owner.clone()), (true, false), (true, true));
+        world.run_system_once(move |catalog: SceneRuntimeCatalog, manifests: Res<Assets<SceneManifestAsset>>| {
+            assert_eq!(catalog.layer_category_runtime(&owner, &manifests, false), (true, false));
+            assert_eq!(catalog.layer_category_runtime(&child, &manifests, false), (true, true));
         }).unwrap();
     }
 }

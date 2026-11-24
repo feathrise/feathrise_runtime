@@ -20,6 +20,7 @@ struct Source(Entity);
 struct Identity {
     ground: [u64; 7],
     window: [u64; 3], // 原生环境窗口跟随附近驻留；旧Clipmap外景继续使用内容身份。
+    participation_revision: u64, // 停用后快速恢复也不能接住曾经失权的旧体积候选。
     layers: Vec<(Entity, AssetId<ClipmapWaterMaterial>, usize, [u32; 12])>,
 }
 mod build;

@@ -30,6 +30,7 @@ struct Fixture {
 
 fn manifest(map: SceneId, label: &str) -> SceneManifestAsset {
     SceneManifestAsset {
+        scene_layers: Default::default(),
         vegetation_paint_groups: Default::default(),
         schema_version: SCENE_SCHEMA_VERSION,
         id: map,

@@ -14,6 +14,7 @@ use super::helpers::{
     image_event_requests_rebuild, load_pending_assets, validate_vegetation_definition,
 };
 use super::resources::{DynamicVegetationPhase, DynamicVegetationState, DynamicVegetationStatus};
+use super::systems::retire_dynamic_vegetation;
 use super::transactions::fail_current_revision;
 use crate::scenes::dynamic_scene::terrain_derived::DynamicTerrainHeightCache; // 当前定义只采用同代次完整CPU/GPU高度派生值。
 
@@ -32,6 +33,12 @@ pub(in crate::scenes::dynamic_scene) fn observe_dynamic_vegetation_assets(
     mut state: InstanceResMut<DynamicVegetationState>,
     mut status: InstanceResMut<DynamicVegetationStatus>,
 ) {
+    if state.category_disabled {
+        definition_events.read().for_each(drop);
+        image_events.read().for_each(drop);
+        mesh_events.read().for_each(drop);
+        return;
+    }
     let failed = status.phase == DynamicVegetationPhase::Failed;
     let draft_revision = active_scene
         .scene_id
@@ -133,6 +140,32 @@ pub(in crate::scenes::dynamic_scene) fn prepare_dynamic_vegetation_definition(
     mut state: InstanceResMut<DynamicVegetationState>,
     mut status: InstanceResMut<DynamicVegetationStatus>,
 ) {
+    let (enabled, visible) = active_scene.scene_id.as_ref().zip(registry.as_ref())
+        .map_or((true, true), |(scene, registry)| registry.layer_category_runtime(scene, &manifests, true));
+    if !enabled {
+        if !state.category_disabled || status.scene_id != active_scene.scene_id {
+            retire_dynamic_vegetation(&mut commands, &mut state);
+            state.category_disabled = true;
+            *status = DynamicVegetationStatus {
+                phase: DynamicVegetationPhase::Ready,
+                scene_id: active_scene.scene_id.clone(),
+                revision: status.revision.wrapping_add(1),
+                detail: "场景植被图层分类已关闭".to_owned(),
+                ..default()
+            };
+        }
+        return;
+    }
+    if state.category_disabled {
+        state.category_disabled = false;
+        state.request_rebuild();
+    }
+    if state.category_hidden == visible {
+        state.category_hidden = !visible;
+        if let Some(root) = state.active_root {
+            commands.entity(root).try_insert(state.category_visibility());
+        }
+    }
     if !state.dirty {
         return;
     }

@@ -331,11 +331,15 @@ pub(in crate::scenes::dynamic_scene) fn install_dynamic_vegetation(
                     None => return,
                 }
             }
-            Ok(_) => return,
-            Err(error) => {
+            Ok(obsolete) => {
+                AsyncComputeTaskPool::get().spawn(async move { drop(obsolete) }).detach();
+                return;
+            }
+            Err(error) if state.attempted_revision == Some((state.generation, state.revision)) => {
                 fail_current_revision(&mut commands, &mut state, &mut status, error);
                 return;
             }
+            Err(_) => return, // 关闭分类或换代时，旧任务的失败也不能污染当前状态。
         }
     }
 }
@@ -375,7 +379,7 @@ fn commit_staged_vegetation(
         .expect("候选根必须拥有同修订Mesh分块源");
     commands
         .entity(candidate.root)
-        .insert(Visibility::Inherited);
+        .insert(state.category_visibility());
     // 候选在隐藏建根时已取得自己的绘制槽；提交只切换本域根，不覆盖全世界目录。
     if let Some(old_root) = state.active_root.replace(candidate.root) {
         commands.entity(old_root).try_despawn();
@@ -422,6 +426,15 @@ pub(in crate::scenes::dynamic_scene) fn clear_dynamic_vegetation(
     mut state: InstanceResMut<DynamicVegetationState>,
     mut status: InstanceResMut<DynamicVegetationStatus>,
 ) {
+    retire_dynamic_vegetation(&mut commands, &mut state);
+    *status = DynamicVegetationStatus {
+        detail: "已离开动态场景".to_owned(),
+        ..default()
+    };
+}
+
+/// 离场和正式分类关闭使用同一个退役边界，保持各后台槽到旧任务自然结清。
+pub(super) fn retire_dynamic_vegetation(commands: &mut Commands, state: &mut DynamicVegetationState) {
     if let Some(staging) = state.mesh_chunk_staging.take() {
         commands.entity(staging.root).try_despawn();
     }
@@ -444,10 +457,6 @@ pub(in crate::scenes::dynamic_scene) fn clear_dynamic_vegetation(
         blade_clearance_task_identity,
         mesh_chunk_task,
         mesh_chunk_task_identity,
-        ..default()
-    };
-    *status = DynamicVegetationStatus {
-        detail: "已离开动态场景".to_owned(),
         ..default()
     };
 }

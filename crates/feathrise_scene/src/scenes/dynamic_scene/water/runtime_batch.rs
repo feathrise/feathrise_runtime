@@ -3,7 +3,7 @@
 //! 【功能设计】`systems.rs`继续只编排资产门、single-flight身份和原子替换；河流/瀑布作者值
 //! 克隆以及完成Mesh到统一水面实体的组装集中在这里，避免准备和安装系统继续膨胀。
 
-use bevy::prelude::{Assets, Commands, Mesh}; // 主线程分帧登记资产，回执后一次生成实体。
+use bevy::prelude::{Assets, ChildOf, Commands, DespawnOnExit, Entity, Mesh, Transform};
 use feathrise_scene_content::{SceneId, SceneWaterAsset, SceneWaterRiver, SceneWaterfall}; // 冻结完整样条作者值供后台任务独占。
 use feathrise_scene_core::state::ScenePhase; // 新安装水面统一随动态场景场景退出回收。
 
@@ -13,6 +13,7 @@ use crate::shared::large_scene::{
 }; // 湖、河、急流和瀑布共用唯一正式安装入口。
 
 use super::resources::InstalledDynamicWaterLayer; // 整批安装结果继续由动态场景状态拥有资产句柄。
+use super::still_water::{StillWaterDisplay, StillWaterRuntime};
 
 /// 从当前已验证水域资产冻结三维河流与瀑布作者值，后台闭包不借用主世界Assets。
 pub(super) fn freeze_spline_water_network(
@@ -41,9 +42,16 @@ pub(super) fn spawn_dynamic_water_batch(
     commands: &mut Commands,
     scene_id: &SceneId,
     staged: Vec<StagedWaterSurface>,
+    batch_root: Entity,
+    controls: &StillWaterRuntime,
 ) -> Vec<InstalledDynamicWaterLayer> {
     let mut installed = Vec::with_capacity(staged.len());
     for staged in staged {
+        let still_water = staged.still_water_id().map(|id| StillWaterDisplay {
+            id: id.to_owned(),
+            // 单体眼睛使用单独父级，水面本身的 Visibility 继续归原作者预览 suppression。
+            root: commands.spawn((Transform::IDENTITY, controls.visibility(id), ChildOf(batch_root))).id(),
+        });
         let spawn = spawn_staged_water_surface(
             commands,
             scene_id.clone(),
@@ -52,9 +60,10 @@ pub(super) fn spawn_dynamic_water_batch(
         );
         commands
             .entity(spawn.entity)
-            .insert(bevy::prelude::DespawnOnExit(ScenePhase::Active)); // 退出动态场景时提供第二道实体回收保险。
+            .insert((ChildOf(still_water.as_ref().map_or(batch_root, |still| still.root)), DespawnOnExit(ScenePhase::Active)));
         installed.push(InstalledDynamicWaterLayer {
             spawn, // 保存实体、Mesh和材质强句柄供原子替换时回收。
+            still_water,
         });
     }
     installed

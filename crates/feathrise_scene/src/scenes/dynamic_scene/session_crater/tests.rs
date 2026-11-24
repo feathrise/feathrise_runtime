@@ -151,6 +151,7 @@ fn context(
         .world_mut()
         .resource_mut::<Assets<SceneManifestAsset>>()
         .add(SceneManifestAsset {
+            scene_layers: Default::default(),
             vegetation_paint_groups: Default::default(),
             schema_version: SCENE_SCHEMA_VERSION,
             id: source.clone(),

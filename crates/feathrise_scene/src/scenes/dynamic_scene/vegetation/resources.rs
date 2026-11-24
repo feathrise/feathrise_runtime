@@ -261,6 +261,9 @@ pub(crate) struct DynamicVegetationState {
     pub(super) collision_focus_cell: Option<[i32; 2]>, // 玩家未跨十六米网格且块集合未变时不扫描近场实例。
     pub(super) collision_frame: Option<feathrise_scene_core::residency::SceneSourceFrame>, // 玩家静止时网格移动/旋转也须重核对近场。
     pub(super) dirty: bool,
+    /// 正式开关停用本域；作者预览仅单独控制已采用根的显隐。
+    pub(super) category_disabled: bool,
+    pub(super) category_hidden: bool,
     /// 已启动或已明确失败的当前身份，防止稳定帧重复提交同一后台任务。
     pub(super) attempted_revision: Option<(u32, u32)>,
     pub(super) failure_logged_revision: Option<u32>,
@@ -277,6 +280,10 @@ impl DynamicVegetationState {
 }
 
 impl DynamicVegetationState {
+    pub(super) fn category_visibility(&self) -> Visibility {
+        if self.category_hidden { Visibility::Hidden } else { Visibility::Inherited }
+    }
+
     /// 全局地形提交门查询当前植被是否已为指定GLB候选建立完整隐藏根。
     pub(crate) fn candidate_ready_for_terrain(
         &self,
@@ -284,7 +291,7 @@ impl DynamicVegetationState {
         terrain_generation: u64,
         required: bool,
     ) -> bool {
-        if !required {
+        if !required || self.category_disabled {
             return true; // 未声明植被定义的场景没有待切换根。
         }
         let Some(pending) = self.pending.as_ref() else {

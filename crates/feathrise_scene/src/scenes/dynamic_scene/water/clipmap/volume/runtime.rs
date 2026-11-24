@@ -27,6 +27,7 @@ struct State {
     installed: Batch,
     retired: VecDeque<Batch>,
     retirement: Option<Task<()>>,
+    category_hidden: bool,
 }
 
 pub(crate) fn install(app: &mut App) {
@@ -134,10 +135,35 @@ fn drive(
     mut materials: ResMut<Assets<ClipmapWaterMaterial>>,
     mut uploads: ResMut<WaterGpuUploadQueue>,
     receipts: Res<WaterGpuUploadReceipts>,
+    water: Option<InstanceRes<super::super::super::resources::DynamicWaterState>>,
     mut water_status: Option<InstanceResMut<super::super::super::resources::DynamicWaterStatus>>,
+    clipmap_water: Option<InstanceRes<super::super::runtime::ClipmapWaterRuntime>>,
     work: Option<Res<crate::scenes::dynamic_scene::voxel_objects::VoxelWorkBudget>>,
 ) {
     reap(&mut commands, &mut state, &mut meshes, &mut materials);
+    if water.as_deref().is_some_and(|water| water.category_disabled) {
+        discard_pending(&mut commands, &mut state, &mut uploads);
+        if let Some(result) = state.task.as_mut().and_then(check_ready) {
+            state.task = None;
+            state.building = None;
+            crate::retire_water_cpu(&mut commands, result);
+        }
+        if state.installed.root.is_some() {
+            let old = std::mem::take(&mut state.installed);
+            retire_batch(&mut commands, &mut state, old);
+        }
+        state.active = None;
+        state.failed = None;
+        return;
+    }
+    let hidden = water.as_deref().is_some_and(|water| water.category_hidden);
+    let controls = water.as_deref().map(|water| &water.still_water);
+    if state.category_hidden != hidden {
+        state.category_hidden = hidden;
+        if let Some(root) = state.installed.root {
+            commands.entity(root).try_insert(if hidden { Visibility::Hidden } else { Visibility::Inherited });
+        }
+    }
     let Some(ground) = ground.snapshot.as_ref().filter(|g| g.ready) else {
         for (_, _, _, mut v) in &mut targets {
             *v = Visibility::Hidden;
@@ -147,6 +173,7 @@ fn drive(
     };
     let mut identity = Identity {
         ground: ground.content_revision_words(),
+        participation_revision: controls.map_or(0, |controls| controls.participation_revision),
         window: if ground.is_density_surface() {
             ground.revision
         } else {
@@ -165,8 +192,10 @@ fn drive(
         .as_ref()
         .is_some_and(|active| active.ground == identity.ground);
     for (source, mut surface, mut interaction, mut visibility) in &mut targets {
+        let participating = controls.is_none_or(|controls| controls.enabled(&surface.layer_id));
+        surface.set_participating(participating);
         *visibility = if retained || current && layers.contains(source.0) {
-            Visibility::Inherited
+            controls.map_or(Visibility::Inherited, |controls| controls.visibility(&surface.layer_id))
         } else {
             Visibility::Hidden
         };
@@ -341,18 +370,24 @@ fn drive(
             commands.entity(entity).try_despawn();
         }
         if let Some(root) = pending.batch.root {
-            commands.entity(root).insert(Visibility::Inherited);
+            commands.entity(root).insert(if hidden { Visibility::Hidden } else { Visibility::Inherited });
         }
-        for (owner, _) in &pending.batch.owners {
+        for (&source, &index) in &pending.sources {
+            let (owner, _) = &pending.batch.owners[index];
+            let visibility = layers.get(source).map_or(Visibility::Hidden, |(_, surface, _, _)| {
+                controls.map_or(Visibility::Inherited, |controls| controls.visibility(&surface.layer_id))
+            });
             commands
                 .entity(*owner)
-                .insert((Visibility::Inherited, DynamicWaterCpuInteraction));
+                .insert((visibility, DynamicWaterCpuInteraction));
         }
         let old = std::mem::replace(&mut state.installed, pending.batch);
         retire_batch(&mut commands, &mut state, old);
         state.active = Some(identity.clone());
         if ground.is_density_surface()
             && let Some(status) = water_status.as_mut()
+            // 逐层停用先撤销旧水面，仍由新正式水网采用后的体积结果确认完整代次。
+            && clipmap_water.as_deref().is_some_and(|runtime| runtime.installed_generation() == status.desired_generation)
         {
             status.applied_generation = status.desired_generation;
             status.phase = super::super::super::resources::DynamicWaterPhase::Ready;

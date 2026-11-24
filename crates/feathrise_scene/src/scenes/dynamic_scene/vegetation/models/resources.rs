@@ -129,6 +129,8 @@ pub(in crate::scenes::dynamic_scene) struct ModelVegetationState {
     pub(super) active: Option<Identity>,
     pub(super) failed: Option<Identity>,
     pub(super) roots: BTreeMap<String, Entity>,
+    pub(super) category_disabled: bool,
+    pub(super) category_hidden: bool,
 }
 impl ModelVegetationState {
     pub(in crate::scenes::dynamic_scene) fn busy(&self) -> bool {

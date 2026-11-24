@@ -25,7 +25,11 @@ pub(super) fn remove_installed_water(
     state: &mut DynamicWaterState,
 ) {
     for installed in state.installed.drain(..) {
-        installed.spawn.retire(commands);
+        installed.retire(commands);
+    }
+    if let Some(root) = state.display_root.take() {
+        // retire 先把各水面移入自己的隐藏退役根，此处只回收空的分类显隐根。
+        commands.entity(root).try_despawn();
     }
     state.installed_scene_id = None;
 }
@@ -67,7 +71,7 @@ pub(crate) fn install_dynamic_water(
     mut status: InstanceResMut<DynamicWaterStatus>,
 ) {
     let pending_is_stale = state.pending.as_ref().is_some_and(|pending| {
-        active_scene.scene_id.as_ref() != Some(&pending.scene_id)
+        state.category_disabled || active_scene.scene_id.as_ref() != Some(&pending.scene_id)
             || state.desired_scene_id.as_ref() != Some(&pending.scene_id)
             || state.generation != pending.generation
             || state.terrain_generation != Some(pending.terrain_generation)
@@ -90,7 +94,7 @@ pub(crate) fn install_dynamic_water(
             return;
         };
         state.task = None;
-        if active_scene.scene_id.as_ref() != Some(&scene_id)
+        if state.category_disabled || active_scene.scene_id.as_ref() != Some(&scene_id)
             || state.desired_scene_id.as_ref() != Some(&scene_id)
             || state.generation != generation
             || state.terrain_generation != Some(terrain_generation)
@@ -335,8 +339,17 @@ fn commit_pending_water_batch(
     }
     let scene_id = pending.scene_id;
     let generation = pending.generation;
-    let next = spawn_dynamic_water_batch(commands, &scene_id, pending.staged);
     remove_installed_water(commands, meshes, materials, state);
+    let next = if pending.staged.is_empty() {
+        Vec::new()
+    } else {
+        let root = commands.spawn((
+            Name::new("数据驱动水域批次"), Transform::IDENTITY, state.category_visibility(),
+            DespawnOnExit(ScenePhase::Active),
+        )).id();
+        state.display_root = Some(root);
+        spawn_dynamic_water_batch(commands, &scene_id, pending.staged, root, &state.still_water)
+    };
     let triangle_count = pending.triangle_count;
     let layer_count = next.len();
     state.installed = next;

@@ -1,6 +1,6 @@
 //! 动态场景绘制水域的R8快照、可选真实河床输入冻结、single-flight构建和原子采用系统。
 
-use feathrise_scene_core::residency::{InstanceFrame, InstanceRes, InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
+use feathrise_scene_core::residency::{InstanceRes, InstanceResMut}; // 每个子场景借用独立状态，父图保留原资源。
 use std::collections::BTreeMap; // JSON层ID与R8作者源路径保持确定顺序。
 
 #[cfg(test)]
@@ -20,6 +20,7 @@ use feathrise_scene_content::{
 use super::build::{DynamicWaterBuildInput, build_dynamic_water_network};
 use super::resources::{DynamicClipmapWaterDraft, DynamicWaterPhase, DynamicWaterState, DynamicWaterStatus};
 use super::runtime_batch::freeze_spline_water_network; // 三类作者值冻结和分帧GPU采用不继续膨胀系统编排文件。
+use super::still_water::StillWaterSources;
 use crate::scenes::dynamic_scene::terrain_derived::DynamicTerrainHeightCache; // 水域直接O(1)克隆GLB派生CPU高度Arc。
 
 mod adoption; // GPU资产分帧登记、真实管线回执和整批原子采用保持独立职责。
@@ -76,7 +77,7 @@ pub(crate) fn prepare_dynamic_water(
     masks: Res<Assets<SceneWaterMaskAsset>>, // 无Mip作者源在IO任务内冻结，Update只取得Arc快照。
     water_presets: Option<Res<WaterPresetRegistry>>, // 静水在主线程冻结当前完整外观与微法线句柄。
     root_draft: Res<DynamicClipmapWaterDraft>, // 独立根静水使用自己的发布槽，不能继承当前地形作者源。
-    frame: InstanceFrame,
+    still_water_sources: StillWaterSources,
     terrain_cache: InstanceRes<DynamicTerrainHeightCache>, // 读取完整原子采用的共享Arc<u16>，不再加载磁盘R16。
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<DynamicWaterMaterial>>,
@@ -101,12 +102,74 @@ pub(crate) fn prepare_dynamic_water(
         status.layer_count = 0;
         status.triangle_count = 0;
     }
+    let (enabled, visible) = active_scene.scene_id.as_ref().zip(registry.as_ref())
+        .map_or((true, true), |(scene, registry)| registry.layer_category_runtime(scene, &manifests, false));
+    if state.category_hidden == visible {
+        state.category_hidden = !visible;
+        if let Some(root) = state.display_root {
+            commands.entity(root).try_insert(state.category_visibility());
+        }
+    }
+    let category_disabled = !enabled;
+    if state.category_disabled != category_disabled {
+        state.category_disabled = category_disabled;
+        state.begin_rebuild_transaction(&mut status); // 两向切换都作废并排空在途旧水网。
+        if category_disabled {
+            state.mask_handles.clear();
+            state.mask_asset_ids.clear();
+            state.mask_paths.clear();
+        }
+    }
+    if category_disabled {
+        if state.installed_scene_id.is_some() {
+            remove_installed_water(&mut commands, &mut meshes, &mut materials, &mut state);
+        }
+        state.dirty = false;
+        const DETAIL: &str = "场景水域分类已关闭";
+        if status.phase != DynamicWaterPhase::Disabled || status.scene_id != active_scene.scene_id
+            || status.detail != DETAIL
+        {
+            status.phase = DynamicWaterPhase::Disabled;
+            status.scene_id.clone_from(&active_scene.scene_id);
+            status.desired_generation = 0;
+            status.applied_generation = 0;
+            status.height_binding_revision = [0; 3];
+            status.input_draft_revision = None;
+            status.layer_count = 0;
+            status.triangle_count = 0;
+            status.detail = DETAIL.to_owned();
+        }
+        return;
+    }
+    let owner_manifest = active_scene.scene_id.as_ref().zip(registry.as_ref())
+        .and_then(|(scene, registry)| registry.published_manifest(scene, &manifests));
+    let (participation_changed, visibility_changed) = still_water_sources.update(
+        &mut state.still_water, active_scene.scene_id.as_ref(), owner_manifest,
+    );
+    if participation_changed {
+        state.begin_rebuild_transaction(&mut status);
+        // 关掉的静水先退出物理与画面，其他水体仍保留到完整后续批次就绪。
+        let state = &mut *state;
+        state.mask_handles.retain(|id, _| state.still_water.enabled(id));
+        state.mask_paths.retain(|id, _| state.still_water.enabled(id));
+        state.mask_asset_ids = state.mask_handles.values().map(Handle::id).collect();
+        for removed in state.installed.extract_if(.., |layer| {
+            layer.still_water.as_ref().is_some_and(|layer| !state.still_water.enabled(&layer.id))
+        }) {
+            removed.retire(&mut commands);
+        }
+    }
+    if visibility_changed {
+        for layer in state.installed.iter().filter_map(|layer| layer.still_water.as_ref()) {
+            commands.entity(layer.root).try_insert(state.still_water.visibility(&layer.id));
+        }
+    }
     let independent = active_scene.scene_id.as_ref()
         .and_then(|id| registry.as_deref()?.handles(id))
         .and_then(|handles| manifests.get(&handles.manifest))
         .is_some_and(|manifest| manifest.terrain.kind == SceneTerrainKind::Empty);
     let author = independent.then(|| active_scene.scene_id.as_ref()
-        .filter(|_| frame.instance().is_none()).and_then(|id| root_draft.root_for_scene(id))).flatten();
+        .filter(|_| still_water_sources.frame.instance().is_none()).and_then(|id| root_draft.root_for_scene(id))).flatten();
     let root_revision = author.and_then(|_| active_scene.scene_id.as_ref())
         .and_then(|id| root_draft.root_revision_for_scene(id));
     if independent && status.input_draft_revision != root_revision {
@@ -292,6 +355,7 @@ pub(crate) fn prepare_dynamic_water(
     let paths = if author.is_some() { BTreeMap::new() } else { water
         .layers
         .iter()
+        .filter(|layer| state.still_water.enabled(&layer.id))
         .map(|layer| (layer.id.clone(), layer.mask_source_path.clone()))
         .collect::<BTreeMap<_, _>>() };
     if paths != state.mask_paths {
@@ -309,6 +373,7 @@ pub(crate) fn prepare_dynamic_water(
     }
     let mut inputs = Vec::with_capacity(water.layers.len());
     for layer in &water.layers {
+        if !state.still_water.enabled(&layer.id) { continue; }
         let descriptor = if layer.preset_id.is_empty() {
             crate::shared::large_scene::WaterSurfaceDescriptor::from_layer(layer)
         } else {
@@ -415,7 +480,7 @@ pub(crate) fn prepare_dynamic_water(
     let world_min = manifest.world_min; // 后台闭包不借用主世界清单资产。
     let world_max = manifest.world_max; // 全部水层在同一场景范围内原子构建。
     let (rivers, waterfalls) = freeze_spline_water_network(water); // 河流与瀑布控制点在同一受检水JSON代次冻结。
-    let water_body_count = water.layers.len() + rivers.len() + waterfalls.len(); // 状态同时报告静水、河流和瀑布总数。
+    let water_body_count = inputs.len() + rivers.len() + waterfalls.len(); // 状态同时报告参与的静水、河流和瀑布总数。
     state.task = Some(AsyncComputeTaskPool::get().spawn(async move {
         let result = build_dynamic_water_network(
             inputs,     // 全部R8静水层共享同一份GLB派生高度快照。
@@ -436,10 +501,12 @@ pub(crate) fn prepare_dynamic_water(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::resources::InstalledDynamicWaterLayer;
+    use crate::shared::large_scene::{DynamicWaterCpuInteraction, PaintedWaterSurfaceSpawn};
+    use feathrise_scene_content::SceneId;
 
-    #[test]
-    fn independent_root_authoring_starts_formal_builder_without_water_file_or_terrain() {
-        let map = feathrise_scene_content::SceneId::parse("MAP-independent-root-runtime").unwrap();
+    fn independent_root_water_fixture() -> (App, SceneId, Handle<SceneManifestAsset>) {
+        let map = SceneId::parse("MAP-independent-root-runtime").unwrap();
         let manifest: SceneManifestAsset = serde_json::from_value(serde_json::json!({
             "schema_version": 2, "id": map, "display_name": "无地形静水",
             "runtime_scene": "data_driven", "world_min": [-0.5, -0.5],
@@ -463,7 +530,7 @@ mod tests {
         let handle = app.world_mut().resource_mut::<Assets<SceneManifestAsset>>().add(manifest);
         app.insert_resource(feathrise_scene_content::SceneContentRegistry { revision: 1,
             scenes: BTreeMap::from([(map.clone(), feathrise_scene_content::SceneContentHandles {
-                manifest: handle, portals: default(), placements: default(), characters_path: None,
+                manifest: handle.clone(), portals: default(), placements: default(), characters_path: None,
                 surface: None, vegetation: None, water: None, boundaries: None,
             })]), ..default() });
         app.world_mut().resource_mut::<DynamicClipmapWaterDraft>().publish_root(super::super::resources::DynamicClipmapWaterDraftSnapshot {
@@ -471,6 +538,12 @@ mod tests {
             definition: SceneWaterAsset { schema_version: feathrise_scene_content::SCENE_SCHEMA_VERSION, scene_id: map.clone(), layers: vec![layer], ..default() },
             sources: BTreeMap::from([("independent".into(), Arc::from([255; 4]))]), masks: default(),
         });
+        (app, map, handle)
+    }
+
+    #[test]
+    fn independent_root_authoring_starts_formal_builder_without_water_file_or_terrain() {
+        let (mut app, map, _) = independent_root_water_fixture();
         app.update();
         assert_eq!(app.world().resource::<DynamicWaterStatus>().phase, DynamicWaterPhase::Building);
         let state = app.world().resource::<DynamicWaterState>();
@@ -481,6 +554,91 @@ mod tests {
         assert_eq!(built_scene, map);
         assert_eq!(terrain_generation, 0);
         assert!(result.unwrap().iter().any(|build| !build.mesh.is_empty()));
+    }
+
+    #[test]
+    fn still_water_participation_skips_formal_mask_without_blocking_author_build() {
+        let (mut app, map, manifest) = independent_root_water_fixture();
+        let world = app.world_mut();
+        let draft = world.remove_resource::<DynamicClipmapWaterDraft>().unwrap();
+        let definition = draft.root_for_scene(&map).unwrap().definition.clone();
+        let source = world.resource_mut::<Assets<SceneWaterAsset>>().add(definition);
+        world.resource_mut::<feathrise_scene_content::SceneContentRegistry>()
+            .scenes.get_mut(&map).unwrap().water = Some(source);
+        world.init_resource::<DynamicClipmapWaterDraft>();
+        let author_manifest = {
+            let mut manifests = world.resource_mut::<Assets<SceneManifestAsset>>();
+            let mut manifest = manifests.get_mut(&manifest).unwrap();
+            manifest.set_still_water_layer_state(None, "independent", false, false);
+            manifest.clone()
+        };
+
+        app.update();
+        let world = app.world_mut();
+        let mut state = world.resource_mut::<DynamicWaterState>();
+        assert!(!state.still_water.enabled("independent"));
+        assert!(state.mask_handles.is_empty(), "未参与的正式静水无需加载磁盘遮罩");
+        let (_, _, _, result) = bevy::tasks::block_on(state.task.take().unwrap());
+        assert!(result.unwrap().is_empty(), "合法零水网仍提交，不能给水域失败或关闭代次");
+
+        world.insert_resource(draft);
+        SceneManifestAsset::set_still_water_preview_state(world, Some(&author_manifest), Arc::new(BTreeMap::new()));
+        app.update();
+        let mut state = app.world_mut().resource_mut::<DynamicWaterState>();
+        assert_eq!(state.still_water.visibility("independent"), Visibility::Hidden);
+        let (_, _, _, result) = bevy::tasks::block_on(state.task.take().unwrap());
+        assert!(result.unwrap().iter().any(|build| !build.mesh.is_empty()));
+    }
+
+    #[test]
+    fn scene_layer_category_disables_formal_water_and_preserves_author_build() {
+        let (mut app, map, manifest) = independent_root_water_fixture();
+        let world = app.world_mut();
+        world.resource_mut::<Assets<SceneManifestAsset>>().get_mut(&manifest).unwrap()
+            .set_layer_category_state(false, false, false);
+        let root = world.spawn(Visibility::Hidden).id();
+        let entity = world.spawn((Visibility::Hidden, ChildOf(root), DynamicWaterCpuInteraction)).id();
+        // 模拟切换前已发布的根，执行正式准备系统退役渲染与互动所有权。
+        let mut state = world.resource_mut::<DynamicWaterState>();
+        state.display_root = Some(root);
+        state.category_hidden = true;
+        state.installed_scene_id = Some(map.clone());
+        state.installed.push(InstalledDynamicWaterLayer {
+            still_water: None,
+            spawn: PaintedWaterSurfaceSpawn {
+                entity, mesh: default(), material: default(),
+                additional_meshes: Vec::new(), additional_entities: Vec::new(),
+            },
+        });
+        // 显示分类只恢复所属批次父根，保留被其他作者预览接管的单水面显隐。
+        SceneManifestAsset::set_layer_preview_state(world, Some(map.clone()), (true, true), (true, true));
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(world.get::<Visibility>(root), Some(&Visibility::Inherited));
+        assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+        SceneManifestAsset::set_layer_preview_state(world, None, (true, true), (true, true));
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(world.resource::<DynamicWaterStatus>().phase, DynamicWaterPhase::Disabled);
+        let mut state = world.resource_mut::<DynamicWaterState>();
+        assert!(state.installed.is_empty() && state.display_root.is_none());
+        assert!(state.candidate_ready_for_terrain(&map, 7, true));
+        let obsolete = bevy::tasks::block_on(state.task.take().unwrap()); // 关闭仍保留旧任务槽到完成。
+        assert_ne!(obsolete.1, state.generation);
+        assert!(world.get_entity(root).is_err());
+        assert_eq!(world.get::<Visibility>(entity), Some(&Visibility::Hidden));
+        assert!(world.get::<DynamicWaterCpuInteraction>(entity).is_none());
+
+        // 编辑器关闭参与时只隐藏画面，保存仍可取得真实草稿水网的构建和后续采用回执。
+        SceneManifestAsset::set_layer_preview_state(app.world_mut(), Some(map.clone()), (false, true), (true, true));
+        app.update();
+        let world = app.world_mut();
+        assert_eq!(world.resource::<DynamicWaterStatus>().phase, DynamicWaterPhase::Building);
+        let mut state = world.resource_mut::<DynamicWaterState>();
+        assert!(state.category_hidden && !state.category_disabled);
+        let (built_scene, _, _, result) = bevy::tasks::block_on(state.task.take().unwrap());
+        assert_eq!(built_scene, map);
+        assert!(!result.unwrap().is_empty());
     }
 
     #[test]

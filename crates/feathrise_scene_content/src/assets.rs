@@ -432,6 +432,59 @@ impl From<SceneEnvironmentDescriptorSerde> for SceneEnvironmentDescriptor {
     }
 }
 
+/// 场景树分类的总参与门与编辑保护。分类不会覆盖所属成员的单独设置。
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SceneLayerCategorySettings {
+    pub enabled: bool,
+    pub locked: bool,
+}
+
+impl Default for SceneLayerCategorySettings {
+    fn default() -> Self {
+        Self { enabled: true, locked: false }
+    }
+}
+
+impl SceneLayerCategorySettings {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// 场景自身的水域、植被分类。被引用的场景实例沿用自己源场景的设置。
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SceneLayerCategories {
+    #[serde(skip_serializing_if = "SceneLayerCategorySettings::is_default")]
+    pub water: SceneLayerCategorySettings,
+    #[serde(skip_serializing_if = "SceneLayerCategorySettings::is_default")]
+    pub vegetation: SceneLayerCategorySettings,
+    #[serde(skip_serializing_if = "crate::SceneStillWaterSettings::is_empty")]
+    pub still_water: std::sync::Arc<crate::SceneStillWaterSettings>,
+}
+
+impl SceneLayerCategories {
+    fn is_default(&self) -> bool {
+        self.water.is_default() && self.vegetation.is_default() && self.still_water.is_empty()
+    }
+}
+
+/// 编辑器绘制场景的未保存分类设置和可见性，普通运行时无需安装。
+#[derive(Resource, Debug, Eq, PartialEq)]
+pub struct SceneLayerPreviewState {
+    scene: SceneId,
+    water: (bool, bool),
+    vegetation: (bool, bool),
+}
+
+impl SceneLayerPreviewState {
+    /// 只读取指定场景的（草稿参与，眼睛可见）。
+    pub fn state(&self, scene: &SceneId, vegetation: bool) -> Option<(bool, bool)> {
+        (&self.scene == scene).then_some(if vegetation { self.vegetation } else { self.water })
+    }
+}
+
 /// 单个场景的地形、范围和运行时绑定清单。
 #[derive(Asset, TypePath, Clone, Debug, Serialize, Deserialize)]
 pub struct SceneManifestAsset {
@@ -474,9 +527,59 @@ pub struct SceneManifestAsset {
     /// 场景级绘制组只关联各网格自己的作者层；不合并或搬迁R8像素。
     #[serde(default, skip_serializing_if = "crate::vegetation_paint_groups::is_empty")]
     pub vegetation_paint_groups: std::sync::Arc<[crate::SceneVegetationPaintGroup]>,
+    /// 旧清单缺省启用两类参与且不锁定。默认设置不增加磁盘字段。
+    #[serde(default, skip_serializing_if = "SceneLayerCategories::is_default")]
+    pub scene_layers: SceneLayerCategories,
 }
 
 impl SceneManifestAsset {
+    /// 供兼容旧 SDK 的编辑器判断清单是否支持正式分类状态。
+    pub const fn supports_layer_categories(&self) -> bool {
+        true
+    }
+
+    /// 返回（参与，锁定）。`vegetation` 为 false 时读取水域。
+    pub const fn layer_category_state(&self, vegetation: bool) -> (bool, bool) {
+        let category = if vegetation {
+            self.scene_layers.vegetation
+        } else {
+            self.scene_layers.water
+        };
+        (category.enabled, category.locked)
+    }
+
+    /// 只更新指定分类的总状态，保留其他分类与内部成员的独立设置。
+    pub fn set_layer_category_state(&mut self, vegetation: bool, enabled: bool, locked: bool) {
+        let category = if vegetation {
+            &mut self.scene_layers.vegetation
+        } else {
+            &mut self.scene_layers.water
+        };
+        *category = SceneLayerCategorySettings { enabled, locked };
+    }
+
+    /// 设置当前编辑场景两种分类的（草稿参与，眼睛可见），清空场景时恢复正式清单。
+    pub fn set_layer_preview_state(
+        world: &mut World,
+        scene: Option<SceneId>,
+        water: (bool, bool),
+        vegetation: (bool, bool),
+    ) {
+        let Some(scene) = scene else {
+            world.remove_resource::<SceneLayerPreviewState>();
+            return;
+        };
+        let state = SceneLayerPreviewState { scene, water, vegetation };
+        if world.get_resource::<SceneLayerPreviewState>() != Some(&state) {
+            world.insert_resource(state);
+        }
+    }
+
+    /// 当前编辑场景的分类草稿参与和编辑器可见性。
+    pub fn layer_preview_state(world: &World, scene: &SceneId, vegetation: bool) -> Option<(bool, bool)> {
+        world.get_resource::<SceneLayerPreviewState>()?.state(scene, vegetation)
+    }
+
     /// 作者、加载及运行入口共享同一类型判断。
     pub fn is_data_driven(&self) -> bool {
         crate::SceneRuntimeKind::parse(&self.runtime_scene) == Some(crate::SceneRuntimeKind::DataDriven)
