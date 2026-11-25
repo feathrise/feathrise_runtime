@@ -8,6 +8,8 @@ Feathrise（羽立）编辑器与 Rust 工程共用的 Bevy 运行库，提供�
 
 ## 使用与入口
 
+独立游戏可通过工程变量保存玩家选择、配置地点和事件触发，并把规则动作交给自己的玩法插件。[工程变量与触发规则](docs/project-rules.md)
+
 场景版源码沿用 Cargo 包版本 `0.2.0`，使用 Bevy 0.20.1、wgpu 30.0.1 和 Rust 1.97.1 或更新版本。 [快速开始](docs/quickstart.md) · [已发布版本接入](docs/crates-io.md)
 
 作者插件开发见[独立插件接口与示例](docs/native-plugins.md)。`feathrise_plugin_api` 是本仓的独立发布包，默认只提供协议，不依赖编辑器或 Bevy；开发插件不需要编辑器源码。

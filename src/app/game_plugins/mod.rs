@@ -2,6 +2,7 @@
 
 mod billboard_camera;
 mod interaction;
+mod project_locations;
 #[cfg(feature = "test_panel")]
 mod wireframe_view_specialization;
 
@@ -43,6 +44,11 @@ impl Plugin for SceneRuntimePlugin {
             app.add_plugins(feathrise_billboard_text::BillboardTextPlugin);
         }
         app.add_systems(Update, billboard_camera::attach)
+            .add_systems(PostUpdate, project_locations::observe
+                .after(bevy::transform::TransformSystems::Propagate)
+                .run_if(project_locations::configured)
+                .run_if(feathrise_scene_core::state::in_active_scene())
+                .run_if(feathrise_scene_core::state::scene_startup_ready))
             .add_plugins((WorldTimePlugin, WeatherPlugin, GroundingPlugin))
             .add_plugins((
                 crate::app::scene_loading::SceneLoadingPlugin,

@@ -1,0 +1,15 @@
+# 工程变量与声明式触发规则。独立于场景、任务和对白运行时。
+[package]
+name = "feathrise_project_rules"
+version = "0.2.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/feathrise/feathrise_runtime"
+description = "Project variables and event-driven rules for Feathrise"
+
+[dependencies]
+bevy_ecs = { version = "=0.20.1", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = "0.1"
+rstar = "=0.13.1" # 按当前场景和观察点查询地点，复用已锁定的空间索引库。

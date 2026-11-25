@@ -45,7 +45,14 @@ pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPl
         };
         sources.push((id, source));
     }
-    // 全部来源通过校验才登记，后续资产根失效时可在同一个 App 内重试。
+    // 先验证所有来源及作者配置，再一次登记。无效规则可修复重试，不会留下半绑定的 App。
+    use feathrise_project_rules::{ProjectVariables, RULES_FILE};
+    let variables = match checked_location(first, Path::new(RULES_FILE)) {
+        Ok(()) => ProjectVariables::load(first)?,
+        Err(AssetReaderError::NotFound(_)) => ProjectVariables::default(),
+        Err(e) => return Err(format!("{RULES_FILE}：{e}")),
+    };
+    app.insert_resource(variables);
     for (id, source) in sources {
         app.register_asset_source(id, source);
     }
@@ -235,6 +242,26 @@ mod tests {
             reader.read_to_end(&mut bytes).await?;
             Ok(bytes)
         })
+    }
+
+    #[test]
+    fn project_rules_use_the_primary_asset_root_and_a_failed_open_can_be_retried() {
+        use feathrise_project_rules::{ProjectVariables, Value, RULES_FILE};
+        let fixture = Fixture::new();
+        let project = fixture.project("rules", [0, 0, 0, 255]);
+        let catalog = project.asset_root().join(feathrise_scene_content::SCENE_CATALOG_ASSET_PATH);
+        fs::create_dir(catalog.parent().unwrap()).unwrap();
+        fs::write(catalog, include_bytes!("../../examples/support/assets/scenes/catalog.scene_catalog.json")).unwrap();
+        let path = project.asset_root().join(RULES_FILE);
+        let mut app = App::new();
+        fs::write(&path, b"{").unwrap();
+        assert!(crate::prepare_project(&mut app, &project).err().unwrap().contains(RULES_FILE));
+        assert!(!app.world().contains_resource::<AssetSourceBuilders>());
+        assert!(!app.world().contains_resource::<ProjectVariables>());
+        fs::write(project.asset_roots[1].join(RULES_FILE), b"ignored secondary document").unwrap();
+        fs::write(path, br#"{"version":1,"variables":{"choice":{"default":"undecided"}}}"#).unwrap();
+        crate::prepare_project(&mut app, &project).unwrap();
+        assert_eq!(app.world().resource::<ProjectVariables>().get("choice"), Some(Value::Text("undecided".into())));
     }
 
     #[test]

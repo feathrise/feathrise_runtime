@@ -3424,6 +3424,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "feathrise_project_rules"
+version = "0.2.0"
+dependencies = [
+ "bevy_ecs",
+ "rstar",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "feathrise_raytracing"
 version = "0.2.0"
 dependencies = [
@@ -3456,6 +3467,7 @@ dependencies = [
  "feathrise_fsr3_frame_generation",
  "feathrise_grounding",
  "feathrise_portal",
+ "feathrise_project_rules",
  "feathrise_raytracing",
  "feathrise_scene",
  "feathrise_scene_content",

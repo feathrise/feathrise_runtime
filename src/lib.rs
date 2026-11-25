@@ -5,6 +5,8 @@
 
 pub mod app;
 pub mod project;
+/// 工程变量与触发规则可以在没有任务系统或对白运行器的宿主中使用。
+pub use feathrise_project_rules as project_rules;
 
 #[cfg(feature = "default_font")]
 pub use app::default_font::{DefaultFontPlugin, DEFAULT_FONT_BYTES, DEFAULT_FONT_LICENSE};

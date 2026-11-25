@@ -9,6 +9,7 @@ description = "Shared Bevy runtime and project entry for Feathrise"
 
 # 工程启动与公共装配直接归 SDK 的 project/app 模块，具体能力仍由子库提供。
 [dependencies]
+feathrise_project_rules = { version = "0.2.0", path = "crates/feathrise_project_rules" }
 feathrise_scene_core = { version = "0.2.0", path = "crates/feathrise_scene_core" } # 统一场景视图、状态、活动门和驻留契约。
 feathrise_vegetation = { version = "0.2.0", path = "crates/feathrise_vegetation", optional = true, features = ["blade", "diagnostics"] }
 bevy = { version = "=0.20.1", features = ["file_watcher", "bevy_ui_widgets", "complex_script_segmentation", "jpeg", "pbr_specular_textures"] }
