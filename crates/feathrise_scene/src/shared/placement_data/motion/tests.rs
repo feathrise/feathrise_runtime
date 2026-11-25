@@ -141,21 +141,30 @@ struct FinishedClips(Vec<SceneMotionFinished>);
 #[test]
 fn observed_motion_region_opens_once_and_reverses_after_last_observer_leaves() {
     let (mut app, clips) = manual_motion_app();
+    app.init_resource::<SceneMotionTriggerTrace>();
     let scene = SceneId::parse("SCENE-motion").unwrap();
     let [door, _] = use_motion_clips(app.world_mut(), &scene, clips, None);
     let observers = [0.0, 8.0].map(|x| app.world_mut().spawn((crate::SceneRuntimeObserver,
         Transform::from_xyz(x,1.0,0.0))).id());
     let run = |app: &mut App, count| { for _ in 0..count { app.update(); } };
     run(&mut app,85);
+    let feedback = |app: &App| {
+        let hit = app.world().resource::<SceneMotionTriggerTrace>().last.as_ref().unwrap();
+        (hit.clip_name.clone(), hit.entering, hit.action)
+    };
+    let entered = feedback(&app);
+    assert!(!entered.0.is_empty() && entered.1 && entered.2 == SceneMotionAction::Play);
     assert!((app.world().get::<Position>(door).unwrap().x - 4.0).abs() < 0.001);
     app.world_mut().get_mut::<Transform>(observers[1]).unwrap().translation.x = 0.5;
     run(&mut app,3);
     app.world_mut().get_mut::<Transform>(observers[0]).unwrap().translation.x = -6.0;
     run(&mut app,10);
+    assert_eq!(feedback(&app), entered);
     assert!((app.world().get::<Position>(door).unwrap().x - 4.0).abs() < 0.001);
     app.world_mut().get_mut::<Transform>(observers[1]).unwrap().translation.x = 7.0;
     run(&mut app,85);
     assert!(app.world().get::<Position>(door).unwrap().x.abs() < 0.001);
+    assert_eq!(feedback(&app), (entered.0, false, SceneMotionAction::Reverse));
     let events = &app.world().resource::<FinishedClips>().0;
     assert_eq!(events.iter().map(|e| e.direction).collect::<Vec<_>>(),
         [SceneMotionDirection::Forward, SceneMotionDirection::Backward]);

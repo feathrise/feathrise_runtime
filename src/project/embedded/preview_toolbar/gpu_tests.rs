@@ -104,6 +104,57 @@ fn scene_changes(before: &[u8], after: &[u8]) -> usize {
         .filter(|(index, (before, after))| index / 800 >= 80 && before[..3] != after[..3]).count()
 }
 
+// 只统计实际提示行内新出现的亮色字形，排除背景色、工具条按钮及场景中其他像素。
+fn trigger_ink(before: &[u8], after: &[u8], width: usize, bounds: Rect) -> usize {
+    let bright = |rgb: &[u8]| rgb[..3].iter().all(|&c| c > 150);
+    before.chunks_exact(4).zip(after.chunks_exact(4)).enumerate().filter(|(index, (old, new))| {
+        let point = Vec2::new((index % width) as f32 + 0.5, (index / width) as f32 + 0.5);
+        bounds.contains(point) && bright(new) && !bright(old)
+    }).count()
+}
+
+fn capture_trigger_hud(app: &mut App, target: &Handle<Image>, output: &Path, normal: &[u8], toolbar: Rect) -> [usize; 3] {
+    use feathrise_scene::{SceneMotionAction, SceneMotionTriggerHit, SceneMotionTriggerTrace};
+    let world = app.world_mut();
+    let label = world.query_filtered::<Entity, With<super::ui::MotionTriggerLabel>>().single(world).unwrap();
+    let size = world.resource::<Assets<Image>>().get(target).unwrap().size();
+    let frame_bounds = Rect::from_corners(Vec2::ZERO, size.as_vec2());
+    let mut previous = normal.to_vec();
+    let mut ink = [0; 3];
+    for (index, (entering, action, expected, file)) in [
+        (true, SceneMotionAction::Play, "进入 · 山门 · 正向播放", "05-trigger-enter.png"),
+        (false, SceneMotionAction::Reverse, "离开 · 山门 · 反向播放", "06-trigger-exit.png"),
+    ].into_iter().enumerate() {
+        app.world_mut().resource_mut::<SceneMotionTriggerTrace>().last = Some(SceneMotionTriggerHit {
+            clip_name: "山门".into(), entering, action,
+        });
+        let pixels = capture(app, target, &output.join(file));
+        assert_eq!(app.world().get::<Text>(label).unwrap().as_str(), expected);
+        let bounds = rect(app, label);
+        assert!(bounds.min.y >= toolbar.max.y && frame_bounds.contains(bounds.min) && frame_bounds.contains(bounds.max),
+            "提示文字应在按钮下方并完整落在预览视口内：{bounds:?}");
+        let glyphs = app.world().get::<bevy::text::TextLayoutInfo>(label).unwrap().glyphs.len();
+        assert!(glyphs >= expected.chars().filter(|c| !c.is_whitespace()).count());
+        ink[index] = trigger_ink(normal, &pixels, size.x as usize, bounds);
+        assert!(ink[index] >= glyphs, "提示行未实际绘出浅色字形：{expected}");
+        if !entering {
+            ink[2] = trigger_ink(&previous, &pixels, size.x as usize, bounds);
+            assert!(ink[2] > 0, "离开回执须改变 GPU 文字，不能沿用进入回执的画面");
+        }
+        previous = pixels;
+    }
+    let bounds = rect(app, label);
+    for mode in [Mode::Editing, Mode::Playing] {
+        systems::mode_changed(app.world_mut(), mode);
+        app.world_mut().resource_mut::<EmbeddedProjectState>().mode = mode;
+        frame(app);
+    }
+    let cleared = capture(app, target, &output.join("07-trigger-cleared.png"));
+    assert_eq!(app.world().get::<Node>(label).unwrap().display, Display::None);
+    assert_eq!(trigger_ink(normal, &cleared, size.x as usize, bounds), 0, "重新试走应清除上一轮的字形");
+    ink
+}
+
 #[test]
 #[ignore = "显式真实GPU离屏验收；必须指定独占FEATHRISE_PREVIEW_HUD_GPU_REPORT绝对目录"]
 fn production_preview_hud_gpu_renders_triangles_restores_scene_and_drags() {
@@ -184,6 +235,7 @@ fn production_preview_hud_gpu_renders_triangles_restores_scene_and_drags() {
     let viewport = app.world().get::<Camera>(camera).unwrap().physical_viewport_rect();
     assert_eq!(viewport, Some(URect::from_corners(UVec2::ZERO, UVec2::new(800, 600))));
     assert!(normal.chunks_exact(4).filter(|p| p[0] > 100 && p[0] > p[1].saturating_mul(2)).count() > 1000, "必须实际绘出红色立方体");
+    let trigger_pixels = capture_trigger_hud(&mut app, &target, &output, &normal, original);
     press(&mut app, ToolbarAction::Grid);
     assert!(app.world().resource::<PreviewToolbarState>().grid);
     assert!(app.world().get::<ShadingView>(camera) == Some(&ShadingView::mesh_triangles()));
@@ -239,6 +291,8 @@ fn production_preview_hud_gpu_renders_triangles_restores_scene_and_drags() {
     serde_json::to_writer_pretty(&mut report, &serde_json::json!({"passed":true,"source":"production-toolbar-and-ReadbackComplete",
         "world_id":91,"revision":7,"scene_changed_pixels":changed,"triangle_diagonal_samples":diagonal_hits,
         "hud_before":[original.min.to_array(),original.max.to_array()],"hud_after":[moved.min.to_array(),moved.max.to_array()],
+        "trigger_hud":{"input":"scene-trigger-receipts","enter_ink_pixels":trigger_pixels[0],"exit_ink_pixels":trigger_pixels[1],
+            "exit_changed_ink_pixels":trigger_pixels[2],"new_preview_cleared":true},
         "viewport_unchanged":true,"grid_view_count":0,"os_input_verified":false})).unwrap();
     println!("FEATHRISE_PREVIEW_HUD_GPU_REPORT {}", output.display());
 }

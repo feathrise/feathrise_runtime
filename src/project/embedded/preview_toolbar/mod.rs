@@ -11,6 +11,8 @@ mod validation;
 mod tests;
 #[cfg(test)]
 mod gpu_tests;
+#[cfg(test)]
+mod trigger_hud_tests;
 
 use bevy::prelude::*;
 
@@ -19,6 +21,8 @@ pub(super) fn install(app: &mut App) {
         app.add_plugins(feathrise_ui_widgets::UiInteractionPlugin);
     }
     hud::install(app);
+    app.init_resource::<feathrise_scene::SceneMotionTriggerTrace>()
+        .add_systems(Update, ui::show_motion_trigger.run_if(resource_changed::<feathrise_scene::SceneMotionTriggerTrace>));
     app.init_resource::<resources::PreviewToolbarState>()
         .init_resource::<resources::ToolbarPointerInput>()
         .add_systems(Startup, ui::spawn)

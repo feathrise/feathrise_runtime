@@ -45,6 +45,18 @@ pub struct SceneMotionFinished {
     pub direction: SceneMotionDirection,
 }
 
+/// 工程试走可订阅最后一次实际执行的区域动作；普通游戏无需安装此资源。
+#[derive(Resource, Default)]
+pub struct SceneMotionTriggerTrace {
+    pub last: Option<SceneMotionTriggerHit>,
+}
+
+pub struct SceneMotionTriggerHit {
+    pub clip_name: String,
+    pub entering: bool,
+    pub action: SceneMotionAction,
+}
+
 #[derive(Clone, Copy)]
 struct Playhead {
     priority: u64,
@@ -147,7 +159,7 @@ impl MotionController {
 
     pub(super) fn routing_revision(&self) -> u64 { self.routing_revision }
 
-    fn update_regions(&mut self, hits: &mut Vec<(usize, usize)>) {
+    fn update_regions(&mut self, hits: &mut Vec<(usize, usize)>, mut trace: Option<&mut SceneMotionTriggerTrace>) {
         use feathrise_scene_content::MotionRegionAction;
         let previous = std::mem::take(&mut self.occupied);
         // 先处理离开，再处理进入；同一门的相邻触发区切换时以新区域的动作收尾。
@@ -162,6 +174,11 @@ impl MotionController {
                     MotionRegionAction::Stop => SceneMotionAction::Stop,
                 };
                 self.apply_index(clip, action);
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.last = Some(SceneMotionTriggerHit {
+                        clip_name: self.clips.clips()[clip].name.clone(), entering, action,
+                    });
+                }
             }
         }
         self.occupied = std::mem::take(hits);
@@ -250,6 +267,7 @@ pub(in crate::shared::placement_data) fn advance(
     observers: Query<&GlobalTransform, With<crate::SceneRuntimeObserver>>,
     mut hits: Local<Vec<(usize, usize)>>,
     mut finished: MessageWriter<SceneMotionFinished>,
+    mut trace: Option<ResMut<SceneMotionTriggerTrace>>,
 ) {
     let Some(physics) = physics else { return; };
     let delta = time.delta_secs_f64() * physics.relative_speed_f64();
@@ -265,7 +283,7 @@ pub(in crate::shared::placement_data) fn advance(
             // 复用两次查询的命中数组，多个观察者共用同一区域时只提交一次边沿。
             hits.sort_unstable();
             hits.dedup();
-            if controller.occupied != *hits { controller.update_regions(&mut hits); }
+            if controller.occupied != *hits { controller.update_regions(&mut hits, trace.as_deref_mut()); }
         }
         let MotionController { scene_id, clips, playheads, .. } = &mut *controller;
         // 同一片段的所有摆放只读以上一次固定步为基准推进的同一状态。

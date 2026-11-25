@@ -51,6 +51,11 @@ pub(super) fn spawn(mut commands: Commands) {
                             });
                     }
                 });
+            // 提示跟随工具条，长片段名在下方换行，返回和调试按钮留在原位置。
+            toolbar.spawn((MotionTriggerLabel, Text::new(""), TextFont { font_size: px(12).into(), ..default() },
+                TextColor(Color::srgb(0.94, 0.95, 0.96)), Node { display: Display::None, position_type: PositionType::Absolute,
+                    top: percent(100), left: px(0), margin: UiRect::top(px(4)), max_width: percent(100),
+                    padding: UiRect::axes(px(6), px(3)), ..default() }, BackgroundColor(NORMAL), Pickable::IGNORE));
             for (action, label) in [(ToolbarAction::Return, "返回"),
                 (ToolbarAction::Grid, "显示网格"), (ToolbarAction::Collision, "显示碰撞网格")] {
                 toolbar.spawn((UiInteraction::None, FocusPolicy::Block, action, ToolbarPointer,
@@ -65,4 +70,22 @@ pub(super) fn spawn(mut commands: Commands) {
                     });
             }
         });
+}
+
+#[derive(Component)]
+pub(super) struct MotionTriggerLabel;
+
+pub(super) fn show_motion_trigger(trace: Res<feathrise_scene::SceneMotionTriggerTrace>,
+    mut labels: Query<(&mut Text, &mut Node), With<MotionTriggerLabel>>) {
+    use feathrise_scene::SceneMotionAction::*;
+    for (mut text, mut node) in &mut labels {
+        if let Some(hit) = &trace.last {
+            let edge = if hit.entering { "进入" } else { "离开" };
+            let action = match hit.action { Play => "正向播放", Reverse => "反向播放", Pause => "暂停", Stop => "停止" };
+            **text = format!("{edge} · {} · {action}", hit.clip_name);
+            node.display = Display::Flex;
+        } else {
+            node.display = Display::None;
+        }
+    }
 }

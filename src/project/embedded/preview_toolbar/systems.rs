@@ -28,6 +28,12 @@ fn apply_display(world: &mut World, value: DisplayBaseline) {
 
 pub(in crate::project::embedded) fn mode_changed(world: &mut World, mode: Mode) {
     let Some(mut state) = world.remove_resource::<PreviewToolbarState>() else { return; };
+    let entering = mode == Mode::Playing && state.baseline.is_none();
+    let leaving = mode == Mode::Editing && state.baseline.is_some();
+    if (entering || leaving) && let Some(mut trace) = world.get_resource_mut::<feathrise_scene::SceneMotionTriggerTrace>()
+        && trace.last.is_some() {
+        trace.last = None;
+    }
     match mode {
         Mode::Playing if state.baseline.is_none() => {
             let baseline = display_state(world);

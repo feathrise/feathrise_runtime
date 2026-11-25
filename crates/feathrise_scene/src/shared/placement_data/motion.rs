@@ -14,7 +14,7 @@ use super::ScenePlacementInstance;
 
 mod playback;
 use playback::MotionOwners;
-pub use playback::{SceneMotionAction, SceneMotionCommand, SceneMotionDirection, SceneMotionFinished};
+pub use playback::{SceneMotionAction, SceneMotionCommand, SceneMotionDirection, SceneMotionFinished, SceneMotionTriggerHit, SceneMotionTriggerTrace};
 pub(super) use playback::{MotionController, advance as advance_playback, apply_commands, carry as carry_playback};
 
 #[derive(Clone, Debug)]
