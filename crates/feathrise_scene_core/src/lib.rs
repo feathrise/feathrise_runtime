@@ -3,6 +3,7 @@
 //! 五个功能域保持各自模块与原调度行为；底座不依赖场景实现、设置或厂商后端。
 
 pub mod constants;
+pub mod cinematic;
 pub mod view;
 pub mod state;
 pub mod input;

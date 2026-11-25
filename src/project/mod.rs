@@ -52,3 +52,7 @@ impl GameView {
 pub use startup::{
     validate_saved_scene, validate_saved_scene_with_check, validate_saved_startup_with_check,
 };
+pub(crate) use context::checked_existing;
+pub(crate) fn has_saved_scene(world: &bevy::prelude::World) -> bool {
+    world.contains_resource::<startup::SavedGameStartup>()
+}

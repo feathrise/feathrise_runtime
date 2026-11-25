@@ -17,6 +17,7 @@ pub struct ProjectVariables {
     pub(crate) book: Arc<RuleBook>,
     state: Arc<Mutex<ProjectVariablesSnapshot>>,
     pub(crate) generation: Arc<AtomicU64>,
+    values_revision: Arc<AtomicU64>,
 }
 
 enum Fact {
@@ -53,6 +54,11 @@ impl ProjectVariables {
         self.value(&self.state(), key).cloned()
     }
 
+    /// 玩法投影可在稳定帧无锁跳过变量查询。成功变值或替换槽位会更新版本，纯事件和取待办保持原值。
+    pub fn values_revision(&self) -> u64 {
+        self.values_revision.load(Ordering::Acquire)
+    }
+
     /// 返回声明的默认值及本局覆盖，供脚本调试枚举；常规分支直接按 key 查询。
     pub fn values(&self) -> BTreeMap<String, Value> {
         let state = self.state();
@@ -77,12 +83,21 @@ impl ProjectVariables {
         let mut state = self.state();
         let mut changes = VecDeque::new();
         let changed = self.write(&mut state, key, &value, "set", &mut changes);
-        self.react(&mut state, changes);
+        self.react(&mut state, changes, None);
         Ok(changed)
     }
 
     /// 多个变量属于同一次选择时先全部校验和写入，再让规则读取整组新值。
     pub fn set_batch(&self, values: BTreeMap<String, Value>) -> Result<(), String> {
+        self.write_batch(values, None)
+    }
+
+    /// 子场景演出在收尾时引出的下一段剧情仍作用于这一次的场景实例。
+    pub fn set_batch_in_instance(&self, values: BTreeMap<String, Value>, instance: &str) -> Result<(), String> {
+        self.write_batch(values, Some(instance))
+    }
+
+    fn write_batch(&self, values: BTreeMap<String, Value>, instance: Option<&str>) -> Result<(), String> {
         for (key, value) in &values {
             self.validate_value(key, value)?;
         }
@@ -91,7 +106,7 @@ impl ProjectVariables {
         for (key, value) in values {
             self.write(&mut state, &key, &value, "set_batch", &mut changes);
         }
-        self.react(&mut state, changes);
+        self.react(&mut state, changes, instance);
         Ok(())
     }
 
@@ -112,12 +127,21 @@ impl ProjectVariables {
         }
         let mut changes = VecDeque::new();
         self.write(&mut state, key, &value, "set_if", &mut changes);
-        self.react(&mut state, changes);
+        self.react(&mut state, changes, None);
         Ok(true)
     }
 
     /// 调用方仅在领域事务成功后发布事实。未订阅该类事件的工程直接返回。
     pub fn event(&self, event: &str, target: &str) {
+        self.publish(event, target, None);
+    }
+
+    /// 同一子图可在多个位置实例化。沿本次事实的整个规则链保留产生它的稳定实例路径。
+    pub fn event_in_instance(&self, event: &str, target: &str, instance: &str) {
+        self.publish(event, target, Some(instance));
+    }
+
+    fn publish(&self, event: &str, target: &str, instance: Option<&str>) {
         let Some(index) = self.book.events.get(event) else {
             return;
         };
@@ -129,12 +153,19 @@ impl ProjectVariables {
             name: event.into(),
             target: target.into(),
         };
-        self.react(&mut self.state(), VecDeque::from([fact]));
+        self.react(&mut self.state(), VecDeque::from([fact]), instance);
     }
 
     /// 领域按动作名领取自己的有序请求，并在自己的成功边界发布后续事实。
     pub fn take_requests(&self, action: &str) -> Vec<String> {
-        self.state().requests.remove(action).unwrap_or_default()
+        self.take_requests_with_instances(action).into_iter().map(|(target, _)| target).collect()
+    }
+
+    pub fn take_requests_with_instances(&self, action: &str) -> Vec<(String,Option<String>)> {
+        self.state().requests.remove(action).unwrap_or_default().into_iter().map(|r| match r {
+            PendingRequest::Target(target)=>(target,None),
+            PendingRequest::InInstance{target,instance}=>(target,Some(instance)),
+        }).collect()
     }
 
     pub fn snapshot(&self) -> ProjectVariablesSnapshot {
@@ -157,6 +188,7 @@ impl ProjectVariables {
         let mut state = self.state();
         *state = snapshot;
         self.generation.fetch_add(1, Ordering::Release);
+        self.values_revision.fetch_add(1, Ordering::Release);
     }
 
     fn state(&self) -> MutexGuard<'_, ProjectVariablesSnapshot> {
@@ -196,10 +228,11 @@ impl ProjectVariables {
         } else {
             state.values.insert(key.into(), value.clone());
         }
+        self.values_revision.fetch_add(1, Ordering::Release);
         true
     }
 
-    fn react(&self, state: &mut ProjectVariablesSnapshot, mut facts: VecDeque<Fact>) {
+    fn react(&self, state: &mut ProjectVariablesSnapshot, mut facts: VecDeque<Fact>, instance: Option<&str>) {
         // 一次外部输入中，同一条规则最多执行一次，消除 A→B→A 循环。下一次独立输入可再次触发。
         // 同一事实的所有条件先按同一状态判定，再按文件顺序执行动作，不递归调用玩法系统。
         let mut fired = HashSet::new();
@@ -213,11 +246,11 @@ impl ProjectVariables {
                         matches.extend(exact);
                         matches.sort_unstable();
                     }
-                    self.run_matches(state, &fact, &matches, &mut fired, &mut facts);
+                    self.run_matches(state, &fact, &matches, &mut fired, &mut facts, instance);
                     continue;
                 }
             };
-            self.run_matches(state, &fact, indices, &mut fired, &mut facts);
+            self.run_matches(state, &fact, indices, &mut fired, &mut facts, instance);
         }
     }
 
@@ -228,6 +261,7 @@ impl ProjectVariables {
         indices: &[usize],
         fired: &mut HashSet<usize>,
         facts: &mut VecDeque<Fact>,
+        instance: Option<&str>,
     ) {
         let mut matches = Vec::new();
         for &index in indices {
@@ -274,7 +308,10 @@ impl ProjectVariables {
                             .requests
                             .entry(request.clone())
                             .or_default()
-                            .push(target.clone());
+                            .push(match instance {
+                                Some(path) => PendingRequest::InInstance { target:target.clone(), instance:path.into() },
+                                None => PendingRequest::Target(target.clone()),
+                            });
                     }
                 }
             }

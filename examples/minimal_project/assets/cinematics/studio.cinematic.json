@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "minimal.studio",
+  "name": "工作室 · 镜头练习",
+  "duration": 3,
+  "camera": [
+    { "time": 0, "pose": { "translation": [0, 1.65, 5.6], "rotation": [-0.075, 0, 0, 0.99718] }, "fov_y_degrees": 42 },
+    { "time": 1.5, "smooth": true, "pose": { "translation": [1.6, 1.45, 4], "rotation": [-0.075, 0.186, 0.014, 0.9796] }, "fov_y_degrees": 37 },
+    { "time": 2, "pose": { "translation": [-1.6, 1.7, 3.2], "rotation": [-0.119, -0.228, -0.028, 0.966] }, "fov_y_degrees": 46 }
+  ],
+  "dialogue": [
+    { "id": "title", "time": 0.25, "duration": 0.85, "text": "工作室  /  镜头练习" },
+    { "id": "hold", "time": 1.5, "duration": 0.25, "text": "定格", "wait": true }
+  ]
+}

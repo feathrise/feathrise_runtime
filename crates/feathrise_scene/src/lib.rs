@@ -138,6 +138,7 @@ pub use shared::placement_data::{
     ATTRIBUTE_AUTHORING_WIRE, DeferredTerrainPreviewCollider, ScenePlacementInstance, ScenePlacementPrimitiveVisual,
     BuiltinVisualPrepared, builtin_placement_visual_ready, editable_cuboid_mesh, editable_mesh_mesh, spawn_builtin_placement_visual, set_builtin_placement_collision_enabled, set_builtin_placement_collision_enabled_world, set_builtin_placement_batch_enabled, set_builtin_placement_batch_enabled_world,
     SceneMotionAction, SceneMotionCommand, SceneMotionDirection, SceneMotionFinished, SceneMotionTriggerHit, SceneMotionTriggerTrace,
+    sample_placement_clip,
     ScenePlacementRebuildRequest, ScenePlacementRuntimePhase, ScenePlacementRuntimeStatus,
     ScenePlacementWaterEvidence, PlacementPendingInstance, TerrainMeshUpload,
     TerrainPatchColliderFailure, TerrainPatchCollisionRequest, building_placement_collision,

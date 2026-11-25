@@ -45,6 +45,21 @@ pub struct SceneMotionFinished {
     pub direction: SceneMotionDirection,
 }
 
+/// 按导演的绝对秒数采样这一个摆放。它与其他摆放共用数据，但不借用它们的播放头。
+pub fn sample_placement_clip(world: &World, entity: Entity, id: &str, seconds: f32) -> Result<(Transform, Transform), String> {
+    let placement = world.get::<super::super::ScenePlacementInstance>(entity)
+        .ok_or_else(|| "演出物件已卸载".to_string())?;
+    let platform = world.get::<super::MotionPlatform>(entity)
+        .ok_or_else(|| format!("物件 {} 没有场景动画轨道", placement.id()))?;
+    let controller = world.get::<ChildOf>(entity).and_then(|p| world.get::<MotionController>(p.parent()))
+        .ok_or_else(|| format!("物件 {} 的场景片段尚未就绪", placement.id()))?;
+    let index = controller.clips.clip_index(id).ok_or_else(|| format!("场景中没有片段 {id}"))?;
+    let track = controller.clips.placement(placement.id()).and_then(|tracks| tracks.iter().find(|track| track.clip_index == index))
+        .ok_or_else(|| format!("片段 {id} 没有物件 {} 的轨道", placement.id()))?;
+    let time = f64::from(seconds).clamp(0.0, controller.clips.clips()[index].duration);
+    Ok((platform.origin, track.track.sample_transform(time, platform.origin)))
+}
+
 /// 工程试走可订阅最后一次实际执行的区域动作；普通游戏无需安装此资源。
 #[derive(Resource, Default)]
 pub struct SceneMotionTriggerTrace {

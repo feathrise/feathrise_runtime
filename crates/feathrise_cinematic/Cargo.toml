@@ -1,0 +1,14 @@
+# 公共演出资产、时间采样和会话合同，供独立 SDK 和作者工具使用。
+[package]
+name = "feathrise_cinematic"
+version = "0.2.0"
+edition = "2024"
+description = "Scene cinematic assets and deterministic timeline sampling for Feathrise"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/feathrise/feathrise_runtime"
+
+[dependencies]
+bevy_ecs = { version = "=0.20.1", default-features = false }
+bevy_math = { version = "=0.20.1", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

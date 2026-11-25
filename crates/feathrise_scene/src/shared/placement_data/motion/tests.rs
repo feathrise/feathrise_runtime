@@ -309,6 +309,21 @@ fn use_motion_clips(world: &mut World, scene: &SceneId, clips: Arc<SceneMotionCl
     objects
 }
 
+#[test]
+fn cinematic_sampling_uses_only_the_named_placement_track_without_advancing_game_time() {
+    let (mut app, clips) = manual_motion_app();
+    let scene = SceneId::parse("SCENE-motion").unwrap();
+    let [door, lift] = use_motion_clips(app.world_mut(), &scene, clips, None);
+    let (origin, half) = crate::sample_placement_clip(app.world(), door, "door", 0.5).unwrap();
+    assert_eq!(origin.translation, Vec3::Y);
+    assert!((half.translation.x - 2.).abs() < 0.0001);
+    let (_, end) = crate::sample_placement_clip(app.world(), door, "door-alternate", 5.).unwrap();
+    assert_eq!(end.translation.x, -2.);
+    assert!(crate::sample_placement_clip(app.world(), lift, "door", 0.5).is_err());
+    assert_eq!(app.world().get::<Transform>(door).unwrap().translation, origin.translation);
+    assert!(app.world().resource::<FinishedClips>().0.is_empty());
+}
+
 fn manual_motion_app() -> (App, Arc<SceneMotionClips>) {
     let binary: Vec<_> = [0.0, 1.0, 0.0, 1.0, 0.0, 4.0, 1.0, 0.0, 0.0, 1.0, 4.0, 0.0, 3.0, 4.0,
         0.0, 1.0, 0.0, -2.0, 1.0, 0.0]

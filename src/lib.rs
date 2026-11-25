@@ -5,6 +5,8 @@
 
 pub mod app;
 pub mod project;
+/// 实时玩法、作者时间轴和宣传片固定帧导出共享的场景演出契约。
+pub use feathrise_cinematic as cinematic;
 /// 工程变量与触发规则可以在没有任务系统或对白运行器的宿主中使用。
 pub use feathrise_project_rules as project_rules;
 

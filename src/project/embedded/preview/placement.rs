@@ -4,34 +4,9 @@ use bevy::prelude::*;
 use feathrise_scene_content::{SceneId, embedded_placement_preview::{
     MAX_PLACEMENT_PREVIEW_MEMBERS, PLACEMENT_PREVIEW_FORMAT, PlacementPreviewCommand, PlacementPreviewKind, PlacementPreviewFinalMember}};
 use feathrise_scene::{ScenePlacementInstance, SubsceneInstance};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-
-#[derive(Resource, Default)]
-struct RootIndex {
-    roots: BTreeMap<(SceneId, String), BTreeSet<Entity>>,
-    reverse: BTreeMap<Entity, (SceneId, String)>,
-}
-fn inserted(event: On<Insert<ScenePlacementInstance>>, roots: Query<&ScenePlacementInstance>, mut index: ResMut<RootIndex>) {
-    if let Ok(root) = roots.get(event.entity) {
-        let key = (root.scene_id().clone(), root.id().to_owned());
-        if let Some(previous) = index.reverse.get(&event.entity).cloned()
-            && previous != key {
-            if let Some(roots) = index.roots.get_mut(&previous) { roots.remove(&event.entity); }
-            if index.roots.get(&previous).is_some_and(BTreeSet::is_empty) { index.roots.remove(&previous); }
-        }
-        index.roots.entry(key.clone()).or_default().insert(event.entity);
-        index.reverse.insert(event.entity, key);
-    }
-}
-fn removed(event: On<Remove<ScenePlacementInstance>>, mut index: ResMut<RootIndex>) {
-    if let Some(key) = index.reverse.remove(&event.entity) {
-        if let Some(roots) = index.roots.get_mut(&key) { roots.remove(&event.entity); }
-        if index.roots.get(&key).is_some_and(BTreeSet::is_empty) { index.roots.remove(&key); }
-    }
-}
-pub(super) fn install(app: &mut App) {
-    app.init_resource::<RootIndex>().add_observer(inserted).add_observer(removed);
-}
+use std::collections::{BTreeSet, VecDeque};
+use crate::app::game_plugins::cinematics::bindings::PlacementIndex;
+pub(super) use crate::app::game_plugins::cinematics::bindings::install_placements as install;
 
 pub(super) fn decode(format: &str, bytes: &[u8], map: &SceneId) -> Result<PlacementPreviewCommand, String> {
     if format != PLACEMENT_PREVIEW_FORMAT || bytes.len() > 256 * 1024 { return Err("对象预览格式或大小无效".into()); }
@@ -74,7 +49,7 @@ fn exact_transform(value: Mat4) -> Result<Transform, String> {
 
 /// 通过当前索引定向复核活动根；同来源子场景实例不能冒充父图作者对象。
 pub(crate) fn active_root(world: &World, map: &SceneId, id: &str) -> Result<Entity, String> {
-    let roots = world.get_resource::<RootIndex>().and_then(|index| index.roots.get(&(map.clone(), id.to_owned())))
+    let roots = world.get_resource::<PlacementIndex>().and_then(|index| index.0.get(&(map.clone(), id.to_owned())))
         .ok_or_else(|| format!("对象{id}的运行根尚未就绪"))?;
     let mut found = None;
     for &entity in roots {

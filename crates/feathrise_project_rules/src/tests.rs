@@ -22,6 +22,49 @@ fn name(value: &str) -> Value {
 }
 
 #[test]
+fn value_revision_tracks_every_authoritative_write_and_restore_but_ignores_noops_and_requests() {
+    let rules = book(json!([
+        {"id":"chain","when":{"event":"start"},"actions":[{"set":"known","value":true}]},
+        {"id":"follow","when":{"changed":"known","to":true},"actions":[{"set":"stage","value":2}]},
+        {"id":"notify","when":{"event":"notice"},"actions":[{"request":"show","target":"caption"}]}
+    ]));
+    let reader = rules.clone();
+    let initial = reader.values_revision();
+    rules.set("known", Value::Bool(false)).unwrap();
+    rules.event("notice", "");
+    assert_eq!(rules.take_requests("show"), ["caption"]);
+    assert_eq!(reader.values_revision(), initial);
+    rules.event_in_instance("start", "", "dock/a");
+    assert_eq!(reader.values_revision(), initial + 2);
+    rules.set_if("recipient", &name("none"), name("guard"), || false).unwrap();
+    assert!(rules.set("stage", Value::Bool(false)).is_err());
+    assert_eq!(reader.values_revision(), initial + 2);
+    rules.set_if("recipient", &name("none"), name("guard"), || true).unwrap();
+    rules.set_batch_in_instance([("stage".into(), Value::Number(3.))].into(), "dock/a").unwrap();
+    rules.set_batch([("stage".into(), Value::Number(4.))].into()).unwrap();
+    rules.set("stage", Value::Number(5.)).unwrap();
+    assert_eq!(reader.values_revision(), initial + 6);
+    rules.restore(Default::default());
+    assert_eq!(reader.values_revision(), initial + 7);
+    assert_eq!(reader.get("stage"), Some(Value::Number(0.)));
+    assert!(serde_json::to_value(rules.snapshot()).unwrap().get("values_revision").is_none());
+}
+
+#[test]
+fn cinematic_requests_preserve_instance_through_variables_and_old_saves() {
+    let rules=book(json!([
+        {"id":"pickup","when":{"event":"pickup","target":"sword"},"actions":[{"set":"stage","value":2}]},
+        {"id":"show","when":{"changed":"stage","to":2},"actions":[{"request":"cinematic.play","target":"unseal"}]}
+    ]));
+    rules.event_in_instance("pickup","sword","temple/east");
+    let snapshot=serde_json::to_vec(&rules.snapshot()).unwrap();
+    rules.restore(serde_json::from_slice(&snapshot).unwrap());
+    assert_eq!(rules.take_requests_with_instances("cinematic.play"),vec![("unseal".into(),Some("temple/east".into()))]);
+    rules.restore(serde_json::from_value(json!({"requests":{"cinematic.play":["before_upgrade"]}})).unwrap());
+    assert_eq!(rules.take_requests_with_instances("cinematic.play"),vec![("before_upgrade".into(),None)]);
+}
+
+#[test]
 fn one_handoff_selects_one_route_and_survives_slot_switch_with_an_existing_reader() {
     let rules = json!([
         {"id":"smith","when":{"changed":"recipient","from":"none","to":"smith"},"once":true,
@@ -56,6 +99,13 @@ fn one_handoff_selects_one_route_and_survives_slot_switch_with_an_existing_reade
     game.set("recipient", name("none")).unwrap();
     game.set("recipient", name("smith")).unwrap();
     assert!(game.take_requests("quest.start").is_empty());
+}
+
+#[test]
+fn final_variables_trigger_the_following_show_in_the_same_instance() {
+    let rules=book(json!([{"id":"next","when":{"changed":"stage","to":2},"actions":[{"request":"cinematic.play","target":"after_seal"}]}]));
+    rules.set_batch_in_instance([("stage".into(),Value::Number(2.0))].into(),"temple/west").unwrap();
+    assert_eq!(rules.take_requests_with_instances("cinematic.play"),vec![("after_seal".into(),Some("temple/west".into()))]);
 }
 
 #[test]

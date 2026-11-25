@@ -1,6 +1,7 @@
 //! 场景与渲染的公共装配；相机控制、角色、战斗和具体内容由应用另行安装。
 
 mod billboard_camera;
+pub mod cinematics;
 mod interaction;
 mod project_locations;
 #[cfg(feature = "test_panel")]
@@ -38,7 +39,7 @@ impl Plugin for SceneRuntimePlugin {
         ));
         app.init_state::<ScenePhase>()
             .insert_resource(ClearColor(Color::srgb(0.5, 0.7, 1.0)))
-            .add_plugins(GraphicsSettingsPlugin);
+            .add_plugins((GraphicsSettingsPlugin, cinematics::CinematicPresentationPlugin, crate::app::cinematic_runtime::CinematicRuntimePlugin));
         // 工程插件可以先安装通用世界文字；公共装配仍复用同一个烘焙池和材质注册。
         if !app.is_plugin_added::<feathrise_billboard_text::BillboardTextPlugin>() {
             app.add_plugins(feathrise_billboard_text::BillboardTextPlugin);

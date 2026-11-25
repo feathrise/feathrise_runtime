@@ -15,6 +15,7 @@ use super::ScenePlacementInstance;
 mod playback;
 use playback::MotionOwners;
 pub use playback::{SceneMotionAction, SceneMotionCommand, SceneMotionDirection, SceneMotionFinished, SceneMotionTriggerHit, SceneMotionTriggerTrace};
+pub use playback::sample_placement_clip;
 pub(super) use playback::{MotionController, advance as advance_playback, apply_commands, carry as carry_playback};
 
 #[derive(Clone, Debug)]
@@ -100,7 +101,7 @@ pub(super) fn drive(
         Entity, &ScenePlacementInstance, &ChildOf, &mut Position, &mut Rotation,
         &mut LinearVelocity, &mut AngularVelocity, &ComputedCenterOfMass, &mut Transform,
         &mut MotionPlatform, Has<RigidBodyDisabled>, Option<&SceneInstanceOwner>,
-    )>,
+    ), Without<feathrise_scene_core::cinematic::CinematicPoseOwner>>,
 ) {
     let Some(physics) = physics else { return; };
     let delta = time.delta_secs_f64() * physics.relative_speed_f64();

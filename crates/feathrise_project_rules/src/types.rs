@@ -79,10 +79,17 @@ pub(crate) enum Action {
 }
 
 /// 快照只含玩家进度。保存请求已生成但领域还未领取时，一起写档以免丢掉这次联动。
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(untagged)]
+pub(crate) enum PendingRequest {
+    Target(String),
+    InInstance { target: String, instance: String },
+}
+
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub struct ProjectVariablesSnapshot {
     pub(crate) values: BTreeMap<String, Value>,
     pub(crate) fired: BTreeSet<String>,
-    pub(crate) requests: BTreeMap<String, Vec<String>>,
+    pub(crate) requests: BTreeMap<String, Vec<PendingRequest>>,
 }

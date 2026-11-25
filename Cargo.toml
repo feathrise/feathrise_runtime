@@ -9,6 +9,7 @@ description = "Shared Bevy runtime and project entry for Feathrise"
 
 # 工程启动与公共装配直接归 SDK 的 project/app 模块，具体能力仍由子库提供。
 [dependencies]
+feathrise_cinematic = { version = "0.2.0", path = "crates/feathrise_cinematic" }
 feathrise_project_rules = { version = "0.2.0", path = "crates/feathrise_project_rules" }
 feathrise_scene_core = { version = "0.2.0", path = "crates/feathrise_scene_core" } # 统一场景视图、状态、活动门和驻留契约。
 feathrise_vegetation = { version = "0.2.0", path = "crates/feathrise_vegetation", optional = true, features = ["blade", "diagnostics"] }
@@ -91,6 +92,7 @@ feathrise_editor_protocol = { version = "0.2.0", path = "crates/feathrise_editor
 bevy = { version = "=0.20.1", default-features = true, features = [
     # SDK库可被独立DLL/SO使用；开发动态链接只在实际应用的依赖处开启。
     "file_watcher",
+    "free_camera", # 按 Bevy 原生控制器的真实调度分别接管自由相机旋转和玩家位移。
     "bevy_ui_widgets",
     "complex_script_segmentation",
     # 场景 GLB 可能嵌入 JPEG 贴图；Bevy 未启用该 feature 时会拒绝 image/jpeg。

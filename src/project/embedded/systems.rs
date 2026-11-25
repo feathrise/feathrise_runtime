@@ -674,12 +674,13 @@ pub(super) fn restore_game_camera(
 pub(super) fn camera(
     mut runtime: NonSendMut<Runtime>,
     state: Res<EmbeddedProjectState>,
+    cinematic: Option<Res<feathrise_cinematic::CinematicFrame>>,
     mut cameras: Query<
         (Entity, &mut Transform, &mut Projection),
         With<feathrise_scene_core::view::PrimarySceneView>,
     >,
 ) {
-    if runtime.stopping { return; }
+    if runtime.stopping || cinematic.is_some_and(|frame| frame.active.as_ref().is_some_and(|f| f.mode == feathrise_cinematic::FrameMode::Preview)) { return; }
     if state.mode == Mode::Playing {
         return; // 玩法已在开门前取得相机；其后每帧的姿态和投影完全由工程系统控制。
     }

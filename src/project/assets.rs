@@ -53,13 +53,15 @@ pub(super) fn install(app: &mut App, project: &ProjectContext) -> Result<AssetPl
         Err(e) => return Err(format!("{RULES_FILE}：{e}")),
     };
     app.insert_resource(variables);
+    app.insert_resource(crate::app::cinematic_runtime::CatalogSource::directory(first.clone()));
     for (id, source) in sources {
         app.register_asset_source(id, source);
     }
     Ok(AssetPlugin {
         file_path: first.to_string_lossy().into_owned(),
         mode: AssetMode::Unprocessed,
-        watch_for_changes_override: Some(true),
+        // 作者可继续编辑当前工程。独立摄影进程保留已经载入的镜头、场景资源和动作版本。
+        watch_for_changes_override: Some(std::env::var_os(feathrise_cinematic::movie::MOVIE_JOB_ENV).is_none()),
         ..Default::default()
     })
 }

@@ -1,5 +1,6 @@
 //! 公共运行装配与Vulkan呈现保护；不依赖原游戏应用入口。
 pub mod game_plugins;
+pub mod cinematic_runtime;
 pub mod scene_loading; // 无界面、无PAK的场景加载交接；应用各自提交要等待的关键资产。
 #[cfg(any(feature = "default_font", test))]
 pub mod default_font;
