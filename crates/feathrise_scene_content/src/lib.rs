@@ -32,6 +32,8 @@ mod courtyard_presets; // 全局院落组合预设及显式成员原型。
 mod distribution; // 编辑器和运行时共享的确定性植被散布纯函数。
 mod loaders; // 接管场景复合JSON和水域原始R8加载器。
 mod placement_glb; // Blender 和 Feathrise 共享同一个摆放源。
+mod local_light;
+pub use local_light::{LocalLightParameters, SceneLocalLight};
 pub use placement_glb::{read_scene_placements, write_scene_placements_glb};
 mod paint_surface; // 模型和地形共用种植目标；稀疏模型密度不依赖编辑器或碰撞。
 pub use paint_surface::{SurfaceTarget, ModelSurfaceAnchor, ModelSurfaceVegetation, ModelSurfaceVegetationSample};
@@ -90,7 +92,7 @@ pub use editable_mesh::{
 pub use mesh_extrusion::{extruded_placement_record, extrusion_normal};
 pub use placement_editor::*;
 pub use scene_motion::{
-    SceneMotionAsset, SceneMotionClip, SceneMotionClips, SceneMotionPlacementTrack, SceneMotionPlayback,
+    MotionRegionAction, SceneMotionAsset, SceneMotionClip, SceneMotionClips, SceneMotionPlacementTrack, SceneMotionPlayback,
     SceneMotionPreviewSource, SceneMotionTrack,
 };
 pub use placement_water::*; // F12作者工具与正式运行时共享同一网格水体类别、参数和校验边界。

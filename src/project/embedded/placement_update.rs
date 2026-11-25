@@ -36,12 +36,13 @@ pub(super) fn prepare(path: String, old: &[u8], document: ScenePlacementsAsset,
         expected.editor = record.editor.clone();
         if expected != *record { return None; }
         if old != record {
+            // 光束俯仰和横滚也属于有效姿态；仅比较旧 Y 轴角会把它们当成纯作者备注。
+            let changed_transform = old.translation != record.translation || old.rotation() != record.rotation() || old.scale != record.scale;
             // 变换会改变地形孔洞或建筑净空，必须由完整生产派生链一起提交。
             if (record.terrain_patch.is_some() || record.building_preset_id.is_some())
-                && (old.translation != record.translation || old.yaw_degrees != record.yaw_degrees || old.scale != record.scale) {
+                && changed_transform {
                 return None;
             }
-            let changed_transform = old.translation != record.translation || old.yaw_degrees != record.yaw_degrees || old.scale != record.scale;
             let transform = record.validated_transform(&document.scene_id, bounds).ok()?;
             updates.push((record.clone(), changed_transform.then_some(transform)));
         }
@@ -127,6 +128,27 @@ mod tests {
         assert_eq!(world.get::<Transform>(root).unwrap().translation, Vec3::new(9.0, 2.0, 3.0));
         assert!(world.get::<ScenePlacementInstance>(root).unwrap().matches_record(&after.scene_id, &after.placements[0], &[]));
     }
+    #[test]
+    fn spot_pitch_updates_the_engineering_view_light_without_replacing_its_root() {
+        let mut before = document();
+        let record = &mut before.placements[0];
+        record.asset_path.clear();
+        record.asset_target = feathrise_scene_content::ScenePlacementAssetTarget::from_local_light([1.0;3], 900.0, Some(14.0), Some([0.2, 0.7])).unwrap();
+        let mut after = before.clone();
+        let expected = Quat::from_rotation_x(-0.7);
+        after.placements[0].set_rotation(expected).unwrap();
+        let mut update = prepare("placements.scene_placements.json".into(), &serde_json::to_vec(&before).unwrap(), after, bounds()).unwrap();
+        let mut world = World::new();
+        let mut assets = Assets::<ScenePlacementsAsset>::default();
+        update.handle = Some(assets.add(before.clone()));
+        world.insert_resource(assets);
+        let root = world.spawn((ScenePlacementInstance::new(&before.scene_id, &before.placements[0]), SpotLight::default())).id();
+        update.resolved.push(root); update.verified = true;
+        update.apply(&mut world, &mut super::super::preview::State::default()).unwrap().unwrap();
+        assert!(world.get::<Transform>(root).unwrap().rotation.dot(expected).abs() > 0.999999);
+        assert!(world.get::<SpotLight>(root).is_some());
+    }
+
     #[test]
     fn shape_change_and_derived_collision_change_keep_the_formal_candidate_path() {
         let before = document(); let old = serde_json::to_vec(&before).unwrap();

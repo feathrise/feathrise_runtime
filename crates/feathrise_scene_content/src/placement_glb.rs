@@ -21,6 +21,7 @@ const COLLISION: &str = "feathrise_collision";
 const PLACEMENT_FIELDS: &str = "feathrise_placement";
 const BUILTIN_RECIPE: &str = "feathrise_builtin";
 const BUILTIN_MESH: &str = "feathrise_builtin_mesh";
+const LIGHTS: &str = "KHR_lights_punctual";
 
 /// 运行时、作者保存与打包检查共享同一读法，旧工程仍可读取原摆放文档。
 pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlacementsAsset, String> {
@@ -51,33 +52,74 @@ pub fn read_scene_placements(bytes: &[u8], asset_path: &str) -> Result<ScenePlac
     let preserve_recipes = marker[GEOMETRY_HASH]
         .as_str()
         .is_some_and(|expected| expected == geometry_hash(&document, bin));
-    let mut stack = roots.iter().rev().map(|node| Ok((index(node)?, Mat4::IDENTITY)))
-        .collect::<Result<Vec<_>, String>>()?;
-    let mut visited = HashSet::new();
     let mut ids = HashSet::new();
     let mut placements = Vec::new();
     let mut recipes = HashMap::new();
-    while let Some((node_index, parent)) = stack.pop() {
-        if !visited.insert(node_index) {
-            return Err("场景 GLB 的节点重复或形成环".into());
-        }
-        let node = nodes.get(node_index).ok_or("场景 GLB 的节点索引越界")?;
-        let world = parent * node_transform(node)?;
-        if let Some(children) = node.get("children") {
-            for child in children.as_array().ok_or("GLB 节点 children 无效")?.iter().rev() {
-                stack.push((index(child)?, world));
-            }
-        }
+    visit_nodes(nodes, roots, |node, world| {
         if let Some(record) = read_node(&document, node, world, asset_path, preserve_recipes, &mut recipes)? {
             if !ids.insert(record.id.clone()) {
                 return Err(format!("场景 {scene_id} 的摆放 ID {} 重复", record.id));
             }
             placements.push(record);
         }
-    }
+        Ok(())
+    })?;
     let result = ScenePlacementsAsset { schema_version: SCENE_SCHEMA_VERSION, scene_id, placements };
     result.validate_courtyards()?;
     Ok(result)
+}
+
+/// 主场景会把层级摊平，保留 Blender 灯光与读取作者摆放必须使用同一组世界矩阵。
+fn visit_nodes<'a>(nodes: &'a [Value], roots: &[Value], mut visit: impl FnMut(&'a Value, Mat4) -> Result<(), String>) -> Result<(), String> {
+    let mut stack = roots.iter().rev().map(|node| Ok((index(node)?, Mat4::IDENTITY))).collect::<Result<Vec<_>, String>>()?;
+    let mut visited = HashSet::new();
+    while let Some((i, parent)) = stack.pop() {
+        if !visited.insert(i) { return Err("场景 GLB 的节点重复或形成环".into()); }
+        let node = nodes.get(i).ok_or("场景 GLB 的节点索引越界")?;
+        let world = parent * node_transform(node)?;
+        if let Some(children) = node.get("children") {
+            for child in children.as_array().ok_or("GLB 节点 children 无效")?.iter().rev() {
+                stack.push((index(child)?, world));
+            }
+        }
+        visit(node, world)?;
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ExistingLights {
+    attached: HashMap<String, Value>,
+    standalone: Vec<(Value, Value)>,
+    authored: HashMap<String, Value>,
+}
+
+impl ExistingLights {
+    fn read(document: &Value, nodes: &[Value]) -> Result<Self, String> {
+        let mut result = Self::default();
+        let Some(definitions) = document["extensions"][LIGHTS]["lights"].as_array() else { return Ok(result); };
+        let scene = document.get("scene").map(index).transpose()?.unwrap_or(0);
+        let roots = array(document["scenes"].get(scene).ok_or("场景 GLB 缺少默认场景")?, "nodes")?;
+        visit_nodes(nodes, roots, |node, world| {
+            let Some(light) = node["extensions"][LIGHTS].get("light") else { return Ok(()); };
+            let definition = definitions.get(index(light)?).ok_or("GLB 灯光索引越界")?.clone();
+            let id = placement_node_id(node["extras"][PLACEMENT_ID].as_str(), node["name"].as_str(), true);
+            if node.get("mesh").is_some() {
+                if let Some(id) = id { result.attached.insert(id, definition); }
+            } else if matches!(definition["type"].as_str(), Some("point" | "spot")) {
+                if let Some(id) = id { result.authored.insert(id, definition); }
+            } else {
+                // 非作者灯光也要重新绑定到扩展表；保留名称和其他节点字段，移除已展开的层级和旧局部姿态。
+                let mut passthrough = node.clone();
+                let fields = passthrough.as_object_mut().ok_or("GLB 灯光节点无效")?;
+                for key in ["children", "translation", "rotation", "scale"] { fields.remove(key); }
+                passthrough["matrix"] = json!(world.to_cols_array());
+                result.standalone.push((passthrough, definition));
+            }
+            Ok(())
+        })?;
+        Ok(result)
+    }
 }
 
 /// Blender 新增网格按名称派生身份，首次保存后沿用稳定节点属性。
@@ -99,12 +141,15 @@ fn read_node<'a>(
     let extras = &node["extras"];
     let owned_mesh = node.get("mesh").map(index).transpose()?;
     let custom_id = extras[PLACEMENT_ID].as_str();
-    if owned_mesh.is_none() && custom_id.is_none() {
+    let light = node["extensions"][LIGHTS].get("light").map(index).transpose()?
+        .map(|i| document["extensions"][LIGHTS]["lights"].get(i).ok_or("GLB 灯光索引越界")).transpose()?
+        .filter(|light| matches!(light["type"].as_str(), Some("point" | "spot")));
+    if owned_mesh.is_none() && custom_id.is_none() && light.is_none() {
         return Ok(None); // 场景标识及 Blender 中的普通分组空节点不是可视摆放物。
     }
     let name = node["name"].as_str().filter(|name| !name.is_empty());
-    let id = placement_node_id(custom_id, name, owned_mesh.is_some())
-        .ok_or("新增 GLB 网格节点需要名称")?;
+    let id = placement_node_id(custom_id, name, owned_mesh.is_some() || light.is_some())
+        .ok_or("新增的 GLB 网格或灯光节点需要名称")?;
     let mut fields: Value = match extras[PLACEMENT_FIELDS].as_str() {
         Some(fields) => serde_json::from_str(fields).map_err(|error| format!("节点 {id} 的摆放属性无效：{error}"))?,
         None => json!({}),
@@ -145,7 +190,7 @@ fn read_node<'a>(
         } else {
             None
         };
-        let target = if let Some(recipe) = recipe.filter(|target| target.is_builtin() && builtin_material(target).2 == collision) {
+        let target = if let Some(recipe) = recipe.filter(|target| target.is_builtin_mesh() && builtin_material(target).2 == collision) {
             fields["asset_path"] = json!("");
             recipe.validate()?;
             recipe
@@ -160,6 +205,11 @@ fn read_node<'a>(
         };
         fields.as_object_mut().expect("已核对摆放字段对象").remove("asset_target");
         Some(target)
+    } else if let Some(light) = light {
+        fields["asset_path"] = json!("");
+        Some(ScenePlacementAssetTarget::Light {
+            light: serde_json::from_value(light.clone()).map_err(|error| format!("节点 {id} 的灯光无效：{error}"))?,
+        })
     } else {
         if fields["asset_path"].as_str().is_none_or(str::is_empty) {
             return Err(format!("节点 {id} 没有网格或共享资产引用"));
@@ -242,9 +292,10 @@ pub fn write_scene_placements_glb(
     let mut bin = previous_bin.to_vec();
     let mut recipes = HashMap::new();
     let existing_nodes = document["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let mut existing_lights = ExistingLights::read(&document, existing_nodes)?;
     let previous_animation_targets = (!document["animations"].is_null()).then(|| {
         existing_nodes.iter().map(|node| placement_node_id(
-            node["extras"][PLACEMENT_ID].as_str(), node["name"].as_str(), node.get("mesh").is_some(),
+            node["extras"][PLACEMENT_ID].as_str(), node["name"].as_str(), node.get("mesh").is_some() || node["extensions"][LIGHTS].get("light").is_some(),
         )).collect::<Vec<_>>()
     });
     let authoritative_animation = existing_nodes.iter().any(|node| {
@@ -269,6 +320,7 @@ pub fn write_scene_placements_glb(
     if authoritative_animation {
         nodes[0]["extras"]["feathrise_scene_animation"] = json!(true);
     }
+    let mut lights = Vec::new();
     for record in &placements.placements {
         let name = if record.editor.name.is_empty() { &record.id } else { &record.editor.name };
         let rotation = record.rotation().to_array();
@@ -298,7 +350,16 @@ pub fn write_scene_placements_glb(
         }
         let mut extras = json!({PLACEMENT_ID: record.id});
         let mesh = match &record.asset_target {
-            target if target.is_builtin() => {
+            ScenePlacementAssetTarget::Light { light } => {
+                node["extensions"][LIGHTS] = json!({ "light": lights.len() });
+                let mut definition = existing_lights.authored.remove(&record.id).unwrap_or_else(|| json!({}));
+                let fields = definition.as_object_mut().ok_or("GLB 灯光定义无效")?;
+                for key in ["range", "spot"] { fields.remove(key); }
+                fields.extend(json!(light).as_object().unwrap().clone());
+                lights.push(definition);
+                None
+            }
+            target if target.is_builtin_mesh() => {
                 target.validate()?;
                 let recipe = serde_json::to_string(target).map_err(|error| error.to_string())?;
                 let mesh = if let Some(mesh) = recipes.get(&recipe) { *mesh } else {
@@ -324,6 +385,10 @@ pub fn write_scene_placements_glb(
         };
         if let Some(mesh) = mesh {
             node["mesh"] = json!(mesh);
+            if let Some(light) = existing_lights.attached.remove(&record.id) {
+                node["extensions"][LIGHTS] = json!({"light":lights.len()});
+                lights.push(light);
+            }
             let field_map = fields.as_object_mut().expect("摆放记录总是对象");
             field_map.remove("asset_path");
             field_map.remove("asset_target");
@@ -334,6 +399,26 @@ pub fn write_scene_placements_glb(
         }
         node["extras"] = extras;
         nodes.push(node);
+    }
+    for (mut node, light) in existing_lights.standalone {
+        node["extensions"][LIGHTS] = json!({"light":lights.len()});
+        lights.push(light);
+        nodes.push(node);
+    }
+    // 点光与聚光的光学参数只写进标准扩展。主场景重新编排节点时，一并重建所有光源索引。
+    if !lights.is_empty() {
+        document["extensions"][LIGHTS]["lights"] = json!(lights);
+        if document["extensionsUsed"].is_null() { document["extensionsUsed"] = json!([]); }
+        let used = document["extensionsUsed"].as_array_mut().ok_or("GLB extensionsUsed 无效")?;
+        if !used.iter().any(|extension| extension.as_str() == Some(LIGHTS)) { used.push(json!(LIGHTS)); }
+    } else if document["extensions"].get(LIGHTS).is_some() {
+        if let Some(extensions) = document["extensions"].as_object_mut() { extensions.remove(LIGHTS); }
+        for key in ["extensionsUsed", "extensionsRequired"] {
+            if let Some(used) = document[key].as_array_mut() {
+                used.retain(|extension| extension.as_str() != Some(LIGHTS));
+                if used.is_empty() { document.as_object_mut().unwrap().remove(key); }
+            }
+        }
     }
     if !bin.is_empty() {
         if document["buffers"].is_null() {
@@ -566,6 +651,73 @@ mod tests {
         }
         assert!(!bin.is_empty());
         assert_eq!(read_scene_placements(&bytes, PATH).unwrap().placements, draft.placements);
+    }
+
+    #[test]
+    fn local_lights_round_trip_standard_nodes_and_reindex_after_deletion() {
+        let mut draft = dock();
+        let mut point = draft.placements[0].clone();
+        point.id = "courtyard-point".into();
+        point.asset_target = ScenePlacementAssetTarget::from_local_light([1.0, 0.5, 0.25], 700.0, Some(9.0), None).unwrap();
+        let mut spot = point.clone();
+        spot.id = "door-spot".into();
+        spot.asset_target = ScenePlacementAssetTarget::from_local_light([0.1, 0.5, 1.0], 450.0, None, Some([0.2, 0.7])).unwrap();
+        spot.set_rotation(Quat::from_rotation_x(-0.75)).unwrap();
+        draft.placements.extend([point, spot]);
+
+        let mut bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        for count in [2, 1, 0] {
+            let (gltf, _) = read_chunks(&bytes).unwrap();
+            let lights = &gltf["extensions"][LIGHTS]["lights"];
+            assert_eq!(lights.as_array().map_or(0, Vec::len), count);
+            assert_eq!(gltf["extensionsUsed"].as_array().is_some_and(|used| used.contains(&json!(LIGHTS))), count > 0);
+            if count > 0 {
+                assert_eq!(gltf["nodes"][2]["extensions"][LIGHTS]["light"], 0);
+                assert_eq!(lights[count-1]["type"], "spot");
+                assert_eq!(lights[count-1]["intensity"], 450.0);
+                assert!(lights[count-1].get("range").is_none());
+            }
+            let restored = read_scene_placements(&bytes, PATH).unwrap();
+            assert_eq!(restored.placements.len(), draft.placements.len());
+            for (record, expected) in restored.placements.iter().zip(&draft.placements) {
+                assert_eq!(record.asset_target, expected.asset_target);
+                assert!(record.rotation().dot(expected.rotation()).abs() > 0.999999);
+            }
+            if count > 0 {
+                draft.placements.remove(1);
+                bytes = write_scene_placements_glb(&draft, PATH, Some(&bytes)).unwrap();
+            }
+        }
+        for cone in [[0.5, 0.5], [-0.1, 0.5], [0.0, 2.0]] {
+            assert!(ScenePlacementAssetTarget::from_local_light([1.0; 3], 1.0, None, Some(cone)).is_err());
+        }
+    }
+
+    #[test]
+    fn saving_local_lights_preserves_blender_light_metadata_and_unmanaged_sun_or_mesh_lights() {
+        let mut draft = dock();
+        let mut lamp = draft.placements[0].clone();
+        lamp.id = "ceiling".into();
+        lamp.asset_target = ScenePlacementAssetTarget::from_local_light([1.0;3], 500.0, Some(5.0), None).unwrap();
+        draft.placements.push(lamp);
+        let bytes = write_scene_placements_glb(&draft, PATH, None).unwrap();
+        let (mut incoming, bin) = read_chunks(&bytes).unwrap();
+        let lights = incoming["extensions"][LIGHTS]["lights"].as_array_mut().unwrap();
+        lights[0]["extras"] = json!({"blender_link":"ceiling"});
+        lights.push(json!({"type":"spot","extras":{"mesh_emitter":true}}));
+        lights.push(json!({"type":"directional","name":"Sun"}));
+        incoming["nodes"][1]["extensions"][LIGHTS] = json!({"light":1});
+        incoming["nodes"][1]["children"] = json!([3]);
+        incoming["nodes"].as_array_mut().unwrap().push(json!({"name":"Sun","translation":[0,2,0],"extensions":{LIGHTS:{"light":2}}}));
+        let bytes = write_chunks(&incoming, bin).unwrap();
+        let resaved = write_scene_placements_glb(&read_scene_placements(&bytes, PATH).unwrap(), PATH, Some(&bytes)).unwrap();
+        let (document, _) = read_chunks(&resaved).unwrap();
+        let definition = |node: &Value| &document["extensions"][LIGHTS]["lights"][node["extensions"][LIGHTS]["light"].as_u64().unwrap() as usize];
+        assert_eq!(definition(&document["nodes"][1])["extras"]["mesh_emitter"], true);
+        assert_eq!(definition(&document["nodes"][2])["extras"]["blender_link"], "ceiling");
+        assert_eq!(definition(&document["nodes"][3])["type"], "directional");
+        let sun = node_transform(&document["nodes"][3]).unwrap().transform_point3(Vec3::ZERO);
+        assert!(sun.abs_diff_eq(Vec3::new(0.25,1.4,-15.0), 0.0001));
     }
 
     #[test]

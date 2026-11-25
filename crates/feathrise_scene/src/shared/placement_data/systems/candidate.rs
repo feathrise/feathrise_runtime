@@ -148,7 +148,7 @@ fn spawn_ready_placement(
 ) -> Result<(Entity, bool), String> {
     if plan.record.asset_target.is_builtin() {
         let mut root_commands = commands.spawn((
-            Name::new(format!("场景立方体_{}", plan.record.id)),
+            Name::new(format!("场景内置摆放_{}", plan.record.id)),
             plan.transform,
             Visibility::Inherited,
             ScenePlacementInstance::new_pending(scene_id, &plan.record, gate.clone()),
@@ -161,14 +161,15 @@ fn spawn_ready_placement(
         }
         let root = root_commands.observe(super::super::settlement::on_builtin_visual_ready).id();
         super::super::builtin::spawn_builtin_placement_visual(commands, root, plan.record.asset_target.clone());
-        return Ok((root, false)); // 只有真实网格与同源碰撞安装后才登记候选信用。
+        // 灯光组件随根的同一批命令安装；网格须等实际几何与碰撞的完成回执。
+        return Ok((root, plan.record.asset_target.local_light_parameters().is_some()));
     }
     if let Some(primitive_asset) = plan.primitive.as_ref() {
         let (mesh, primitive) = match plan.record.asset_target {
             feathrise_scene_content::ScenePlacementAssetTarget::Primitive {
                 mesh, primitive, ..
             } => (mesh, primitive),
-            feathrise_scene_content::ScenePlacementAssetTarget::Scene { .. } | feathrise_scene_content::ScenePlacementAssetTarget::Cuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableCuboid { .. } | feathrise_scene_content::ScenePlacementAssetTarget::EditableMesh { .. } => {
+            _ => {
                 unreachable!("直接primitive句柄必须对应primitive作者目标")
             }
         };

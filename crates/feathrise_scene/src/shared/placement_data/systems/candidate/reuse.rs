@@ -125,7 +125,7 @@ pub(super) fn reuse_placement(
     }
     // Avian 会连同旧刚体销毁仍由它持有的 ColliderOf 实体，即使网格的 ChildOf 已经搬走。
     // 缺网格或碰撞仍属于将退役批次时，走原隐藏候选，在新批次下准备完整网格和碰撞后再交接。
-    if plan.record.asset_target.is_builtin()
+    if plan.record.asset_target.is_builtin_mesh()
         && !builtin_visual
             .and_then(|visual| roots.builtin_visuals.get(visual.0).ok())
             .is_some_and(|(parent, collider)| {

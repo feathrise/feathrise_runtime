@@ -67,6 +67,8 @@ struct ClipExtras {
     feathrise_playback: Playback,
     #[serde(default)]
     feathrise_autoplay: bool,
+    #[serde(default)]
+    feathrise_motion_triggers: Vec<super::MotionRegion>,
 }
 
 #[derive(Deserialize, Default)]
@@ -200,7 +202,7 @@ fn read_clip(
         }
     }
     Ok(SceneMotionClip { id, name, duration, playback: extra.feathrise_playback,
-        auto_play: extra.feathrise_autoplay, tracks: compiled })
+        auto_play: extra.feathrise_autoplay, regions: extra.feathrise_motion_triggers, tracks: compiled })
 }
 
 fn scale_min() -> Vec3 { Vec3::splat(MIN_SCENE_PLACEMENT_SCALE) }

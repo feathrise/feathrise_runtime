@@ -9,6 +9,8 @@ use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 
 mod gltf_tracks;
+mod regions;
+pub use regions::{MotionRegion, MotionRegionAction};
 
 const FILE_NAME: &str = "motion.scene_motion.json";
 const ASSET_LABEL: &str = "SceneMotion";
@@ -33,6 +35,7 @@ pub struct SceneMotionClip {
     pub duration: f64,
     pub playback: SceneMotionPlayback,
     pub auto_play: bool,
+    pub regions: Vec<MotionRegion>,
     tracks: HashMap<String, Arc<SceneMotionTrack>>,
 }
 
@@ -50,6 +53,7 @@ pub struct SceneMotionClips {
     indices: HashMap<String, usize>,
     placements: HashMap<String, Arc<[SceneMotionPlacementTrack]>>,
     automatic: Vec<usize>,
+    regions: regions::Index,
 }
 
 impl SceneMotionClips {
@@ -57,11 +61,16 @@ impl SceneMotionClips {
         let mut indices = HashMap::new();
         let mut placements = HashMap::<String, Vec<SceneMotionPlacementTrack>>::new();
         let mut automatic = Vec::new();
+        let mut regions = Vec::new();
         for (clip_index, clip) in clips.iter().enumerate() {
             if indices.insert(clip.id.clone(), clip_index).is_some() {
                 return Err(format!("场景 GLB 的动画片段 ID 重复：{}", clip.id));
             }
             if clip.auto_play { automatic.push(clip_index); }
+            for (index, &region) in clip.regions.iter().enumerate() {
+                region.validate()?;
+                regions.push((clip_index, index, region));
+            }
             for (id, track) in &clip.tracks {
                 placements.entry(id.clone()).or_default().push(SceneMotionPlacementTrack {
                     clip_index, track: track.clone(),
@@ -69,7 +78,7 @@ impl SceneMotionClips {
             }
         }
         Ok(Self {
-            clips, indices, automatic,
+            clips, indices, automatic, regions: regions::Index::build(regions),
             placements: placements.into_iter().map(|(id, tracks)| (id, Arc::from(tracks))).collect(),
         })
     }
@@ -77,6 +86,13 @@ impl SceneMotionClips {
     pub fn clips(&self) -> &[SceneMotionClip] { &self.clips }
 
     pub fn automatic(&self) -> &[usize] { &self.automatic }
+
+    pub fn has_regions(&self) -> bool { !self.regions.is_empty() }
+
+    /// 命中的索引在该份不可变资产内稳定；同一区域内的多个观察者合并为一次进入。
+    pub fn regions_at(&self, point: Vec3, hits: &mut Vec<(usize, usize)>) {
+        self.regions.visit(point, hits);
+    }
 
     pub fn clip_index(&self, id: &str) -> Option<usize> { self.indices.get(id).copied() }
 

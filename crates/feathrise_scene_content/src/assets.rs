@@ -814,6 +814,8 @@ fn placement_terrain_offset_is_zero(value: &f32) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScenePlacementAssetTarget {
+    /// 场景拥有的点光源或聚光灯，复用普通摆放的变换、稳定 ID 和生命周期。
+    Light { light: crate::SceneLocalLight },
     /// 实例化源文件的第零个场景；碰撞按整个模型的真实网格生成。
     #[serde(rename = "scene0")]
     Scene {
@@ -882,8 +884,13 @@ impl ScenePlacementAssetTarget {
         collision: true,
     };
 
-    /// 内置几何无需磁盘模型路径或AssetServer依赖。
+    /// 主场景内置的几何或灯光无需单独的磁盘模型路径和 AssetServer 请求。
     pub const fn is_builtin(&self) -> bool {
+        self.is_builtin_mesh() || matches!(self, Self::Light { .. })
+    }
+
+    /// 只对有真实网格和材质配方的摆放开放几何编辑与碰撞。
+    pub const fn is_builtin_mesh(&self) -> bool {
         matches!(self, Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. })
     }
 
@@ -938,22 +945,22 @@ impl ScenePlacementAssetTarget {
     /// 返回当前子资产的精确Bevy Mesh引用；完整场景没有单一网格引用。
     pub fn mesh_reference(&self, source: &str) -> Option<String> {
         match *self {
-            Self::Scene { .. } | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
             Self::Primitive {
                 mesh, primitive, ..
             } => Some(format!("{source}#Mesh{mesh}/Primitive{primitive}")),
+            _ => None,
         }
     }
 
     /// 返回当前子资产原关联的Bevy StandardMaterial引用。
     pub fn material_reference(&self, source: &str) -> Option<String> {
         match *self {
-            Self::Scene { .. } | Self::Cuboid { .. } | Self::EditableCuboid { .. } | Self::EditableMesh { .. } => None,
             Self::Primitive {
                 material: Some(material),
                 ..
             } => Some(format!("{source}#Material{material}/std")),
             Self::Primitive { material: None, .. } => Some(format!("{source}#DefaultMaterial/std")),
+            _ => None,
         }
     }
 
@@ -963,6 +970,7 @@ impl ScenePlacementAssetTarget {
             Self::Scene { .. } => "Scene0".to_owned(),
             Self::Cuboid { .. } => "立方体".to_owned(),
             Self::EditableCuboid { .. } | Self::EditableMesh { .. } => "可编辑网格".to_owned(),
+            Self::Light { .. } => if self.local_light_parameters().unwrap().3.is_some() { "聚光灯".into() } else { "点光源".into() },
             Self::Primitive {
                 mesh, primitive, ..
             } => format!("Mesh{mesh}/Primitive{primitive}"),

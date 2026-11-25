@@ -161,6 +161,7 @@ impl ScenePlacementInstance {
     pub fn with_updated_record(&self, record: &ScenePlacementRecord) -> Option<Self> {
         if self.id != record.id || self.asset_path != record.asset_path
             || !self.asset_target.is_builtin() || !record.asset_target.is_builtin()
+            || self.asset_target.is_builtin_mesh() != record.asset_target.is_builtin_mesh()
         {
             return None; // 切换记录或外部资产必须重建正式身份，不能借用本根原有信用。
         }

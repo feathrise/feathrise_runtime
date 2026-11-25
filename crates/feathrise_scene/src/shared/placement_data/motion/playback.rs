@@ -5,7 +5,10 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use feathrise_scene_content::{
     SceneId, SceneInstancePath, SceneMotionClip, SceneMotionClips, SceneMotionPlacementTrack, SceneMotionPlayback,
 };
-use feathrise_scene_core::{input::EditorInputState, residency::{InstanceResourceTable, SceneInstanceOwner}};
+use feathrise_scene_core::{
+    input::EditorInputState,
+    residency::{InstanceResourceTable, SceneInstanceOwner, SceneSourceFrame},
+};
 use std::{cmp::Reverse, collections::BTreeMap, sync::Arc};
 
 use super::super::{components::PlacementInstanceGate, resources::ScenePlacementRuntimeState};
@@ -96,6 +99,7 @@ pub(in crate::shared::placement_data) struct MotionController {
     gate: PlacementInstanceGate,
     playheads: BTreeMap<usize, Playhead>,
     routing_revision: u64,
+    occupied: Vec<(usize, usize)>,
 }
 
 impl MotionController {
@@ -107,11 +111,15 @@ impl MotionController {
         let playheads = clips.automatic().iter().map(|&id| {
             (id, Playhead::start(&clips.clips()[id], false))
         }).collect();
-        Self { scene_id, clips, gate, playheads, routing_revision: 0 }
+        Self { scene_id, clips, gate, playheads, routing_revision: 0, occupied: Vec::new() }
     }
 
     fn apply(&mut self, id: &str, action: SceneMotionAction) {
         let Some(index) = self.clips.clip_index(id) else { return; };
+        self.apply_index(index, action);
+    }
+
+    fn apply_index(&mut self, index: usize, action: SceneMotionAction) {
         if matches!(action, SceneMotionAction::Pause | SceneMotionAction::Stop) {
             if let Some(playhead) = self.playheads.get_mut(&index) {
                 playhead.playing = false;
@@ -139,6 +147,27 @@ impl MotionController {
 
     pub(super) fn routing_revision(&self) -> u64 { self.routing_revision }
 
+    fn update_regions(&mut self, hits: &mut Vec<(usize, usize)>) {
+        use feathrise_scene_content::MotionRegionAction;
+        let previous = std::mem::take(&mut self.occupied);
+        // 先处理离开，再处理进入；同一门的相邻触发区切换时以新区域的动作收尾。
+        for (entering, from, other) in [(false, &previous, &*hits), (true, &*hits, &previous)] {
+            for &(clip, region) in from.iter().filter(|id| other.binary_search(id).is_err()) {
+                let area = &self.clips.clips()[clip].regions[region];
+                let action = match if entering { area.enter } else { area.exit } {
+                    MotionRegionAction::None => continue,
+                    MotionRegionAction::Play => SceneMotionAction::Play,
+                    MotionRegionAction::Reverse => SceneMotionAction::Reverse,
+                    MotionRegionAction::Pause => SceneMotionAction::Pause,
+                    MotionRegionAction::Stop => SceneMotionAction::Stop,
+                };
+                self.apply_index(clip, action);
+            }
+        }
+        self.occupied = std::mem::take(hits);
+        *hits = previous;
+    }
+
     pub(super) fn selected_binding(&self, bindings: &[SceneMotionPlacementTrack]) -> Option<usize> {
         // 明确开始/反向命令接管重叠对象。默认自动片段同优先级时沿用最前的 glTF 顺序。
         bindings.iter().enumerate().filter_map(|(index, binding)| {
@@ -160,6 +189,7 @@ pub(in crate::shared::placement_data) fn carry(commands: &mut Commands, old: Ent
             && let Some(mut new) = world.get_mut::<MotionController>(new)
         {
             new.playheads = old.playheads;
+            new.occupied = old.occupied;
             new.routing_revision = old.routing_revision;
         }
     });
@@ -216,6 +246,9 @@ pub(in crate::shared::placement_data) fn advance(
     editor: Option<Res<EditorInputState>>,
     mut controllers: Query<(&InheritedVisibility, Option<&SceneInstanceOwner>, &mut MotionController)>,
     subscenes: Query<&crate::SubsceneInstance>,
+    frames: Query<&SceneSourceFrame>,
+    observers: Query<&GlobalTransform, With<crate::SceneRuntimeObserver>>,
+    mut hits: Local<Vec<(usize, usize)>>,
     mut finished: MessageWriter<SceneMotionFinished>,
 ) {
     let Some(physics) = physics else { return; };
@@ -225,6 +258,15 @@ pub(in crate::shared::placement_data) fn advance(
     }
     for (visibility, owner, mut controller) in &mut controllers {
         if !visibility.get() || !controller.gate.is_active() { continue; }
+        if controller.clips.has_regions()
+            && let Some(frame) = owner.map_or_else(|| Some(SceneSourceFrame::default()), |owner| frames.get(owner.0).ok().copied()) {
+            hits.clear();
+            for pose in &observers { controller.clips.regions_at(frame.to_local(pose.translation()), &mut hits); }
+            // 复用两次查询的命中数组，多个观察者共用同一区域时只提交一次边沿。
+            hits.sort_unstable();
+            hits.dedup();
+            if controller.occupied != *hits { controller.update_regions(&mut hits); }
+        }
         let MotionController { scene_id, clips, playheads, .. } = &mut *controller;
         // 同一片段的所有摆放只读以上一次固定步为基准推进的同一状态。
         for (&index, playhead) in playheads {

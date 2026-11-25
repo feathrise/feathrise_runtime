@@ -377,7 +377,7 @@ pub(crate) fn rebuild_data_driven_placements(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset(record.asset_path.clone())); // Scene0仍作为同源GLTF解析和完整场景记录的依赖锚点。
             let primitive = match record.asset_target {
                 ScenePlacementAssetTarget::Scene { .. } => None,
-                ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => unreachable!("内置来源已提前返回"),
+                ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } | ScenePlacementAssetTarget::Light { .. } => unreachable!("内置来源已提前返回"),
                 ScenePlacementAssetTarget::Primitive { .. } => Some(PendingPlacementPrimitive {
                     mesh: asset_server.load::<Mesh>(
                         record

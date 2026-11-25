@@ -54,7 +54,7 @@ impl ScenePlacementRecord {
         self.editor.validate()?; // 编辑器名称和组名在预览、保存及正式加载入口统一受检。
         self.asset_target.validate()?; // 参数化形状不能把零尺寸或损坏材质送入渲染、缓存或物理。
         if self.asset_target.is_builtin() && (!self.asset_path.is_empty() || self.terrain_patch.is_some() || self.building_preset_id.is_some()) {
-            return Err("内置立方体不能同时引用外部模型、三维地形或建筑预设".into());
+            return Err("主场景内置对象不能同时引用外部模型、三维地形或建筑预设".into());
         }
         if let Some(policy) = self.mesh_lod { policy.validate()?; }
         if !self.asset_target.is_scene0() && !self.water_surfaces.is_empty() {

@@ -115,6 +115,19 @@ pub fn spawn_builtin_placement_visual(
     root: Entity,
     target: ScenePlacementAssetTarget,
 ) -> bool {
+    if let Some((rgb, candela, range, cone)) = target.local_light_parameters() {
+        let color = Color::linear_rgb(rgb[0], rgb[1], rgb[2]);
+        // 与 Bevy glTF 加载器相同，将坎德拉换算成流明；没有声明范围的 glTF 默认照射 20 米。
+        let intensity = candela * std::f32::consts::PI * 4.0;
+        let range = range.unwrap_or(20.0);
+        let mut light = commands.entity(root);
+        if let Some([inner_angle, outer_angle]) = cone {
+            light.remove::<PointLight>().insert(SpotLight { color, intensity, range, inner_angle, outer_angle, ..default() });
+        } else {
+            light.remove::<SpotLight>().insert(PointLight { color, intensity, range, ..default() });
+        }
+        return true;
+    }
     let (geometry, color_srgb, roughness_milli, collision) = match &target {
         ScenePlacementAssetTarget::Cuboid { size_mm, color_srgb, roughness_milli, collision } =>
             (BuiltinGeometryKey::Cuboid(*size_mm), *color_srgb, *roughness_milli, *collision),
@@ -139,6 +152,11 @@ struct BuiltinVisualSource(ScenePlacementAssetTarget);
 /// 完成的子节点必须匹配当前作者快照；旧画面可继续显示，但不会给新的保存或预览交接授信。
 pub fn builtin_placement_visual_ready(world: &World, root: Entity) -> bool {
     let Some(instance) = world.get::<ScenePlacementInstance>(root) else { return false; };
+    if let Some((_, _, _, cone)) = instance.asset_target().local_light_parameters() {
+        return (instance.is_active() || instance.is_pending()) && if cone.is_some() {
+            world.get::<SpotLight>(root).is_some()
+        } else { world.get::<PointLight>(root).is_some() };
+    }
     let Some(visual) = builtin_visual_for_root(world, root) else { return false; };
     let target = instance.asset_target();
     let collision = match &target {
@@ -229,6 +247,29 @@ mod tests {
         let record = record(target.clone());
         world.spawn((ScenePlacementInstance::new(&SceneId::parse("MAP-builtin").unwrap(), &record),
             Transform::IDENTITY, Visibility::Inherited)).id()
+    }
+
+    #[test]
+    fn local_lights_use_gltf_photometry_on_the_transformed_placement_without_mesh_or_collider() {
+        let mut world = World::new();
+        for cone in [None, Some([0.2, 0.7])] {
+            let target = ScenePlacementAssetTarget::from_local_light([0.8, 0.6, 0.4], 550.0, Some(15.0), cone).unwrap();
+            let root = spawn_root(&mut world, target.clone());
+            install(&mut world, root, target);
+            let (color, intensity, range) = if let Some([inner, outer]) = cone {
+                let spot = world.get::<SpotLight>(root).unwrap();
+                assert_eq!([spot.inner_angle, spot.outer_angle], [inner, outer]);
+                (spot.color, spot.intensity, spot.range)
+            } else {
+                let point = world.get::<PointLight>(root).unwrap();
+                (point.color, point.intensity, point.range)
+            };
+            assert_eq!(color, Color::linear_rgb(0.8, 0.6, 0.4));
+            assert!((intensity - 550.0 * 4.0 * std::f32::consts::PI).abs() < 0.01);
+            assert_eq!(range, 15.0);
+            assert!(builtin_placement_visual_ready(&world, root));
+            assert!(world.get::<Collider>(root).is_none() && world.get::<Mesh3d>(root).is_none());
+        }
     }
 
     fn active_ground_hit(query: SpatialQuery, active: feathrise_grounding::GroundSurfaceFilter) -> Option<Entity> {

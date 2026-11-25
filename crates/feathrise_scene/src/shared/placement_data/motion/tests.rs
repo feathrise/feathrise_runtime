@@ -139,6 +139,29 @@ fn scene_motion_standard_glb_rotation_and_scale_update_the_offset_collision() {
 struct FinishedClips(Vec<SceneMotionFinished>);
 
 #[test]
+fn observed_motion_region_opens_once_and_reverses_after_last_observer_leaves() {
+    let (mut app, clips) = manual_motion_app();
+    let scene = SceneId::parse("SCENE-motion").unwrap();
+    let [door, _] = use_motion_clips(app.world_mut(), &scene, clips, None);
+    let observers = [0.0, 8.0].map(|x| app.world_mut().spawn((crate::SceneRuntimeObserver,
+        Transform::from_xyz(x,1.0,0.0))).id());
+    let run = |app: &mut App, count| { for _ in 0..count { app.update(); } };
+    run(&mut app,85);
+    assert!((app.world().get::<Position>(door).unwrap().x - 4.0).abs() < 0.001);
+    app.world_mut().get_mut::<Transform>(observers[1]).unwrap().translation.x = 0.5;
+    run(&mut app,3);
+    app.world_mut().get_mut::<Transform>(observers[0]).unwrap().translation.x = -6.0;
+    run(&mut app,10);
+    assert!((app.world().get::<Position>(door).unwrap().x - 4.0).abs() < 0.001);
+    app.world_mut().get_mut::<Transform>(observers[1]).unwrap().translation.x = 7.0;
+    run(&mut app,85);
+    assert!(app.world().get::<Position>(door).unwrap().x.abs() < 0.001);
+    let events = &app.world().resource::<FinishedClips>().0;
+    assert_eq!(events.iter().map(|e| e.direction).collect::<Vec<_>>(),
+        [SceneMotionDirection::Forward, SceneMotionDirection::Backward]);
+}
+
+#[test]
 fn scene_motion_commands_control_independent_targets_and_finish_once() {
     let (mut app, clips) = manual_motion_app();
     let scene = SceneId::parse("SCENE-motion").unwrap();
@@ -188,6 +211,27 @@ fn scene_motion_commands_control_independent_targets_and_finish_once() {
     command(&mut app, "door", SceneMotionAction::Play);
     step(&mut app, 8);
     assert!(position(&app, door).x > 0.0, "原片段可再次接管，沿其自己的时钟继续");
+}
+
+#[cfg(feature = "runtime_test_support")]
+#[test]
+fn world_observer_triggers_only_the_translated_instance_containing_it() {
+    use feathrise_scene_content::{SceneInstanceId, SceneInstancePlacement, SceneInstanceTransform};
+    let (mut app, clips) = manual_motion_app();
+    let owner = SceneId::parse("SCENE-main").unwrap();
+    let source = SceneId::parse("SCENE-doors").unwrap();
+    crate::runtime_test_support::install_active_terrain_instances(app.world_mut(), &owner, &[]);
+    for (name, x) in [("left",-20.0),("right",20.0)] {
+        let placement = SceneInstancePlacement { id: SceneInstanceId::parse(name).unwrap(), source_scene_id: source.clone(),
+            label: String::new(), transform: SceneInstanceTransform { translation: [x,0.0,0.0], yaw_degrees: 90.0, ..default() } };
+        let instance = crate::runtime_test_support::install_active_subscene_instance(app.world_mut(), &owner, &placement);
+        use_motion_clips(app.world_mut(), &source, clips.clone(), Some(instance));
+    }
+    app.world_mut().spawn((crate::SceneRuntimeObserver,Transform::from_xyz(20.0,1.0,0.0)));
+    for _ in 0..85 { app.update(); }
+    let events = &app.world().resource::<FinishedClips>().0;
+    assert_eq!(events.len(),1);
+    assert_eq!(events[0].instance,SceneInstancePath::root(owner).child(SceneInstanceId::parse("right").unwrap()));
 }
 
 #[cfg(feature = "runtime_test_support")]
@@ -261,11 +305,14 @@ fn manual_motion_app() -> (App, Arc<SceneMotionClips>) {
         0.0, 1.0, 0.0, -2.0, 1.0, 0.0]
         .into_iter().flat_map(f32::to_le_bytes).collect();
     let nodes = ["door", "lift"].map(|id| json!({"extras":{"feathrise_id":id}}));
-    let animations = [("door", 0, 1), ("lift", 1, 2), ("door-alternate", 0, 3)].map(|(id, node, output)| json!({
+    let mut animations = [("door", 0, 1), ("lift", 1, 2), ("door-alternate", 0, 3)].map(|(id, node, output)| json!({
         "name":id, "extras":{"feathrise_scene_animation":true,"feathrise_clip_id":id},
         "channels":[{"sampler":0,"target":{"node":node,"path":"translation"}}],
         "samplers":[{"input":0,"output":output}],
     }));
+    animations[0]["extras"]["feathrise_motion_triggers"] = json!([{
+        "center":[0,1,0],"half_extents":[2,1,2],"enter":"play","exit":"reverse"
+    }]);
     let document = json!({
         "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":nodes,
         "buffers":[{"byteLength":binary.len()}],

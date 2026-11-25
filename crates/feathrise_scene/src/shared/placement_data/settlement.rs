@@ -349,7 +349,7 @@ pub(super) fn queue_inserted_placement_collision_ready(
             grant_candidate_ready(insert.entity, pending, state, status)
         }
         ScenePlacementAssetTarget::Primitive { .. } => {} // 陈旧或异常重复边沿不能授信。
-        ScenePlacementAssetTarget::Cuboid { .. } | ScenePlacementAssetTarget::EditableCuboid { .. } | ScenePlacementAssetTarget::EditableMesh { .. } => {} // 有界内置几何不使用World或异步Trimesh完成事件。
+        _ => {} // 内置网格或灯光不使用 World 或异步 Trimesh 完成事件。
     }
 }
 

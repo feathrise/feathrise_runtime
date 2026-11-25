@@ -223,14 +223,22 @@ fn snapshot(world: &mut World, passed: bool, reason: &str) -> serde_json::Value 
         .count();
     // 自有小场景验收同时核对真实正式实例；仅源文件指纹相同不能证明新对象已进入游戏World。
     let instances = world
-        .query::<(&feathrise_scene::ScenePlacementInstance, &GlobalTransform)>()
+        .query::<(&feathrise_scene::ScenePlacementInstance, &GlobalTransform, Option<&PointLight>, Option<&SpotLight>)>()
         .iter(world)
-        .filter(|(instance, _)| instance.scene_id().as_str() == map && instance.is_active())
+        .filter(|(instance, ..)| instance.scene_id().as_str() == map && instance.is_active())
         .take(128)
-        .map(|(instance, transform)| {
+        .map(|(instance, transform, point, spot)| {
+            // 回读实际渲染组件，光学参数不能仅以作者记录或落盘 GLB 代替。
+            let light = point.map(|p| (p.color, p.intensity, p.range, None))
+                .or_else(|| spot.map(|s| (s.color, s.intensity, s.range, Some([s.inner_angle, s.outer_angle]))))
+                .map(|(color, lumens, range, cone)| {
+                    let color = color.to_linear();
+                    serde_json::json!({"rgb":[color.red,color.green,color.blue],"candela":lumens / (4.0 * std::f32::consts::PI),
+                        "range":range,"cone_radians":cone,"rotation":transform.rotation().to_array()})
+                });
             serde_json::json!({
                 "id":instance.id(),"position":transform.translation().to_array(),
-                "asset_target":instance.asset_target(),
+                "asset_target":instance.asset_target(),"rendered_light":light,
             })
         })
         .collect::<Vec<_>>();
