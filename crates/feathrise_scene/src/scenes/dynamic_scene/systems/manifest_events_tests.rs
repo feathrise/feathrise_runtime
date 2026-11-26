@@ -134,6 +134,82 @@ impl Fixture {
 }
 
 #[test]
+fn environment_profile_hot_edit_and_preview_release_keep_the_terrain_root() {
+    use feathrise_atmosphere::{AuthoredSkyboxRequest, WorldCelestialLight, WorldCelestialLightKind};
+    use feathrise_scene_content::{
+        DynamicSceneEnvironmentPreview, EnvironmentAppearance, SceneEnvironmentDescriptor,
+        SceneEnvironmentSource, WorldEnvironmentLibrary, WorldEnvironmentProfile, WorldEnvironmentRegistry,
+    };
+
+    let mut fixture = Fixture::new();
+    fixture.app.init_resource::<DynamicSceneEnvironmentPreview>()
+        .add_systems(Update, super::sync_dynamic_environment.after(observe_dynamic_scene_assets));
+    let world = fixture.app.world_mut();
+    world.resource_mut::<Assets<SceneManifestAsset>>()
+        .get_mut(fixture.registered.id()).unwrap().environment.source = SceneEnvironmentSource::InheritDefault;
+    let camera = world.spawn_empty().id();
+    let root = world.spawn_empty().id();
+    let spawn_light = |world: &mut World, kind| world.spawn(WorldCelestialLight::new_authored(
+        kind, 1.0, Color::WHITE, 1.0, Color::WHITE, 0.0, 0.01, Color::BLACK,
+    )).id();
+    let sun = spawn_light(world, WorldCelestialLightKind::Sun);
+    let moon = spawn_light(world, WorldCelestialLightKind::Moon);
+    {
+        let mut state = world.resource_mut::<DynamicSceneRuntimeState>();
+        state.camera = Some(camera);
+        state.root = Some(root);
+        state.celestial_sun_light = Some(sun);
+        state.celestial_moon_light = Some(moon);
+    }
+    let id = "harbor".to_owned();
+    let mut library = WorldEnvironmentLibrary { default_profile_id: id.clone(), ..default() };
+    let mut appearance = EnvironmentAppearance::default();
+    appearance.skybox_brightness = 520.0;
+    appearance.celestial_lighting.day_base_illuminance_lux = 7500.0;
+    library.profiles_mut().insert(id.clone(), WorldEnvironmentProfile { name: "港湾".into(), appearance });
+    world.insert_resource(WorldEnvironmentRegistry {
+        handle: Handle::default(), celestial_lighting: default(), library, revision: 1, last_error: None,
+    });
+
+    fixture.app.update();
+    let world = fixture.app.world_mut();
+    let first_sky = world.get::<AuthoredSkyboxRequest>(camera).unwrap();
+    assert_eq!(first_sky.base_brightness, 520.0);
+    let first_sky_revision = first_sky.revision;
+    assert_eq!(world.get::<WorldCelestialLight>(sun).unwrap().base_illuminance, 7500.0);
+    {
+        // 只修改全局套装，不发送场景清单事件，验证环境热更不经过地形准备。
+        let mut global = world.resource_mut::<WorldEnvironmentRegistry>();
+        let appearance = &mut global.library.profiles_mut().get_mut(&id).unwrap().appearance;
+        appearance.skybox_brightness = 650.0;
+        appearance.celestial_lighting.day_base_illuminance_lux = 8200.0;
+        global.revision += 1;
+    }
+
+    fixture.app.update();
+    fixture.assert_root_stable();
+    let world = fixture.app.world_mut();
+    assert_eq!(world.resource::<DynamicSceneRuntimeState>().root, Some(root));
+    let sky = world.get::<AuthoredSkyboxRequest>(camera).unwrap();
+    assert_eq!(sky.base_brightness, 650.0);
+    assert_eq!(sky.revision, first_sky_revision + 1);
+    assert_eq!(world.get::<WorldCelestialLight>(sun).unwrap().base_illuminance, 8200.0);
+    world.resource_mut::<DynamicSceneEnvironmentPreview>().publish(fixture.map.clone(), SceneEnvironmentDescriptor {
+        skybox_brightness: 200.0, ..default()
+    });
+
+    fixture.app.update();
+    let world = fixture.app.world_mut();
+    assert_eq!(world.get::<AuthoredSkyboxRequest>(camera).unwrap().base_brightness, 200.0);
+    world.resource_mut::<DynamicSceneEnvironmentPreview>().clear();
+
+    fixture.app.update();
+    fixture.assert_root_stable();
+    let world = fixture.app.world();
+    assert_eq!(world.get::<AuthoredSkyboxRequest>(camera).unwrap().base_brightness, 650.0);
+}
+
+#[test]
 fn unrelated_manifest_lifecycle_and_failures_leave_the_current_scene_untouched() {
     let mut fixture = Fixture::new();
     assert_ne!(fixture.registered.id(), fixture.projection.id());

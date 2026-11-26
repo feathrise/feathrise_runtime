@@ -14,8 +14,10 @@ use feathrise_environment::terrain_surface::TerrainSurfaceCarrier; // 离屏预�
 use feathrise_environment::vegetation::{VegetationMeshBatchView, blade::GpuBladeView}; // 同一玩法相机同时驱动GPU叶片窗口和Mesh批次逐实例LOD。
 use feathrise_scene_content::{
     ActiveDynamicScene, CelestialLightingProfile, DynamicCelestialLightingPreview,
-    SceneContentRegistry, SceneManifestAsset, SceneSkyMode, SceneTerrainKind, SceneWeatherClimate,
-    SceneWeatherDescriptor, SceneWeatherRegion, WorldEnvironmentRegistry, resolve,
+    DynamicSceneEnvironmentPreview, ResolvedSceneEnvironment, SceneContentRegistry,
+    SceneEnvironmentDescriptor, SceneManifestAsset, SceneSkyMode, SceneTerrainKind, SceneWeatherClimate,
+    SceneWeatherDescriptor, SceneWeatherRegion, WorldEnvironmentLibrary, WorldEnvironmentRegistry,
+    resolve_scene_environment,
 }; // 动态场景读取编辑器共享的清单和当前SceneId。
 use feathrise_portal::PortalDestination; // 跨场景传送可在进入前携带动态SceneId。
 use feathrise_scene_core::state::{ScenePhase, LoadingProgress, LoadingStage, SceneFallBoundary}; // 动态场景同时发布启动状态、失败回退进度和地形量程下方虚空边界。
@@ -316,23 +318,6 @@ pub(super) fn prepare_dynamic_scene_terrain(
             container
         });
     let manifest = author_container.as_ref().unwrap_or(manifest);
-    if let Some(camera) = state.camera {
-        let sky_mode = match manifest.environment.sky_mode {
-            SceneSkyMode::Dynamic => AuthoredSkyMode::Dynamic, // 旧场景默认只加载 IBL 两件套。
-            SceneSkyMode::Skybox => AuthoredSkyMode::Skybox,   // 显式模式加载并显示主 Cube 三件套。
-        };
-        commands
-            .entity(camera)
-            .insert(AuthoredSkyboxRequest::new_with_mode(
-                sky_mode, // 运行时枚举隔离 atmosphere 与场景数据 crate 的依赖方向。
-                manifest.environment.skybox_path.clone(), // 清单相对 assets 主路径由统一天空资源运行时按模式验证。
-                manifest.environment.skybox_brightness, // 天空盒模式使用该日间基准，动态模式无损保留供切换。
-                manifest.environment.environment_diffuse_intensity, // 人物与地形天空补光采用独立冻结基准。
-                manifest.environment.environment_specular_intensity, // 水面与光滑材质反射采用独立冻结基准。
-                manifest.environment.skybox_yaw_degrees, // 玩法与 F12 的可见 Cube、IBL 方向完全一致。
-                state.environment_revision, // 热更新失败或迟到完成只能影响当前清单修订。
-            )); // IBL 加载失败独立回退相机原环境贴图，不阻断动态天空、地形、碰撞和场景 Ready 门。
-    }
     let sparse_path = manifest.terrain.height_path.as_deref(); // 新场景以独立稀疏清单作为作者源。
     let valid_terrain_source = match manifest.terrain.kind {
         SceneTerrainKind::Empty => manifest.terrains.is_some(), // 空容器必须显式声明对象集合。
@@ -463,38 +448,108 @@ pub(super) fn prepare_dynamic_scene_terrain(
     status.detail = format!("场景{scene_id}白模已生成，正在构建碰撞");
 }
 
-/// 把全局配置、正式场景覆盖或 F12 未保存预览解析到当前动态场景太阳灯与月亮灯。
-pub(super) fn sync_dynamic_celestial_lighting(
+#[derive(Default)]
+pub(super) struct DynamicEnvironmentSync {
+    camera: Option<Entity>,
+    formal_revision: Option<(u64, Option<u64>)>,
+    formal: Option<ResolvedSceneEnvironment>,
+}
+
+fn skybox_update(
+    environment: &SceneEnvironmentDescriptor,
+    current: Option<&AuthoredSkyboxRequest>,
+    initial_revision: u64,
+) -> Option<AuthoredSkyboxRequest> {
+    let mode = match environment.sky_mode {
+        SceneSkyMode::Dynamic => AuthoredSkyMode::Dynamic,
+        SceneSkyMode::Skybox => AuthoredSkyMode::Skybox,
+    };
+    if current.is_some_and(|request| {
+        request.mode == mode
+            && request.asset_path == environment.skybox_path
+            && request.base_brightness == environment.skybox_brightness
+            && request.base_environment_diffuse_intensity == environment.environment_diffuse_intensity
+            && request.base_environment_specular_intensity == environment.environment_specular_intensity
+            && request.yaw_degrees == environment.skybox_yaw_degrees
+    }) {
+        return None; // 编辑其他方案或仅改变日月时，正在加载的天空与 IBL 保留原请求身份。
+    }
+    let revision = current.map_or(initial_revision, |request| request.revision.wrapping_add(1));
+    Some(AuthoredSkyboxRequest::new_with_mode(
+        mode,
+        environment.skybox_path.clone(),
+        environment.skybox_brightness,
+        environment.environment_diffuse_intensity,
+        environment.environment_specular_intensity,
+        environment.skybox_yaw_degrees,
+        revision,
+    ))
+}
+
+/// 主场景的天空、IBL 和日月共用正式环境解析；环境更新与地形采用独立。
+pub(super) fn sync_dynamic_environment(
+    mut commands: Commands,
     active_scene: InstanceRes<ActiveDynamicScene>, // 当前动态场景稳定身份决定可读取哪一份清单与预览。
     content: Option<crate::scenes::dynamic_scene::sources::SceneRuntimeCatalog>, // 目录和清单异步加载期间允许只使用全局安全默认值。
     manifests: Res<Assets<SceneManifestAsset>>, // 正式场景覆盖始终来自已完整加载资产。
     global: Option<Res<WorldEnvironmentRegistry>>, // 缺失全局插件时仍使用编译期配置默认值。
     preview: Option<Res<DynamicCelestialLightingPreview>>, // F12 只发布已经解析且匹配场景的完整草稿快照。
+    sky_preview: Option<Res<DynamicSceneEnvironmentPreview>>,
     state: InstanceRes<DynamicSceneRuntimeState>, // 保存进入场景时创建的明确太阳和月亮方向光实体。
+    mut sync: Local<DynamicEnvironmentSync>,
+    sky_requests: Query<&AuthoredSkyboxRequest>,
     mut lights: Query<&mut WorldCelestialLight>, // 只改作者基准，最终时间与天气仍由氛围系统统一写渲染组件。
 ) {
-    let (Some(scene_id), Some(sun_entity), Some(moon_entity)) = (
+    let (Some(scene_id), Some(camera), Some(sun_entity), Some(moon_entity)) = (
         active_scene.scene_id.as_ref(), // 当前场景身份决定正式清单与 F12 预览匹配。
+        state.camera,
         state.celestial_sun_light,  // 太阳实体只消费日间照度、日光色和太阳轨迹。
         state.celestial_moon_light, // 月亮实体只消费夜间峰值、月光色和月亮轨迹。
     ) else {
         return; // 进入场景前或离场后没有合法接管目标。
     };
-    let global_profile = global
+    if sync.camera != Some(camera) {
+        *sync = DynamicEnvironmentSync { camera: Some(camera), ..default() };
+    }
+    let global = global.as_deref();
+    let fallback_celestial = CelestialLightingProfile::default();
+    let global_profile = global.map_or(&fallback_celestial, |registry| &registry.celestial_lighting);
+    let formal_revision = (state.environment_revision, global.map(|registry| registry.revision));
+    if sync.formal_revision != Some(formal_revision)
+        && let Some(manifest) = content
+            .as_deref()
+            .and_then(|registry| registry.handles(scene_id))
+            .and_then(|handles| manifests.get(&handles.manifest))
+    {
+        sync.formal_revision = Some(formal_revision);
+        if manifest.id == *scene_id && manifest.is_data_driven() {
+            let empty_library = WorldEnvironmentLibrary::default();
+            let library = global.map_or(&empty_library, |registry| &registry.library);
+            let resolved = resolve_scene_environment(&manifest.environment, global_profile, library);
+            if let Some(missing) = resolved.missing_profile.as_deref()
+                && global.is_none_or(|registry| registry.revision != 0)
+            {
+                warn!("场景{scene_id}引用的环境方案{missing}不可用，继续使用场景的兼容环境");
+            }
+            if resolved.environment.validate().is_ok() && resolved.celestial_lighting.validate().is_ok() {
+                sync.formal = Some(resolved); // 无效热更继续保留同一玩法相机已采用的环境。
+            }
+        }
+    }
+    let fallback_sky = SceneEnvironmentDescriptor::default();
+    let environment = sky_preview
         .as_deref()
-        .map(|registry| registry.celestial_lighting.clone())
-        .unwrap_or_default(); // 全局文件缺失、无效或插件未安装都保持当前默认画面。
-    let formal_profile = content
-        .as_deref()
-        .and_then(|registry| registry.handles(scene_id))
-        .and_then(|handles| manifests.get(&handles.manifest))
-        .map(|manifest| resolve(&global_profile, &manifest.environment.celestial_overrides))
-        .filter(|profile| profile.validate().is_ok())
-        .unwrap_or_else(|| global_profile.clone()); // 清单未就绪或覆盖损坏时不让方向光变黑。
+        .and_then(|preview| preview.environment_for(scene_id))
+        .or_else(|| sync.formal.as_ref().map(|resolved| &resolved.environment))
+        .unwrap_or(&fallback_sky); // 正式清单尚未就绪时退出预览，也要清除上一次预览的资源请求。
+    if let Some(request) = skybox_update(environment, sky_requests.get(camera).ok(), state.environment_revision) {
+        commands.entity(camera).insert(request); // 发布给原异步天空状态机，预览清除后由正式解析结果接回。
+    }
     let resolved: &CelestialLightingProfile = preview
         .as_deref()
         .and_then(|preview| preview.profile_for(scene_id))
-        .unwrap_or(&formal_profile); // 匹配场景的未保存草稿在关闭 F12 后仍优先；保存或撤销回到干净状态才归还正式值。
+        .or_else(|| sync.formal.as_ref().map(|resolved| &resolved.celestial_lighting))
+        .unwrap_or(global_profile); // 清单尚未就绪时仍可使用安全的全局日月配置。
     let Ok(current_sun) = lights.get_mut(sun_entity) else {
         return; // 同帧离场或实体重建由下一次明确进入重新登记。
     };

@@ -21,6 +21,7 @@ pub mod authoring_transaction; // 原场景跨文件事务下沉，不引入编�
 mod boundary_assets; // 场景私有区域边界、正式校验与碰撞线段派生。
 mod building_presets; // 全局建筑预设、占地、正门、地基与植被净空语义。
 mod celestial_lighting; // 全局太阳/月光基础值、场景逐字段覆盖与热加载注册表。
+mod environment_library; // 工程环境套装、场景来源与唯一有效值解析。
 mod collision_lods;
 mod constants; // 稳定目录、文件名和格式版本。 // 新模式默认配置及编辑器和运行时共用校验。
 pub use collision_lods::*; // 避免编辑器和物理接入各自解释倍率。
@@ -79,6 +80,11 @@ pub use authoring_io::{ContentAuthorLock, content_hash}; // 共享作者入口�
 pub use boundary_assets::*; // F12与动态场景运行时共享边界文件和固定预算。
 pub use building_presets::*; // F12 与正式运行时共享同一建筑预设目录快照。
 pub use celestial_lighting::*; // 场景、氛围与编辑器共享同一套天体配置解析规则。
+pub use environment_library::{
+    DEFAULT_ENVIRONMENT_PROFILE_ID, DynamicSceneEnvironmentPreview, EnvironmentAppearance,
+    ResolvedSceneEnvironment, SceneEnvironmentSource, WorldEnvironmentLibrary,
+    WorldEnvironmentProfile, resolve_scene_environment,
+};
 pub use constants::*; // 编辑器创建目录时复用稳定文件名。
 pub use courtyard_presets::*; // F12 印章和场景运行时共享稳定组合目录身份。
 pub use distribution::*; // 编辑器预览与动态场景运行时不得产生不同布局。
@@ -307,8 +313,7 @@ mod tests {
             environment_diffuse_intensity: 300.0, // 有限非负补光独立进入PBR漫反射计算。
             environment_specular_intensity: 800.0, // 有限非负反射独立进入PBR镜面计算。
             skybox_yaw_degrees: -15.0,  // 负角由运行时归一化但仍是合法作者值。
-            weather: SceneWeatherDescriptor::default(), // 测试天空参数时仍提供完整合法天气配置。
-            celestial_overrides: SceneCelestialLightingOverrides::default(), // 测试天空路径时完整跟随全局天体配置。
+            ..SceneEnvironmentDescriptor::default()
         };
         assert!(valid.validate().is_ok()); // 图像内容的Cube验证留给加载完成后的统一运行时。
         assert_eq!(valid.normalized_skybox_yaw_degrees(), 345.0); // 等价角必须稳定折回零至三百六十度。

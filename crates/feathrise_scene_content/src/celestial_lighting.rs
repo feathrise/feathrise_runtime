@@ -1,11 +1,11 @@
-//! 全局天体光照基础值、动态场景逐字段覆盖与纯解析规则。
+//! 全局世界环境资产、动态场景逐字段天体覆盖与纯解析规则。
 
 use bevy::prelude::*; // Asset、Resource、Handle 与 TypePath 构成热加载全局配置入口。
 use bevy::reflect::TypePath; // 自定义世界环境资产需要稳定类型路径。
 use serde::{Deserialize, Serialize}; // 全局文件与场景清单共享可读 JSON 格式。
 
 /// 世界环境全局配置文件的当前格式版本。
-pub const WORLD_ENVIRONMENT_SCHEMA_VERSION: u32 = 1; // 首版只包含动态场景天体光照基础设置。
+pub const WORLD_ENVIRONMENT_SCHEMA_VERSION: u32 = 1; // 新环境库是首版世界环境文件的可选字段。
 /// 编译期日间方向光基准照度，单位为 lux。
 pub const DEFAULT_DAY_BASE_ILLUMINANCE_LUX: f32 = 9_000.0; // 保持当前动态场景正午画面。
 /// 编译期日间方向光基准 sRGB 颜色。
@@ -193,8 +193,11 @@ pub fn resolve(
 pub struct WorldEnvironmentAsset {
     /// 全局文件格式版本。
     pub schema_version: u32,
-    /// 动态场景默认使用的完整天体光照配置。
+    /// 旧场景按字段继承的天体光照基准。
     pub celestial_lighting: CelestialLightingProfile,
+    /// 工程共享环境套装。旧文件缺省时使用隐式默认套装。
+    #[serde(default, skip_serializing_if = "crate::WorldEnvironmentLibrary::is_empty")]
+    pub library: crate::WorldEnvironmentLibrary,
 }
 
 impl Default for WorldEnvironmentAsset {
@@ -202,20 +205,26 @@ impl Default for WorldEnvironmentAsset {
         Self {
             schema_version: WORLD_ENVIRONMENT_SCHEMA_VERSION, // 编译期回退也使用当前可保存版本。
             celestial_lighting: CelestialLightingProfile::default(), // 完整默认值保证缺失文件不会使场景变黑。
+            library: crate::WorldEnvironmentLibrary::default(),
         }
     }
 }
 
 impl WorldEnvironmentAsset {
-    /// 校验格式版本与完整天体配置。
+    /// 校验格式版本、旧场景天体基准及完整共享套装。
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_base()?;
+        self.library.validate() // 共享套装和旧场景天体基准一起原子采用。
+    }
+
+    pub(crate) fn validate_base(&self) -> Result<(), String> {
         if self.schema_version != WORLD_ENVIRONMENT_SCHEMA_VERSION {
             return Err(format!(
                 "世界环境配置版本{}与运行时版本{}不一致",
                 self.schema_version, WORLD_ENVIRONMENT_SCHEMA_VERSION
             )); // 不兼容版本失败关闭并使用编译期默认值。
         }
-        self.celestial_lighting.validate() // 数值合法后才能原子采用完整配置。
+        self.celestial_lighting.validate()
     }
 }
 
@@ -224,8 +233,10 @@ impl WorldEnvironmentAsset {
 pub struct WorldEnvironmentRegistry {
     /// 启动时固定持有的全局资产强句柄。
     pub handle: Handle<WorldEnvironmentAsset>,
-    /// 当前安全有效的动态场景天体配置；失败时始终为编译期默认值。
+    /// 旧场景的有效天体基准，与环境库同一版本采用。
     pub celestial_lighting: CelestialLightingProfile,
+    /// 与天体基准同一修订采用的工程环境套装。
+    pub library: crate::WorldEnvironmentLibrary,
     /// 每次采用成功配置或失败回退时递增，消费者据此执行增量同步。
     pub revision: u64,
     /// 最近一次全局文件加载或校验失败原因，供 F12 直接显示。
@@ -281,6 +292,7 @@ impl WorldEnvironmentRegistry {
         Self {
             handle,                                                  // 强句柄保持 AssetServer 热更新订阅。
             celestial_lighting: CelestialLightingProfile::default(), // 首次资产完成前立即提供安全画面。
+            library: crate::WorldEnvironmentLibrary::default(),
             revision: 0,      // 首次成功或失败事件后再发布正式修订。
             last_error: None, // 尚未收到失败事件时不显示误导诊断。
         }

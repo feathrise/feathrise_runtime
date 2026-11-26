@@ -216,9 +216,10 @@ impl Plugin for DynamicScenePlugin {
             )
             .add_resident_systems(
                 Update,
-                systems::sync_dynamic_celestial_lighting
+                systems::sync_dynamic_environment
+                    .after(systems::observe_dynamic_scene_assets)
                     .before(WorldTimeSystemSet::ApplyLighting)
-                    .run_if(in_state(ScenePhase::Active)), // 全局、场景或 F12 草稿变化同帧进入最终光照。
+                    .run_if(in_state(ScenePhase::Active)), // 仅玩法主场景采用环境，子场景继续共享主场景天空与时钟。
             )
             .add_resident_systems(
                 Update,
