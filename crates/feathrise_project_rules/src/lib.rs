@@ -1,6 +1,7 @@
 //! 工程变量与事件规则。作者定义在启动时编译一次，游戏和脚本共享同一局的状态。
 
 mod definitions;
+mod dispatch;
 mod locations;
 mod resources;
 mod types;

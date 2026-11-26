@@ -1,9 +1,14 @@
-//! 每个游戏会话只有一份变量。Yarn、游戏系统和存档持有同一资源句柄，脚本回读能立即看到结果。
+//! 游戏及脚本共享同一局变量，活动场景选择与变量事务使用同一把锁。
 
-use crate::{RULES_FILE, definitions::RuleBook, types::*};
+use crate::{
+    RULES_FILE,
+    definitions::{EffectiveScope, RuleBook, RuleScope, validate_value},
+    dispatch::Fact,
+    types::*,
+};
 use bevy_ecs::resource::Resource;
 use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     fs, io,
     path::Path,
     sync::{
@@ -15,14 +20,15 @@ use std::{
 #[derive(Default, Clone, Debug, Resource)]
 pub struct ProjectVariables {
     pub(crate) book: Arc<RuleBook>,
-    state: Arc<Mutex<ProjectVariablesSnapshot>>,
+    state: Arc<Mutex<Session>>,
     pub(crate) generation: Arc<AtomicU64>,
     values_revision: Arc<AtomicU64>,
 }
 
-enum Fact {
-    Changed { key: String, old: Value, new: Value },
-    Event { name: String, target: String },
+#[derive(Default, Debug)]
+struct Session {
+    active_scene: Option<String>,
+    progress: ProjectVariablesSnapshot,
 }
 
 impl ProjectVariables {
@@ -51,39 +57,98 @@ impl ProjectVariables {
     }
 
     pub fn get(&self, key: &str) -> Option<Value> {
-        self.value(&self.state(), key).cloned()
+        let state = self.state();
+        self.book
+            .scope(state.active_scene.as_deref())
+            .value(&state.progress, key)
+            .cloned()
     }
 
-    /// 玩法投影可在稳定帧无锁跳过变量查询。成功变值或替换槽位会更新版本，纯事件和取待办保持原值。
+    /// 玩法投影可在稳定帧无锁跳过查询。变值、切换有定义的场景和读档会更新版本。
     pub fn values_revision(&self) -> u64 {
         self.values_revision.load(Ordering::Acquire)
+    }
+
+    /// 切换活动场景的定义和存档层。出入场景只改变当前读写范围，不会生成变量变化事实。
+    pub fn set_active_scene(&self, scene: Option<&str>) {
+        let mut state = self.state();
+        if state.active_scene.as_deref() == scene {
+            return;
+        }
+        let changes_definitions = [state.active_scene.as_deref(), scene]
+            .into_iter()
+            .flatten()
+            .any(|id| self.book.scenes.contains_key(id));
+        state.active_scene = scene.map(str::to_owned);
+        if changes_definitions {
+            self.values_revision.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    pub fn active_scene(&self) -> Option<String> {
+        self.state().active_scene.clone()
+    }
+
+    /// Yarn 预编译检查的是声明类型，调用时可能还没有进入任何场景。
+    pub fn matches_declaration(&self, key: &str, value: &Value) -> bool {
+        let matches = |def: &Definition| {
+            std::mem::discriminant(&def.default) == std::mem::discriminant(value)
+        };
+        if let Some(def) = self.book.project.variables.get(key) {
+            return matches(def);
+        }
+        let mut declarations = self
+            .book
+            .scenes
+            .values()
+            .filter_map(|scope| scope.variables.get(key));
+        declarations.next().is_some_and(matches) && declarations.all(matches)
     }
 
     /// 返回声明的默认值及本局覆盖，供脚本调试枚举；常规分支直接按 key 查询。
     pub fn values(&self) -> BTreeMap<String, Value> {
         let state = self.state();
-        self.book
+        let scope = self.book.scope(state.active_scene.as_deref());
+        let mut values = scope
+            .project
             .variables
             .iter()
             .map(|(key, def)| {
                 (
                     key.clone(),
-                    state.values.get(key).unwrap_or(&def.default).clone(),
+                    state
+                        .progress
+                        .project
+                        .values
+                        .get(key)
+                        .unwrap_or(&def.default)
+                        .clone(),
                 )
             })
-            .collect()
+            .collect::<BTreeMap<_, _>>();
+        if let Some((id, scene)) = scope.scene {
+            let progress = state.progress.scenes.get(id);
+            values.extend(scene.variables.iter().map(|(key, def)| {
+                let saved = progress.and_then(|slot| slot.values.get(key));
+                (key.clone(), saved.unwrap_or(&def.default).clone())
+            }));
+        }
+        values
     }
 
     pub fn validate_value(&self, key: &str, value: &Value) -> Result<(), String> {
-        self.book.validate_value(key, value)
+        self.book
+            .scope(self.state().active_scene.as_deref())
+            .validate(key, value)
     }
 
     pub fn set(&self, key: &str, value: Value) -> Result<bool, String> {
-        self.validate_value(key, &value)?;
         let mut state = self.state();
+        let scope = self.book.scope(state.active_scene.as_deref());
+        scope.validate(key, &value)?;
         let mut changes = VecDeque::new();
-        let changed = self.write(&mut state, key, &value, "set", &mut changes);
-        self.react(&mut state, changes, None);
+        let changed = self.write(scope, &mut state.progress, key, &value, "set", &mut changes);
+        self.react(scope, &mut state.progress, changes, None);
         Ok(changed)
     }
 
@@ -93,20 +158,36 @@ impl ProjectVariables {
     }
 
     /// 子场景演出在收尾时引出的下一段剧情仍作用于这一次的场景实例。
-    pub fn set_batch_in_instance(&self, values: BTreeMap<String, Value>, instance: &str) -> Result<(), String> {
+    pub fn set_batch_in_instance(
+        &self,
+        values: BTreeMap<String, Value>,
+        instance: &str,
+    ) -> Result<(), String> {
         self.write_batch(values, Some(instance))
     }
 
-    fn write_batch(&self, values: BTreeMap<String, Value>, instance: Option<&str>) -> Result<(), String> {
-        for (key, value) in &values {
-            self.validate_value(key, value)?;
-        }
+    fn write_batch(
+        &self,
+        values: BTreeMap<String, Value>,
+        instance: Option<&str>,
+    ) -> Result<(), String> {
         let mut state = self.state();
+        let scope = self.book.scope(state.active_scene.as_deref());
+        for (key, value) in &values {
+            scope.validate(key, value)?;
+        }
         let mut changes = VecDeque::new();
         for (key, value) in values {
-            self.write(&mut state, &key, &value, "set_batch", &mut changes);
+            self.write(
+                scope,
+                &mut state.progress,
+                &key,
+                &value,
+                "set_batch",
+                &mut changes,
+            );
         }
-        self.react(&mut state, changes, instance);
+        self.react(scope, &mut state.progress, changes, instance);
         Ok(())
     }
 
@@ -119,15 +200,23 @@ impl ProjectVariables {
         value: Value,
         commit: impl FnOnce() -> bool,
     ) -> Result<bool, String> {
-        self.validate_value(key, expected)?;
-        self.validate_value(key, &value)?;
         let mut state = self.state();
-        if expected == &value || self.value(&state, key) != Some(expected) || !commit() {
+        let scope = self.book.scope(state.active_scene.as_deref());
+        scope.validate(key, expected)?;
+        scope.validate(key, &value)?;
+        if expected == &value || scope.value(&state.progress, key) != Some(expected) || !commit() {
             return Ok(false);
         }
         let mut changes = VecDeque::new();
-        self.write(&mut state, key, &value, "set_if", &mut changes);
-        self.react(&mut state, changes, None);
+        self.write(
+            scope,
+            &mut state.progress,
+            key,
+            &value,
+            "set_if",
+            &mut changes,
+        );
+        self.react(scope, &mut state.progress, changes, None);
         Ok(true)
     }
 
@@ -142,10 +231,16 @@ impl ProjectVariables {
     }
 
     fn publish(&self, event: &str, target: &str, instance: Option<&str>) {
-        let Some(index) = self.book.events.get(event) else {
+        if self.book.scenes.is_empty() && !self.book.project.subscribes(event, target) {
             return;
-        };
-        if index.any_target.is_empty() && !index.targets.contains_key(target) {
+        }
+        let mut state = self.state();
+        let scope = self.book.scope(state.active_scene.as_deref());
+        if !scope.project.subscribes(event, target)
+            && !scope
+                .scene
+                .is_some_and(|(_, scope)| scope.subscribes(event, target))
+        {
             return;
         }
         tracing::debug!(event, target_id = target, "收到游戏事件");
@@ -153,168 +248,155 @@ impl ProjectVariables {
             name: event.into(),
             target: target.into(),
         };
-        self.react(&mut self.state(), VecDeque::from([fact]), instance);
+        self.react(scope, &mut state.progress, VecDeque::from([fact]), instance);
     }
 
     /// 领域按动作名领取自己的有序请求，并在自己的成功边界发布后续事实。
     pub fn take_requests(&self, action: &str) -> Vec<String> {
-        self.take_requests_with_instances(action).into_iter().map(|(target, _)| target).collect()
+        self.take_requests_with_instances(action)
+            .into_iter()
+            .map(|(target, _)| target)
+            .collect()
     }
 
-    pub fn take_requests_with_instances(&self, action: &str) -> Vec<(String,Option<String>)> {
-        self.state().requests.remove(action).unwrap_or_default().into_iter().map(|r| match r {
-            PendingRequest::Target(target)=>(target,None),
-            PendingRequest::InInstance{target,instance}=>(target,Some(instance)),
-        }).collect()
+    pub fn take_requests_with_instances(&self, action: &str) -> Vec<(String, Option<String>)> {
+        self.state()
+            .progress
+            .requests
+            .remove(action)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| match r {
+                PendingRequest::Target(target) => (target, None),
+                PendingRequest::InInstance { target, instance } => (target, Some(instance)),
+            })
+            .collect()
     }
 
     pub fn snapshot(&self) -> ProjectVariablesSnapshot {
-        self.state().clone()
+        let mut snapshot = self.state().progress.clone();
+        snapshot.scenes.retain(|_, progress| !progress.is_empty());
+        snapshot
     }
 
     /// 用同一把锁替换整局数据。旧档沿用当前声明的默认值，删除或改型的变量不污染其他变量。
     /// 这里不走 set，恢复已发生的选择不会重发事件；脚本已经持有的句柄也立即指向新进度。
     pub fn restore(&self, mut snapshot: ProjectVariablesSnapshot) {
-        snapshot
-            .values
-            .retain(|key, value| match self.validate_value(key, value) {
-                Ok(()) => self.book.variables[key].default != *value,
-                Err(e) => {
-                    tracing::warn!("{e}，已忽略该存档变量");
-                    false
-                }
-            });
-        snapshot.fired.retain(|id| self.book.once.contains(id));
+        snapshot.project.sanitize(&self.book.project);
+        snapshot.scenes.retain(|id, progress| {
+            let Some(scope) = self.book.scenes.get(id) else {
+                return false;
+            };
+            progress.sanitize(scope);
+            !progress.is_empty()
+        });
         let mut state = self.state();
-        *state = snapshot;
+        state.progress = snapshot;
         self.generation.fetch_add(1, Ordering::Release);
         self.values_revision.fetch_add(1, Ordering::Release);
     }
 
-    fn state(&self) -> MutexGuard<'_, ProjectVariablesSnapshot> {
+    fn state(&self) -> MutexGuard<'_, Session> {
         self.state.lock().expect("工程变量会话未中断")
     }
+}
 
-    fn value<'a>(&'a self, state: &'a ProjectVariablesSnapshot, key: &str) -> Option<&'a Value> {
-        state
-            .values
-            .get(key)
-            .or_else(|| self.book.variables.get(key).map(|def| &def.default))
+impl ScopeSnapshot {
+    fn sanitize(&mut self, scope: &RuleScope) {
+        self.values.retain(|key, value| {
+            let def = scope.variables.get(key);
+            match validate_value(def, key, value) {
+                Ok(()) => def.is_some_and(|def| def.default != *value),
+                Err(e) => {
+                    tracing::warn!("{e}，已忽略该存档变量");
+                    false
+                }
+            }
+        });
+        self.fired.retain(|id| scope.once.contains(id));
     }
 
-    fn write(
+    fn is_empty(&self) -> bool {
+        self.values.is_empty() && self.fired.is_empty()
+    }
+}
+
+impl ProjectVariablesSnapshot {
+    pub(crate) fn scope(&self, scene: Option<&str>) -> Option<&ScopeSnapshot> {
+        match scene {
+            Some(id) => self.scenes.get(id),
+            None => Some(&self.project),
+        }
+    }
+
+    pub(crate) fn scope_mut(&mut self, scene: Option<&str>) -> &mut ScopeSnapshot {
+        match scene {
+            Some(id) => self.scenes.entry(id.into()).or_default(),
+            None => &mut self.project,
+        }
+    }
+}
+
+impl<'a> EffectiveScope<'a> {
+    fn definition(self, key: &str) -> Option<(Option<&'a str>, &'a Definition)> {
+        self.scene
+            .and_then(|(id, scope)| scope.variables.get(key).map(|def| (Some(id), def)))
+            .or_else(|| self.project.variables.get(key).map(|def| (None, def)))
+    }
+
+    pub fn validate(self, key: &str, value: &Value) -> Result<(), String> {
+        validate_value(self.definition(key).map(|(_, def)| def), key, value)
+    }
+
+    pub fn value(self, progress: &'a ProjectVariablesSnapshot, key: &str) -> Option<&'a Value> {
+        let (scene, def) = self.definition(key)?;
+        // 场景定义命中后只看该场景的覆盖值或定义值，不能读到同名工程进度。
+        Some(
+            progress
+                .scope(scene)
+                .and_then(|slot| slot.values.get(key))
+                .unwrap_or(&def.default),
+        )
+    }
+}
+
+impl ProjectVariables {
+    pub(crate) fn write(
         &self,
-        state: &mut ProjectVariablesSnapshot,
+        scope: EffectiveScope<'_>,
+        progress: &mut ProjectVariablesSnapshot,
         key: &str,
         value: &Value,
         source: &str,
         changes: &mut VecDeque<Fact>,
     ) -> bool {
-        let default = &self.book.variables[key].default;
-        let old = state.values.get(key).unwrap_or(default);
+        let (scene, def) = scope.definition(key).expect("写入前必须校验变量");
+        let old = progress
+            .scope(scene)
+            .and_then(|slot| slot.values.get(key))
+            .unwrap_or(&def.default);
         if old == value {
             return false;
         }
         tracing::debug!(source, variable = key, ?old, new = ?value, "工程变量变化");
-        if self.book.changes.contains_key(key) {
+        if scope.project.changes.contains_key(key)
+            || scope
+                .scene
+                .is_some_and(|(_, scope)| scope.changes.contains_key(key))
+        {
             changes.push_back(Fact::Changed {
                 key: key.into(),
                 old: old.clone(),
                 new: value.clone(),
             });
         }
-        if value == default {
-            state.values.remove(key);
+        let slot = progress.scope_mut(scene);
+        if value == &def.default {
+            slot.values.remove(key);
         } else {
-            state.values.insert(key.into(), value.clone());
+            slot.values.insert(key.into(), value.clone());
         }
         self.values_revision.fetch_add(1, Ordering::Release);
         true
-    }
-
-    fn react(&self, state: &mut ProjectVariablesSnapshot, mut facts: VecDeque<Fact>, instance: Option<&str>) {
-        // 一次外部输入中，同一条规则最多执行一次，消除 A→B→A 循环。下一次独立输入可再次触发。
-        // 同一事实的所有条件先按同一状态判定，再按文件顺序执行动作，不递归调用玩法系统。
-        let mut fired = HashSet::new();
-        while let Some(fact) = facts.pop_front() {
-            let indices = match &fact {
-                Fact::Changed { key, .. } => &self.book.changes[key],
-                Fact::Event { name, target } => {
-                    let index = &self.book.events[name];
-                    let mut matches = index.any_target.clone();
-                    if let Some(exact) = index.targets.get(target) {
-                        matches.extend(exact);
-                        matches.sort_unstable();
-                    }
-                    self.run_matches(state, &fact, &matches, &mut fired, &mut facts, instance);
-                    continue;
-                }
-            };
-            self.run_matches(state, &fact, indices, &mut fired, &mut facts, instance);
-        }
-    }
-
-    fn run_matches(
-        &self,
-        state: &mut ProjectVariablesSnapshot,
-        fact: &Fact,
-        indices: &[usize],
-        fired: &mut HashSet<usize>,
-        facts: &mut VecDeque<Fact>,
-        instance: Option<&str>,
-    ) {
-        let mut matches = Vec::new();
-        for &index in indices {
-            let rule = &self.book.rules[index];
-            if fired.contains(&index) || (rule.once && state.fired.contains(&rule.id)) {
-                continue;
-            }
-            if let (Trigger::Changed { from, to, .. }, Fact::Changed { old, new, .. }) =
-                (&rule.when, fact)
-                && (from.as_ref().is_some_and(|v| v != old)
-                    || to.as_ref().is_some_and(|v| v != new))
-            {
-                continue;
-            }
-            if let Some(condition) = rule
-                .conditions
-                .iter()
-                .find(|cond| self.value(state, &cond.variable) != Some(&cond.equals))
-            {
-                tracing::debug!(rule = rule.id, ?condition, "触发条件未满足");
-                continue;
-            }
-            fired.insert(index);
-            if rule.once {
-                state.fired.insert(rule.id.clone());
-            }
-            matches.push(rule);
-        }
-        for rule in matches {
-            tracing::debug!(rule = rule.id, "执行触发规则");
-            for action in &rule.actions {
-                match action {
-                    Action::Set { set, value } => {
-                        self.write(state, set, value, &rule.id, facts);
-                    }
-                    Action::Request { request, target } => {
-                        tracing::debug!(
-                            rule = rule.id,
-                            request,
-                            target_id = target,
-                            "提交领域动作"
-                        );
-                        state
-                            .requests
-                            .entry(request.clone())
-                            .or_default()
-                            .push(match instance {
-                                Some(path) => PendingRequest::InInstance { target:target.clone(), instance:path.into() },
-                                None => PendingRequest::Target(target.clone()),
-                            });
-                    }
-                }
-            }
-        }
     }
 }

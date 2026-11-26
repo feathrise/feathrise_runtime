@@ -22,6 +22,100 @@ fn name(value: &str) -> Value {
 }
 
 #[test]
+fn tagged_scene_values_cover_same_id_and_restore_independent_progress() {
+    let configuration = json!({
+        "version":1,
+        "variables":{
+            "route":{"default":"home","choices":["home","road"],"tag":"陆地"},
+            "shared":{"default":false}
+        },
+        "scenes":{
+            "MAP-port":{"variables":{
+                "route":{"default":"sea","choices":["sea","deep"],"tag":"海上"},
+                "crew":{"default":1}
+            }},
+            "MAP-cave":{"variables":{"route":{"default":"dark"},"crew":{"default":"none"}}}
+        }
+    }).to_string();
+    let vars = ProjectVariables::from_json(&configuration).unwrap();
+    assert!(vars.matches_declaration("route", &name("any-text")));
+    assert!(!vars.matches_declaration("crew", &Value::Number(0.)));
+    assert!(!vars.matches_declaration("unknown", &name("")));
+    vars.set("route", name("road")).unwrap();
+    let revision = vars.values_revision();
+    vars.set_active_scene(Some("MAP-port"));
+    vars.set_active_scene(Some("MAP-port"));
+    assert_eq!(vars.values_revision(), revision + 1);
+    assert_eq!(vars.values()["route"], name("sea"));
+    assert_eq!(vars.get("crew"), Some(Value::Number(1.)));
+    assert!(vars.set("route", name("road")).is_err());
+    vars.set("route", name("deep")).unwrap();
+    vars.set("shared", Value::Bool(true)).unwrap();
+    vars.set_active_scene(Some("MAP-cave"));
+    assert_eq!(vars.get("route"), Some(name("dark")));
+    vars.set_active_scene(None);
+    assert_eq!(vars.get("route"), Some(name("road")));
+    assert_eq!(vars.get("crew"), None);
+    assert_eq!(vars.get("shared"), Some(Value::Bool(true)));
+
+    let saved = serde_json::to_value(vars.snapshot()).unwrap();
+    assert_eq!(saved["values"]["route"], "road");
+    assert_eq!(saved["scenes"]["MAP-port"]["values"]["route"], "deep");
+    let reopened = ProjectVariables::from_json(&configuration).unwrap();
+    reopened.restore(serde_json::from_value(saved).unwrap());
+    assert_eq!(reopened.active_scene(), None);
+    reopened.set_active_scene(Some("MAP-port"));
+    assert_eq!(reopened.get("route"), Some(name("deep")));
+}
+
+#[test]
+fn scene_rules_replace_the_original_slot_and_once_marks_stay_in_each_scope() {
+    let vars = ProjectVariables::from_json(&json!({
+        "version":1,
+        "variables":{"a":{"default":0}, "route":{"default":"road"}},
+        "rules":[
+            {"id":"same","tag":"工程","once":true,"when":{"event":"start"},"actions":[{"request":"notes","target":"global"}]},
+            {"id":"shared","when":{"event":"start"},"if":[{"variable":"a","equals":0}],"actions":[
+                {"set":"route","value":"road"}, {"request":"notes","target":"shared"}]},
+            {"id":"stop","when":{"event":"old"},"actions":[{"request":"notes","target":"old"}]}
+        ],
+        "scenes":{
+            "MAP-port":{"variables":{"a":{"default":0}, "route":{"default":"sea","choices":["sea"]}}, "rules":[
+                {"id":"tail","when":{"event":"start"},"if":[{"variable":"a","equals":0}],"actions":[{"request":"notes","target":"tail"}]},
+                {"id":"stop","when":{"event":"new"},"actions":[{"request":"notes","target":"new"}]},
+                {"id":"same","tag":"场景","once":true,"when":{"event":"start"},"actions":[
+                    {"set":"a","value":1},{"request":"notes","target":"local"}]}
+            ]}
+        }
+    }).to_string()).unwrap();
+    vars.set_active_scene(Some("MAP-port"));
+    vars.event("old", "");
+    assert!(vars.take_requests("notes").is_empty());
+    vars.event("start", "");
+    // 场景版保留工程执行位，后续条件取同一份动作前状态，枚举动作失败也保留同规则的其他动作。
+    assert_eq!(vars.take_requests("notes"), ["local", "shared", "tail"]);
+    assert_eq!(vars.get("route"), Some(name("sea")));
+    vars.set_active_scene(None);
+    vars.event("start", "");
+    assert_eq!(vars.take_requests("notes"), ["global", "shared"]);
+    let saved = serde_json::to_value(vars.snapshot()).unwrap();
+    assert_eq!(saved["fired"], json!(["same"]));
+    assert_eq!(saved["scenes"]["MAP-port"]["fired"], json!(["same"]));
+    vars.restore(serde_json::from_value(saved).unwrap());
+    vars.set_active_scene(Some("MAP-port"));
+    vars.set("a", Value::Number(0.)).unwrap();
+    vars.event("start", "");
+    assert_eq!(vars.take_requests("notes"), ["shared", "tail"]);
+}
+
+#[test]
+fn scene_override_rejects_a_different_engine_value_type() {
+    let text = r#"{"version":1,"variables":{"a":{"default":0}},"scenes":{"MAP-port":{"variables":{"a":{"default":true}}}}}"#;
+    let error = ProjectVariables::from_json(text).unwrap_err();
+    assert!(error.contains("MAP-port") && error.contains("变量 a"));
+}
+
+#[test]
 fn value_revision_tracks_every_authoritative_write_and_restore_but_ignores_noops_and_requests() {
     let rules = book(json!([
         {"id":"chain","when":{"event":"start"},"actions":[{"set":"known","value":true}]},

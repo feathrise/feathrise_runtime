@@ -45,6 +45,10 @@ impl Plugin for SceneRuntimePlugin {
             app.add_plugins(feathrise_billboard_text::BillboardTextPlugin);
         }
         app.add_systems(Update, billboard_camera::attach)
+            .add_systems(
+                RunFixedMainLoop,
+                project_locations::sync_scene_scope.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            )
             .add_systems(PostUpdate, project_locations::observe
                 .after(bevy::transform::TransformSystems::Propagate)
                 .run_if(project_locations::configured)

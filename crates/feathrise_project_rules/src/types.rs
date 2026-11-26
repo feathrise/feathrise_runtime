@@ -28,6 +28,17 @@ pub(crate) struct Document {
     pub locations: BTreeMap<String, Location>,
     #[serde(default)]
     pub rules: Vec<Rule>,
+    #[serde(default, deserialize_with = "unique_ids")]
+    pub scenes: BTreeMap<String, SceneRules>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SceneRules {
+    #[serde(default, deserialize_with = "unique_ids")]
+    pub variables: BTreeMap<String, Definition>,
+    #[serde(default)]
+    pub rules: Vec<Rule>,
 }
 
 // 只限制作者声明。读档仍按原快照合同恢复，不能用重复声明让运行时默默取最后一个值。
@@ -71,12 +82,17 @@ pub(crate) struct Location {
 pub(crate) struct Definition {
     pub default: Value,
     pub choices: Option<Vec<String>>,
+    // 作者标签只用于编辑器分类，不参与运行时索引。
+    #[serde(rename = "tag")]
+    pub _tag: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Rule {
     pub id: String,
+    #[serde(rename = "tag")]
+    pub _tag: Option<String>,
     pub when: Trigger,
     #[serde(default, rename = "if")]
     pub conditions: Vec<Condition>,
@@ -124,7 +140,16 @@ pub(crate) enum PendingRequest {
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub struct ProjectVariablesSnapshot {
+    #[serde(flatten)]
+    pub(crate) project: ScopeSnapshot,
+    pub(crate) requests: BTreeMap<String, Vec<PendingRequest>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) scenes: BTreeMap<String, ScopeSnapshot>,
+}
+
+#[derive(Clone, Default, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
+pub(crate) struct ScopeSnapshot {
     pub(crate) values: BTreeMap<String, Value>,
     pub(crate) fired: BTreeSet<String>,
-    pub(crate) requests: BTreeMap<String, Vec<PendingRequest>>,
 }
