@@ -186,6 +186,8 @@ fn old_slot_defaults_and_changed_declarations_are_restored_without_new_events() 
 #[test]
 fn configuration_rejects_unknown_references_invalid_choices_and_misspelt_fields() {
     assert!(ProjectVariables::from_json("\u{feff}{\"version\":1}").is_ok());
+    let duplicates = br#"{"version":1,"variables":{"a":{"default":1},"\u0061":{"default":2}}}"#;
+    assert!(ProjectVariables::from_slice(duplicates).unwrap_err().contains("重复"));
     for (variables, rules) in [
         (json!({"a":{"default":1,"choices":["x"]}}), json!([])),
         (json!({"a":{"default":"x","choices":["x","x"]}}), json!([])),

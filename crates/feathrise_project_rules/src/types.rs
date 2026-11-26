@@ -1,7 +1,14 @@
 //! 作者文件与玩家存档分开建模。声明中的默认值决定变量类型，枚举在字符串上限定取值。
 
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error, MapAccess, Visitor},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    fmt,
+    marker::PhantomData,
+};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -15,12 +22,40 @@ pub enum Value {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Document {
     pub version: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_ids")]
     pub variables: BTreeMap<String, Definition>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "unique_ids")]
     pub locations: BTreeMap<String, Location>,
     #[serde(default)]
     pub rules: Vec<Rule>,
+}
+
+// 只限制作者声明。读档仍按原快照合同恢复，不能用重复声明让运行时默默取最后一个值。
+fn unique_ids<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, T>, D::Error> {
+    struct Unique<T>(PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for Unique<T> {
+        type Value = BTreeMap<String, T>;
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("标识互不重复的 JSON 对象")
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut entries: M) -> Result<Self::Value, M::Error> {
+            let mut result = BTreeMap::new();
+            while let Some((key, value)) = entries.next_entry::<String, T>()? {
+                match result.entry(key) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(value);
+                    }
+                    Entry::Occupied(entry) => {
+                        return Err(M::Error::custom(format!("重复的标识「{}」", entry.key())));
+                    }
+                }
+            }
+            Ok(result)
+        }
+    }
+    deserializer.deserialize_map(Unique(PhantomData))
 }
 
 #[derive(Debug, Deserialize)]

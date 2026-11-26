@@ -146,17 +146,17 @@ impl MotionController {
         self.apply_index(index, action);
     }
 
-    fn apply_index(&mut self, index: usize, action: SceneMotionAction) {
+    fn apply_index(&mut self, index: usize, action: SceneMotionAction) -> bool {
         if matches!(action, SceneMotionAction::Pause | SceneMotionAction::Stop) {
-            if let Some(playhead) = self.playheads.get_mut(&index) {
-                playhead.playing = false;
-                if action == SceneMotionAction::Stop {
-                    playhead.backward = false;
-                    playhead.phase = 0.0;
-                    playhead.first_sample = true;
-                }
+            // 暂停和停止只作用于已建立的播放头，不能把休眠片段的空操作显示为试走结果。
+            let Some(playhead) = self.playheads.get_mut(&index) else { return false; };
+            playhead.playing = false;
+            if action == SceneMotionAction::Stop {
+                playhead.backward = false;
+                playhead.phase = 0.0;
+                playhead.first_sample = true;
             }
-            return;
+            return true;
         }
         let clip = &self.clips.clips()[index];
         let backward = action == SceneMotionAction::Reverse;
@@ -170,6 +170,7 @@ impl MotionController {
         playhead.backward = backward;
         self.routing_revision += 1;
         playhead.priority = self.routing_revision;
+        true
     }
 
     pub(super) fn routing_revision(&self) -> u64 { self.routing_revision }
@@ -188,8 +189,7 @@ impl MotionController {
                     MotionRegionAction::Pause => SceneMotionAction::Pause,
                     MotionRegionAction::Stop => SceneMotionAction::Stop,
                 };
-                self.apply_index(clip, action);
-                if let Some(trace) = trace.as_deref_mut() {
+                if self.apply_index(clip, action) && let Some(trace) = trace.as_deref_mut() {
                     trace.last = Some(SceneMotionTriggerHit {
                         clip_name: self.clips.clips()[clip].name.clone(), entering, action,
                     });

@@ -115,11 +115,7 @@ pub fn spawn_builtin_placement_visual(
     root: Entity,
     target: ScenePlacementAssetTarget,
 ) -> bool {
-    if let Some((rgb, candela, range, cone)) = target.local_light_parameters() {
-        let color = Color::linear_rgb(rgb[0], rgb[1], rgb[2]);
-        // 与 Bevy glTF 加载器相同，将坎德拉换算成流明；没有声明范围的 glTF 默认照射 20 米。
-        let intensity = candela * std::f32::consts::PI * 4.0;
-        let range = range.unwrap_or(20.0);
+    if let Some((color, intensity, range, cone)) = local_light_visual(&target) {
         let mut light = commands.entity(root);
         if let Some([inner_angle, outer_angle]) = cone {
             light.remove::<PointLight>().insert(SpotLight { color, intensity, range, inner_angle, outer_angle, ..default() });
@@ -146,19 +142,32 @@ pub fn spawn_builtin_placement_visual(
     true
 }
 
+fn local_light_visual(target: &ScenePlacementAssetTarget) -> Option<(Color, f32, f32, Option<[f32; 2]>)> {
+    let ([red, green, blue], candela, range, cone) = target.local_light_parameters()?;
+    // 与 Bevy glTF 加载器相同，线性颜色保持原值，坎德拉换算流明，无范围时采用 20 米。
+    Some((Color::linear_rgb(red, green, blue), candela * std::f32::consts::PI * 4.0, range.unwrap_or(20.0), cone))
+}
+
 #[derive(Component)]
 struct BuiltinVisualSource(ScenePlacementAssetTarget);
 
 /// 完成的子节点必须匹配当前作者快照；旧画面可继续显示，但不会给新的保存或预览交接授信。
 pub fn builtin_placement_visual_ready(world: &World, root: Entity) -> bool {
     let Some(instance) = world.get::<ScenePlacementInstance>(root) else { return false; };
-    if let Some((_, _, _, cone)) = instance.asset_target().local_light_parameters() {
-        return (instance.is_active() || instance.is_pending()) && if cone.is_some() {
-            world.get::<SpotLight>(root).is_some()
-        } else { world.get::<PointLight>(root).is_some() };
+    let target = instance.asset_target();
+    if let Some((color, intensity, range, cone)) = local_light_visual(&target) {
+        return (instance.is_active() || instance.is_pending()) && if let Some(angles) = cone {
+            world.get::<SpotLight>(root).is_some_and(|light| {
+                (light.color, light.intensity, light.range) == (color, intensity, range)
+                    && [light.inner_angle, light.outer_angle] == angles
+            })
+        } else {
+            world.get::<PointLight>(root).is_some_and(|light| {
+                (light.color, light.intensity, light.range) == (color, intensity, range)
+            })
+        };
     }
     let Some(visual) = builtin_visual_for_root(world, root) else { return false; };
-    let target = instance.asset_target();
     let collision = match &target {
         ScenePlacementAssetTarget::Cuboid { collision, .. }
         | ScenePlacementAssetTarget::EditableCuboid { collision, .. }
@@ -255,7 +264,7 @@ mod tests {
         for cone in [None, Some([0.2, 0.7])] {
             let target = ScenePlacementAssetTarget::from_local_light([0.8, 0.6, 0.4], 550.0, Some(15.0), cone).unwrap();
             let root = spawn_root(&mut world, target.clone());
-            install(&mut world, root, target);
+            install(&mut world, root, target.clone());
             let (color, intensity, range) = if let Some([inner, outer]) = cone {
                 let spot = world.get::<SpotLight>(root).unwrap();
                 assert_eq!([spot.inner_angle, spot.outer_angle], [inner, outer]);
@@ -269,6 +278,15 @@ mod tests {
             assert_eq!(range, 15.0);
             assert!(builtin_placement_visual_ready(&world, root));
             assert!(world.get::<Collider>(root).is_none() && world.get::<Mesh3d>(root).is_none());
+            // 同类型的旧组件仍可暂时显示；只有光学参数和当前记录一致才能完成正式交接。
+            if cone.is_some() {
+                world.get_mut::<SpotLight>(root).unwrap().inner_angle = 0.1;
+            } else {
+                world.get_mut::<PointLight>(root).unwrap().range = 12.0;
+            }
+            assert!(!builtin_placement_visual_ready(&world, root));
+            install(&mut world, root, target);
+            assert!(builtin_placement_visual_ready(&world, root));
         }
     }
 

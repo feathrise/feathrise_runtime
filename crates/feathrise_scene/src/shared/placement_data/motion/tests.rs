@@ -171,6 +171,38 @@ fn observed_motion_region_opens_once_and_reverses_after_last_observer_leaves() {
 }
 
 #[test]
+fn trigger_hud_does_not_report_pause_or_stop_for_a_dormant_clip() {
+    let (mut app, clips) = manual_motion_app_with_triggers(json!([{
+        "center":[0,1,0],"half_extents":[2,1,2],"enter":"pause","exit":"stop"
+    }]));
+    app.init_resource::<SceneMotionTriggerTrace>();
+    let scene = SceneId::parse("SCENE-motion").unwrap();
+    let [door, _] = use_motion_clips(app.world_mut(), &scene, clips, None);
+    let observer = app.world_mut().spawn((crate::SceneRuntimeObserver, Transform::from_xyz(0.0,1.0,0.0))).id();
+    for _ in 0..5 { app.update(); }
+    assert!(app.world().resource::<SceneMotionTriggerTrace>().last.is_none());
+    app.world_mut().get_mut::<Transform>(observer).unwrap().translation.x = 10.0;
+    for _ in 0..5 { app.update(); }
+    assert!(app.world().resource::<SceneMotionTriggerTrace>().last.is_none());
+    app.world_mut().write_message(SceneMotionCommand {
+        instance: SceneInstancePath::root(scene),
+        clip_id: "door".into(),
+        action: SceneMotionAction::Play,
+    });
+    for _ in 0..20 { app.update(); }
+    assert!(app.world().get::<Position>(door).unwrap().x > 0.0);
+    app.world_mut().get_mut::<Transform>(observer).unwrap().translation.x = 0.0;
+    for _ in 0..5 { app.update(); }
+    let trace = app.world().resource::<SceneMotionTriggerTrace>().last.as_ref().unwrap();
+    assert!(trace.entering && trace.action == SceneMotionAction::Pause);
+    app.world_mut().get_mut::<Transform>(observer).unwrap().translation.x = 10.0;
+    for _ in 0..5 { app.update(); }
+    let trace = app.world().resource::<SceneMotionTriggerTrace>().last.as_ref().unwrap();
+    assert!(!trace.entering && trace.action == SceneMotionAction::Stop);
+    assert!(app.world().get::<Position>(door).unwrap().x.abs() < 0.001);
+}
+
+#[test]
 fn scene_motion_commands_control_independent_targets_and_finish_once() {
     let (mut app, clips) = manual_motion_app();
     let scene = SceneId::parse("SCENE-motion").unwrap();
@@ -224,9 +256,11 @@ fn scene_motion_commands_control_independent_targets_and_finish_once() {
 
 #[cfg(feature = "runtime_test_support")]
 #[test]
-fn world_observer_triggers_only_the_translated_instance_containing_it() {
+fn world_observer_triggers_only_the_rotated_instance_containing_it() {
     use feathrise_scene_content::{SceneInstanceId, SceneInstancePlacement, SceneInstanceTransform};
-    let (mut app, clips) = manual_motion_app();
+    let (mut app, clips) = manual_motion_app_with_triggers(json!([{
+        "center":[1,1,0],"half_extents":[0.75,1,0.2],"enter":"play","exit":"reverse"
+    }]));
     let owner = SceneId::parse("SCENE-main").unwrap();
     let source = SceneId::parse("SCENE-doors").unwrap();
     crate::runtime_test_support::install_active_terrain_instances(app.world_mut(), &owner, &[]);
@@ -236,7 +270,11 @@ fn world_observer_triggers_only_the_translated_instance_containing_it() {
         let instance = crate::runtime_test_support::install_active_subscene_instance(app.world_mut(), &owner, &placement);
         use_motion_clips(app.world_mut(), &source, clips.clone(), Some(instance));
     }
-    app.world_mut().spawn((crate::SceneRuntimeObserver,Transform::from_xyz(20.0,1.0,0.0)));
+    // 世界 X 上的点只有忽略实例旋转时才落入这条狭长触发区。
+    let observer = app.world_mut().spawn((crate::SceneRuntimeObserver,Transform::from_xyz(21.0,1.0,0.0))).id();
+    for _ in 0..85 { app.update(); }
+    assert!(app.world().resource::<FinishedClips>().0.is_empty());
+    app.world_mut().get_mut::<Transform>(observer).unwrap().translation = Vec3::new(20.0, 1.0, -1.0);
     for _ in 0..85 { app.update(); }
     let events = &app.world().resource::<FinishedClips>().0;
     assert_eq!(events.len(),1);
@@ -325,6 +363,12 @@ fn cinematic_sampling_uses_only_the_named_placement_track_without_advancing_game
 }
 
 fn manual_motion_app() -> (App, Arc<SceneMotionClips>) {
+    manual_motion_app_with_triggers(json!([{
+        "center":[0,1,0],"half_extents":[2,1,2],"enter":"play","exit":"reverse"
+    }]))
+}
+
+fn manual_motion_app_with_triggers(regions: Value) -> (App, Arc<SceneMotionClips>) {
     let binary: Vec<_> = [0.0, 1.0, 0.0, 1.0, 0.0, 4.0, 1.0, 0.0, 0.0, 1.0, 4.0, 0.0, 3.0, 4.0,
         0.0, 1.0, 0.0, -2.0, 1.0, 0.0]
         .into_iter().flat_map(f32::to_le_bytes).collect();
@@ -334,9 +378,7 @@ fn manual_motion_app() -> (App, Arc<SceneMotionClips>) {
         "channels":[{"sampler":0,"target":{"node":node,"path":"translation"}}],
         "samplers":[{"input":0,"output":output}],
     }));
-    animations[0]["extras"]["feathrise_motion_triggers"] = json!([{
-        "center":[0,1,0],"half_extents":[2,1,2],"enter":"play","exit":"reverse"
-    }]);
+    animations[0]["extras"]["feathrise_motion_triggers"] = regions;
     let document = json!({
         "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],"nodes":nodes,
         "buffers":[{"byteLength":binary.len()}],
