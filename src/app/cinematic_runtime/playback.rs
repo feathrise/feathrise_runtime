@@ -6,15 +6,220 @@ use feathrise_cinematic::{
     GameDirectorProvided, PlaybackCondition, RepeatPolicy,
 };
 use feathrise_project_rules::ProjectVariables;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 #[derive(Resource, Default)]
 struct Playback {
-    queue: VecDeque<(String, Option<String>)>,
     seen: HashSet<String>,
+    observed: Option<(u64, u64, u64)>,
+    session: Option<(u64, u64)>,
+    scene: Option<String>,
     ticket: u64,
     next_cue: usize,
     waiting: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::game_plugins::cinematics::CinematicPresentationPlugin;
+    use super::*;
+    use bevy::{time::TimeUpdateStrategy, transform::TransformPlugin};
+    use feathrise_cinematic::{CameraKey, Cinematic, Pose};
+
+    fn fixture(variables: &ProjectVariables, catalog: CinematicCatalog) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, TransformPlugin, CinematicPresentationPlugin))
+            .insert_resource(variables.clone())
+            .insert_resource(catalog)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(
+                std::time::Duration::from_millis(50),
+            ));
+        install(&mut app);
+        app
+    }
+
+    #[test]
+    fn missing_asset_and_seen_condition_keep_the_request_until_playback_finishes() {
+        let variables = ProjectVariables::from_json(
+            r#"{"version":1,"rules":[{
+            "id":"play","once":true,"when":{"event":"start"},
+            "actions":[{"request":"cinematic.play","target":"shot"}]},
+            {"id":"prior","when":{"event":"prior"},
+            "actions":[{"request":"cinematic.play","target":"prior"}]}]}"#,
+        )
+        .unwrap();
+        let mut app = fixture(&variables, CinematicCatalog::from_documents([]).unwrap());
+        variables.event("start", "");
+        app.update();
+        assert!(app.world().resource::<CinematicFrame>().active.is_none());
+        let mut shot = Cinematic::new("shot", "等待前段");
+        shot.duration = 0.1;
+        shot.conditions.push(PlaybackCondition::Seen {
+            cinematic: "prior".into(),
+            seen: true,
+        });
+        let mut prior = Cinematic::new("prior", "先行演出");
+        prior.duration = 0.1;
+        app.insert_resource(CinematicCatalog::from_documents([shot, prior]).unwrap());
+        app.update();
+        assert!(app.world().resource::<CinematicFrame>().active.is_none());
+        variables.event("prior", "");
+        for _ in 0..8 {
+            app.update();
+            if app
+                .world()
+                .resource::<CinematicFrame>()
+                .active
+                .as_ref()
+                .is_some_and(|active| active.document.id == "shot")
+            {
+                break;
+            }
+        }
+        let active = app
+            .world()
+            .resource::<CinematicFrame>()
+            .active
+            .as_ref()
+            .unwrap();
+        assert_eq!(active.document.id, "shot");
+        assert!(active.instance.is_none());
+        // 接手播放还没有完成收尾，规则快照仍须保留这一份待办。
+        let snapshot = serde_json::to_value(variables.snapshot()).unwrap();
+        assert_eq!(snapshot["requests"]["cinematic.play"][0], "shot");
+        for _ in 0..8 {
+            app.update();
+        }
+        assert!(app.world().resource::<CinematicFrame>().active.is_none());
+        assert!(variables.take_requests("cinematic.play").is_empty());
+        assert_eq!(
+            app.world()
+                .resource::<CinematicWorldState>()
+                .completed
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn presentation_failure_retains_work_and_restore_cannot_confirm_with_an_old_frame() {
+        let variables = ProjectVariables::from_json(
+            r#"{"version":1,"rules":[{
+            "id":"play","once":true,"when":{"event":"start"},
+            "actions":[{"request":"cinematic.play","target":"shot"}]}]}"#,
+        )
+        .unwrap();
+        let mut shot = Cinematic::new("shot", "缺少相机");
+        shot.duration = 0.1;
+        shot.camera.push(CameraKey {
+            time: 0.,
+            pose: Pose::default(),
+            fov_y_degrees: 45.,
+            smooth: false,
+        });
+        let mut app = fixture(
+            &variables,
+            CinematicCatalog::from_documents([shot]).unwrap(),
+        );
+        variables.event("start", "");
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().resource::<CinematicFrame>().active.is_none());
+        let snapshot = variables.snapshot();
+        let saved = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(
+            saved["requests"]["cinematic.play"],
+            serde_json::json!(["shot"])
+        );
+        let ticket = app.world().resource::<Playback>().ticket;
+        app.world_mut().spawn((
+            Camera3d::default(),
+            feathrise_scene_core::view::PrimarySceneView,
+            Transform::default(),
+        ));
+        variables.event("camera.ready", "");
+        app.update();
+        assert!(app.world().resource::<CinematicFrame>().active.is_some());
+        variables.restore(snapshot);
+        app.update();
+        let active = app
+            .world()
+            .resource::<CinematicFrame>()
+            .active
+            .as_ref()
+            .unwrap();
+        assert!(active.ticket > ticket + 1);
+        assert_eq!(active.time, 0.);
+        assert_eq!(
+            serde_json::to_value(variables.snapshot()).unwrap()["requests"]["cinematic.play"],
+            serde_json::json!(["shot"])
+        );
+        for _ in 0..8 {
+            app.update();
+        }
+        assert!(variables.take_requests("cinematic.play").is_empty());
+        assert_eq!(
+            app.world()
+                .resource::<CinematicWorldState>()
+                .completed
+                .len(),
+            1
+        );
+    }
+    #[test]
+    fn foreign_requests_wait_while_same_scene_transfer_restarts_the_current_request() {
+        let variables = ProjectVariables::from_json(
+            r#"{"version":1,"rules":[{"id":"play","when":{"event":"start"},
+            "actions":[{"request":"cinematic.play","target":"shot"}]}]}"#,
+        )
+        .unwrap();
+        variables.set_active_scene(Some("town"));
+        let mut shot = Cinematic::new("shot", "当前场景");
+        shot.duration = 0.1;
+        let mut app = fixture(
+            &variables,
+            CinematicCatalog::from_documents([shot]).unwrap(),
+        );
+        variables.event_in_instance("start", "", "other/a");
+        variables.event_in_instance("start", "", "town/a");
+        app.update();
+        let frame = app
+            .world()
+            .resource::<CinematicFrame>()
+            .active
+            .as_ref()
+            .unwrap();
+        assert_eq!(frame.instance.as_deref(), Some("town/a"));
+        let ticket = frame.ticket;
+        variables.set_active_scene(None);
+        app.update();
+        assert!(app.world().resource::<CinematicFrame>().active.is_none());
+        variables.set_active_scene(Some("town"));
+        app.update();
+        let frame = app
+            .world()
+            .resource::<CinematicFrame>()
+            .active
+            .as_ref()
+            .unwrap();
+        assert!(frame.ticket > ticket);
+        assert_eq!(frame.time, 0.);
+        for _ in 0..8 {
+            app.update();
+        }
+        assert_eq!(
+            variables.take_requests_with_instances("cinematic.play"),
+            [("shot".into(), Some("other/a".into()))]
+        );
+        assert_eq!(
+            app.world()
+                .resource::<CinematicWorldState>()
+                .completed
+                .len(),
+            1
+        );
+    }
 }
 #[derive(Component)]
 struct Subtitle;
@@ -37,7 +242,32 @@ fn tick(
     mut subtitles: Query<(Entity, &mut Text), With<Subtitle>>,
 ) {
     let Some(variables) = variables else { return };
-    if !catalog.ready
+    let session = variables.session_revision();
+    if state.session != Some(session) {
+        if let Some(previous) = state.session {
+            // 读档与换图先撤回旧镜头；相同目标和实例也不能用旧播放去确认新一代待办。
+            if previous.0 != session.0 {
+                state.seen.clear();
+                completed.completed.clear();
+            }
+            if frame
+                .active
+                .as_ref()
+                .is_some_and(|f| f.mode == FrameMode::Game)
+            {
+                frame.active = None;
+                for (entity, _) in &mut subtitles {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+        state.session = Some(session);
+        state.observed = None;
+        state.scene = variables.active_scene();
+    }
+    // 自建世界无需场景 ID；曾进入正式场景后，加载间隙等待下一次活动范围。
+    if (session.1 != 0 && state.scene.is_none())
+        || !catalog.ready
         || frame
             .active
             .as_ref()
@@ -45,46 +275,67 @@ fn tick(
     {
         return;
     }
-    state
-        .queue
-        .extend(variables.take_requests_with_instances("cinematic.play"));
     if frame.active.is_none() {
-        let Some((id, instance)) = state.queue.pop_front() else {
+        let revision = (
+            variables.requests_revision(),
+            variables.values_revision(),
+            variables.events_revision(),
+        );
+        if state.observed == Some(revision) && !catalog.is_changed() {
             return;
-        };
-        let Some(document) = catalog.get(&id) else {
-            warn!("未找到剧情演出 {id}");
-            return;
-        };
-        if document.conditions.iter().any(|condition| match condition {
-            PlaybackCondition::Seen { cinematic, seen } => state.seen.contains(cinematic) != *seen,
-            _ => {
-                warn!("演出 {id} 需要工程提供任务或背包导演");
-                true
+        }
+        state.observed = Some(revision);
+        // 默认导演没有独立存档队列，直到收尾成功才确认原请求，缺资产、条件不符和播放失败均可恢复。
+        variables.handle_requests_with_instances("cinematic.play", |id, instance| {
+            if frame.active.is_some() {
+                return false;
             }
-        }) || (document.repeat == RepeatPolicy::OncePerSave && state.seen.contains(&id))
-        {
-            return;
-        }
-        if matches!(document.repeat, RepeatPolicy::OncePerQuest { .. })
-            || document.dialogue.iter().any(|c| c.yarn.is_some())
-            || document
-                .on_finish
-                .iter()
-                .any(|a| matches!(a, FinishAction::QuestObjective { .. }))
-        {
-            warn!("演出 {id} 需要工程提供任务或 Yarn 导演");
-            return;
-        }
-        state.ticket += 1;
-        state.next_cue = 0;
-        state.waiting = false;
-        frame.active = Some(FrameData {
-            document,
-            time: 0.,
-            ticket: state.ticket,
-            instance,
-            mode: FrameMode::Game,
+            // 外图待办保留到返回原图，不能抢占当前场景后续已就绪的演出。
+            if let (Some(scene), Some(instance)) = (&state.scene, instance)
+                && instance.split('/').next() != Some(scene.as_str())
+            {
+                return false;
+            }
+            let Some(document) = catalog.get(id) else {
+                warn!("未找到剧情演出 {id}，已保留待播请求");
+                return false;
+            };
+            if document.repeat == RepeatPolicy::OncePerSave && state.seen.contains(id) {
+                return true;
+            }
+            if matches!(document.repeat, RepeatPolicy::OncePerQuest { .. })
+                || document.dialogue.iter().any(|c| c.yarn.is_some())
+                || document
+                    .on_finish
+                    .iter()
+                    .any(|a| matches!(a, FinishAction::QuestObjective { .. }))
+                || document
+                    .conditions
+                    .iter()
+                    .any(|c| !matches!(c, PlaybackCondition::Seen { .. }))
+            {
+                warn!("演出 {id} 需要工程提供任务、背包或 Yarn 导演，已保留待播请求");
+                return false;
+            }
+            if document.conditions.iter().any(|condition| match condition {
+                PlaybackCondition::Seen { cinematic, seen } => {
+                    state.seen.contains(cinematic) != *seen
+                }
+                _ => unreachable!(),
+            }) {
+                return false;
+            }
+            state.ticket += 1;
+            state.next_cue = 0;
+            state.waiting = false;
+            frame.active = Some(FrameData {
+                document,
+                time: 0.,
+                ticket: state.ticket,
+                instance: instance.map(str::to_owned),
+                mode: FrameMode::Game,
+            });
+            false
         });
         return;
     }
@@ -132,7 +383,18 @@ fn tick(
         {
             warn!("演出 {} 结算失败：{error}", active.document.id);
         } else {
+            // 同名请求可以有多份；本次成功只确认与在播实例匹配的第一份。
+            let mut confirmed = false;
+            variables.handle_requests_with_instances("cinematic.play", |id, instance| {
+                let matches = !confirmed
+                    && variables.session_revision() == session
+                    && id == active.document.id
+                    && instance == active.instance.as_deref();
+                confirmed |= matches;
+                matches
+            });
             state.seen.insert(active.document.id.clone());
+            state.observed = None;
             if let Some(instance) = &active.instance {
                 variables.event_in_instance("cinematic.finished", &active.document.id, instance);
             } else {

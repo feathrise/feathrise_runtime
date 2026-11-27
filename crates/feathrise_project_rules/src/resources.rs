@@ -22,13 +22,59 @@ pub struct ProjectVariables {
     pub(crate) book: Arc<RuleBook>,
     state: Arc<Mutex<Session>>,
     pub(crate) generation: Arc<AtomicU64>,
+    scene_revision: Arc<AtomicU64>,
     values_revision: Arc<AtomicU64>,
+    pub(crate) requests_revision: Arc<AtomicU64>,
+    events_revision: Arc<AtomicU64>,
 }
 
 #[derive(Default, Debug)]
 struct Session {
     active_scene: Option<String>,
     progress: ProjectVariablesSnapshot,
+    request_handlers: BTreeMap<String, RequestReceipt>,
+    next_handler: u64,
+}
+
+#[derive(Debug)]
+struct RequestReceipt {
+    ticket: u64,
+    confirmed: Vec<bool>,
+}
+impl RequestReceipt {
+    fn retain_pending(&self, requests: &mut Vec<PendingRequest>) {
+        let mut index = 0;
+        requests.retain(|_| {
+            let keep = !self.confirmed.get(index).copied().unwrap_or(false);
+            index += 1;
+            keep
+        });
+    }
+}
+
+/// 领域回调不持会话锁。按动作隔离领取者，异常退出仍保留原待办，读档后旧确认失效。
+struct RequestHandler<'a> {
+    variables: &'a ProjectVariables,
+    action: &'a str,
+    ticket: u64,
+}
+impl Drop for RequestHandler<'_> {
+    fn drop(&mut self) {
+        let mut state = self.variables.state();
+        if state
+            .request_handlers
+            .get(self.action)
+            .is_some_and(|receipt| receipt.ticket == self.ticket)
+        {
+            let receipt = state.request_handlers.remove(self.action).unwrap();
+            if let Some(requests) = state.progress.requests.get_mut(self.action) {
+                receipt.retain_pending(requests);
+                if requests.is_empty() {
+                    state.progress.requests.remove(self.action);
+                }
+            }
+        }
+    }
 }
 
 impl ProjectVariables {
@@ -69,6 +115,24 @@ impl ProjectVariables {
         self.values_revision.load(Ordering::Acquire)
     }
 
+    /// 新增、确认领取或读档时更新，供领域系统在没有待办变化时跳过扫描。
+    pub fn requests_revision(&self) -> u64 {
+        self.requests_revision.load(Ordering::Acquire)
+    }
+
+    /// 领域事实发布后更新，即使没有订阅规则，等待物品等条件的消费者也能重新判定。
+    pub fn events_revision(&self) -> u64 {
+        self.events_revision.load(Ordering::Acquire)
+    }
+
+    /// 读档代次与活动场景代次。跨帧消费者据此撤销旧会话，不能确认新一代的同名待办。
+    pub fn session_revision(&self) -> (u64, u64) {
+        (
+            self.generation.load(Ordering::Acquire),
+            self.scene_revision.load(Ordering::Acquire),
+        )
+    }
+
     /// 切换活动场景的定义和存档层。出入场景只改变当前读写范围，不会生成变量变化事实。
     pub fn set_active_scene(&self, scene: Option<&str>) {
         let mut state = self.state();
@@ -80,6 +144,8 @@ impl ProjectVariables {
             .flatten()
             .any(|id| self.book.scenes.contains_key(id));
         state.active_scene = scene.map(str::to_owned);
+        // 同图传送或驻留恢复可能沿用同一观察者；经过非活动范围后也必须重建地点基线。
+        self.scene_revision.fetch_add(1, Ordering::Release);
         if changes_definitions {
             self.values_revision.fetch_add(1, Ordering::Release);
         }
@@ -231,6 +297,7 @@ impl ProjectVariables {
     }
 
     fn publish(&self, event: &str, target: &str, instance: Option<&str>) {
+        self.events_revision.fetch_add(1, Ordering::Release);
         if self.book.scenes.is_empty() && !self.book.project.subscribes(event, target) {
             return;
         }
@@ -260,11 +327,15 @@ impl ProjectVariables {
     }
 
     pub fn take_requests_with_instances(&self, action: &str) -> Vec<(String, Option<String>)> {
-        self.state()
-            .progress
-            .requests
-            .remove(action)
-            .unwrap_or_default()
+        let mut state = self.state();
+        if state.request_handlers.contains_key(action) {
+            return Vec::new();
+        }
+        let requests = state.progress.requests.remove(action).unwrap_or_default();
+        if !requests.is_empty() {
+            self.requests_revision.fetch_add(1, Ordering::Release);
+        }
+        requests
             .into_iter()
             .map(|r| match r {
                 PendingRequest::Target(target) => (target, None),
@@ -273,8 +344,87 @@ impl ProjectVariables {
             .collect()
     }
 
+    /// 处理本次领取前已经排队的请求。回调成功才确认，失败项保留原位置并随原快照保存。
+    /// 回调可以发布新事实；同动作重入不会再次领取，新产生的请求由下轮调度处理。
+    pub fn handle_requests_with_instances(
+        &self,
+        action: &str,
+        mut handle: impl FnMut(&str, Option<&str>) -> bool,
+    ) -> usize {
+        let (ticket, requests) = {
+            let mut state = self.state();
+            if state.request_handlers.contains_key(action) {
+                return 0;
+            }
+            let Some(requests) = state
+                .progress
+                .requests
+                .get(action)
+                .filter(|v| !v.is_empty())
+                .cloned()
+            else {
+                return 0;
+            };
+            state.next_handler = state.next_handler.wrapping_add(1);
+            let ticket = state.next_handler;
+            state.request_handlers.insert(
+                action.to_owned(),
+                RequestReceipt {
+                    ticket,
+                    confirmed: vec![false; requests.len()],
+                },
+            );
+            (ticket, requests)
+        };
+        let _handler = RequestHandler {
+            variables: self,
+            action,
+            ticket,
+        };
+        let mut completed = 0;
+        for (index, request) in requests.into_iter().enumerate() {
+            if self
+                .state()
+                .request_handlers
+                .get(action)
+                .is_none_or(|receipt| receipt.ticket != ticket)
+            {
+                break;
+            }
+            let success = match &request {
+                PendingRequest::Target(target) => handle(target, None),
+                PendingRequest::InInstance { target, instance } => handle(target, Some(instance)),
+            };
+            let mut state = self.state();
+            let Some(receipt) = state
+                .request_handlers
+                .get_mut(action)
+                .filter(|receipt| receipt.ticket == ticket)
+            else {
+                break;
+            };
+            if success {
+                // 逐项确认但只在批次结束时压缩一次，避免 Vec 每次删除移动其余待办。
+                receipt.confirmed[index] = true;
+                self.requests_revision.fetch_add(1, Ordering::Release);
+                completed += 1;
+            }
+        }
+        completed
+    }
+
     pub fn snapshot(&self) -> ProjectVariablesSnapshot {
-        let mut snapshot = self.state().progress.clone();
+        let state = self.state();
+        let mut snapshot = state.progress.clone();
+        // 回调可以随时保存。已经确认的动作即使尚未压缩原队列，也不能再次进入存档。
+        for (action, receipt) in &state.request_handlers {
+            if let Some(requests) = snapshot.requests.get_mut(action) {
+                receipt.retain_pending(requests);
+                if requests.is_empty() {
+                    snapshot.requests.remove(action);
+                }
+            }
+        }
         snapshot.scenes.retain(|_, progress| !progress.is_empty());
         snapshot
     }
@@ -292,8 +442,10 @@ impl ProjectVariables {
         });
         let mut state = self.state();
         state.progress = snapshot;
+        state.request_handlers.clear();
         self.generation.fetch_add(1, Ordering::Release);
         self.values_revision.fetch_add(1, Ordering::Release);
+        self.requests_revision.fetch_add(1, Ordering::Release);
     }
 
     fn state(&self) -> MutexGuard<'_, Session> {

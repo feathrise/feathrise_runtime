@@ -84,6 +84,14 @@ impl ProjectVariables {
                     tracing::debug!(rule = rule.id, ?condition, "触发条件未满足");
                     continue;
                 }
+                // 场景枚举可以收窄工程候选。整条动作先校验，避免标记未写入却启动任务，或消耗 once。
+                if let Some(error) = rule.actions.iter().find_map(|action| match action {
+                    Action::Set { set, value } => scope.validate(set, value).err(),
+                    Action::Request { .. } => None,
+                }) {
+                    tracing::warn!(rule = rule.id, scene = scope.scene.map(|(id, _)| id), %error, "规则动作校验失败，保留触发资格");
+                    continue;
+                }
                 fired.insert(rule.id.as_str());
                 if rule.once {
                     progress.scope_mut(scene_id).fired.insert(rule.id.clone());
@@ -98,11 +106,6 @@ impl ProjectVariables {
                 for action in &rule.actions {
                     match action {
                         Action::Set { set, value } => {
-                            // 继承的工程规则可能写入当前场景枚举不接受的候选值。
-                            if let Err(error) = scope.validate(set, value) {
-                                tracing::warn!(rule = rule.id, scene = scope.scene.map(|(id, _)| id), %error, "规则动作写入失败");
-                                continue;
-                            }
                             self.write(scope, progress, set, value, &rule.id, &mut facts);
                         }
                         Action::Request { request, target } => {
@@ -121,6 +124,7 @@ impl ProjectVariables {
                                     None => PendingRequest::Target(target.clone()),
                                 },
                             );
+                            self.requests_revision.fetch_add(1, std::sync::atomic::Ordering::Release);
                         }
                     }
                 }

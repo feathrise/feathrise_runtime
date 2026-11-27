@@ -92,8 +92,8 @@ fn scene_rules_replace_the_original_slot_and_once_marks_stay_in_each_scope() {
     vars.event("old", "");
     assert!(vars.take_requests("notes").is_empty());
     vars.event("start", "");
-    // 场景版保留工程执行位，后续条件取同一份动作前状态，枚举动作失败也保留同规则的其他动作。
-    assert_eq!(vars.take_requests("notes"), ["local", "shared", "tail"]);
+    // 场景版保留工程执行位，后续条件取同一份动作前状态；非法枚举使整条规则保持未执行。
+    assert_eq!(vars.take_requests("notes"), ["local", "tail"]);
     assert_eq!(vars.get("route"), Some(name("sea")));
     vars.set_active_scene(None);
     vars.event("start", "");
@@ -105,7 +105,91 @@ fn scene_rules_replace_the_original_slot_and_once_marks_stay_in_each_scope() {
     vars.set_active_scene(Some("MAP-port"));
     vars.set("a", Value::Number(0.)).unwrap();
     vars.event("start", "");
-    assert_eq!(vars.take_requests("notes"), ["shared", "tail"]);
+    assert_eq!(vars.take_requests("notes"), ["tail"]);
+}
+
+#[test]
+fn invalid_inherited_write_does_not_partially_apply_or_consume_once() {
+    let vars = ProjectVariables::from_json(&json!({
+        "version":1,"variables":{"route":{"default":"road"},"open":{"default":false}},
+        "rules":[{"id":"start","once":true,"when":{"event":"start"},"actions":[
+            {"set":"open","value":true},{"request":"quest.start","target":"journey"},
+            {"set":"route","value":"road"}]}],
+        "scenes":{"port":{"variables":{"route":{"default":"sea","choices":["sea"]}}}}
+    }).to_string()).unwrap();
+    vars.set_active_scene(Some("port"));
+    vars.event("start", "");
+    assert_eq!(vars.get("open"), Some(Value::Bool(false)));
+    assert!(vars.take_requests("quest.start").is_empty());
+    vars.set_active_scene(None);
+    vars.event("start", "");
+    assert_eq!(vars.get("open"), Some(Value::Bool(true)));
+    assert_eq!(vars.take_requests("quest.start"), ["journey"]);
+}
+
+#[test]
+fn confirmed_requests_retry_failures_without_replaying_successful_once_actions() {
+    let vars = book(json!([{"id":"start","once":true,"when":{"event":"start"},"actions":[
+        {"set":"known","value":true},{"request":"go","target":"first"},
+        {"request":"go","target":"blocked"},{"request":"go","target":"last"}]}]));
+    vars.event_in_instance("start", "", "town/east");
+    let revision = vars.requests_revision();
+    assert_eq!(vars.handle_requests_with_instances("go", |target, instance| {
+        assert_eq!(instance, Some("town/east"));
+        assert!(vars.get("known").is_some()); // 回调不持变量锁。
+        if target == "blocked" {
+            let saved = serde_json::to_value(vars.snapshot()).unwrap();
+            assert_eq!(saved["requests"]["go"].as_array().unwrap().len(), 2);
+        }
+        target != "blocked"
+    }), 2);
+    assert!(vars.requests_revision() > revision);
+    let saved = vars.snapshot();
+    vars.restore(saved);
+    vars.event("start", "");
+    let mut seen = Vec::new();
+    assert_eq!(vars.handle_requests_with_instances("go", |target, _| {
+        seen.push(target.to_owned());
+        true
+    }), 1);
+    assert_eq!(seen, ["blocked"]);
+    assert!(vars.take_requests("go").is_empty());
+}
+
+#[test]
+fn request_callbacks_preserve_reentrant_work_and_ignore_confirmation_after_restore() {
+    let vars = book(json!([{"id":"start","when":{"event":"start"},"actions":[
+        {"request":"go","target":"first"}]}]));
+    vars.event("start", "");
+    assert_eq!(vars.handle_requests_with_instances("go", |_, _| {
+        assert_eq!(vars.handle_requests_with_instances("go", |_, _| true), 0);
+        assert!(vars.take_requests("go").is_empty());
+        vars.event("start", "");
+        true
+    }), 1);
+    assert_eq!(vars.take_requests("go"), ["first"]);
+    vars.event("start", "");
+    let snapshot = vars.snapshot();
+    assert_eq!(vars.handle_requests_with_instances("go", |_, _| {
+        vars.restore(snapshot.clone());
+        true
+    }), 0);
+    assert_eq!(vars.take_requests("go"), ["first"]);
+}
+
+#[test]
+fn panicking_request_consumer_releases_lease_and_preserves_unconfirmed_work() {
+    let vars = book(json!([{"id":"start","when":{"event":"start"},"actions":[
+        {"request":"go","target":"first"},{"request":"go","target":"second"}]}]));
+    vars.event("start", "");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vars.handle_requests_with_instances("go", |target, _| {
+            assert_ne!(target, "second", "模拟领域处理中断");
+            true
+        });
+    }));
+    assert!(result.is_err());
+    assert_eq!(vars.take_requests("go"), ["second"]);
 }
 
 #[test]
