@@ -495,6 +495,11 @@ pub(super) fn sync_dynamic_environment(
     global: Option<Res<WorldEnvironmentRegistry>>, // 缺失全局插件时仍使用编译期配置默认值。
     preview: Option<Res<DynamicCelestialLightingPreview>>, // F12 只发布已经解析且匹配场景的完整草稿快照。
     sky_preview: Option<Res<DynamicSceneEnvironmentPreview>>,
+    (scope, active_simulation, mut weather_climate): (
+        Option<Res<feathrise_scene_core::residency::SceneRuntimeScope>>,
+        Option<ResMut<feathrise_scene_content::ActiveEnvironmentSimulation>>,
+        InstanceResMut<DynamicSceneWeatherClimate>,
+    ),
     state: InstanceRes<DynamicSceneRuntimeState>, // 保存进入场景时创建的明确太阳和月亮方向光实体。
     mut sync: Local<DynamicEnvironmentSync>,
     sky_requests: Query<&AuthoredSkyboxRequest>,
@@ -537,11 +542,33 @@ pub(super) fn sync_dynamic_environment(
         }
     }
     let fallback_sky = SceneEnvironmentDescriptor::default();
-    let environment = sky_preview
+    let authored_environment = sky_preview
         .as_deref()
         .and_then(|preview| preview.environment_for(scene_id))
-        .or_else(|| sync.formal.as_ref().map(|resolved| &resolved.environment))
-        .unwrap_or(&fallback_sky); // 正式清单尚未就绪时退出预览，也要清除上一次预览的资源请求。
+        .or_else(|| sync.formal.as_ref().map(|resolved| &resolved.environment));
+    // 清单未采用时的天空托底不代表正式气候就绪，不能提前放行自动天气。
+    if scope.as_deref().is_none_or(|scope| scope.instance.is_none()) {
+        if let Some(environment) = authored_environment {
+            weather_climate.set(dynamic_scene_weather_profile(environment.weather));
+            if let Some(mut active_simulation) = active_simulation {
+                // 工程默认的实际方案身份也参与换代，换默认时应采用新方案的初始时间。
+                let source = if environment.source == feathrise_scene_content::SceneEnvironmentSource::InheritDefault {
+                    feathrise_scene_content::SceneEnvironmentSource::Shared(global
+                        .map_or(feathrise_scene_content::DEFAULT_ENVIRONMENT_PROFILE_ID, |registry| {
+                            if registry.library.is_empty() { feathrise_scene_content::DEFAULT_ENVIRONMENT_PROFILE_ID }
+                            else { registry.library.default_profile_id.as_str() }
+                        }).to_owned())
+                } else { environment.source.clone() };
+                active_simulation.publish(scene_id.clone(), source, environment.simulation);
+            }
+        } else {
+            weather_climate.clear();
+            if let Some(mut active_simulation) = active_simulation {
+                active_simulation.clear_for_scene(scene_id); // 撤回唯一预览时也不能留下其模拟配置。
+            }
+        }
+    }
+    let environment = authored_environment.unwrap_or(&fallback_sky); // 正式清单尚未就绪时退出预览，也要清除上一次预览的资源请求。
     if let Some(request) = skybox_update(environment, sky_requests.get(camera).ok(), state.environment_revision) {
         commands.entity(camera).insert(request); // 发布给原异步天空状态机，预览清除后由正式解析结果接回。
     }
@@ -721,7 +748,14 @@ pub(super) fn clear_dynamic_scene(
     mut status: InstanceResMut<DynamicSceneRuntimeStatus>, // 发布离图后的等待诊断。
     mut weather_climate: InstanceResMut<DynamicSceneWeatherClimate>, // 离图释放动态清单天气所有权。
     mut fall_boundary: InstanceResMut<SceneFallBoundary>, // 离图必须释放本场景死亡边界所有权。
+    scope: Option<Res<feathrise_scene_core::residency::SceneRuntimeScope>>,
+    active_simulation: Option<ResMut<feathrise_scene_content::ActiveEnvironmentSimulation>>,
 ) {
+    if scope.as_deref().is_none_or(|scope| scope.instance.is_none())
+        && let (Some(mut active_simulation), Some(scene_id)) = (active_simulation, &state.active_scene_id)
+    {
+        active_simulation.clear_for_scene(scene_id); // 旧驻留实例归还时不能撤销新主场景的环境。
+    }
     weather_climate.clear(); // 固定场景随后由自己的显式静态气候接管，不继承动态局部倍率。
     fall_boundary.clear_for_scene(ScenePhase::Active); // 静态场景不会继承动态场景深度量程。
     state.dirty = true;
@@ -773,6 +807,43 @@ mod tests {
     }
 
     use super::*; // 测试动态场景纯派生与目录失败回退，不启动窗口或物理世界。
+
+    #[test]
+    fn environment_waits_for_an_adopted_source_and_releases_an_unbacked_preview() {
+        use feathrise_scene_content::{ActiveEnvironmentSimulation, EnvironmentSimulation};
+        let scene = SceneId::parse("SCN-environment-loading").unwrap();
+        let other = SceneId::parse("SCN-environment-other").unwrap();
+        let mut app = App::new();
+        // 这里只验证光照写入前的来源发布，不创建渲染器或伪造清单加载成功。
+        let entity = app.world_mut().spawn_empty().id();
+        app.insert_resource(ActiveDynamicScene { scene_id: Some(scene.clone()) })
+            .insert_resource(DynamicSceneRuntimeState {
+                camera: Some(entity), celestial_sun_light: Some(entity), celestial_moon_light: Some(entity),
+                ..default()
+            })
+            .init_resource::<Assets<SceneManifestAsset>>()
+            .init_resource::<DynamicSceneEnvironmentPreview>()
+            .init_resource::<DynamicSceneWeatherClimate>()
+            .init_resource::<ActiveEnvironmentSimulation>()
+            .add_systems(Update, sync_dynamic_environment);
+        app.update();
+        assert_eq!(app.world().resource::<DynamicSceneWeatherClimate>().profile(), None);
+        assert_eq!(app.world().resource::<ActiveEnvironmentSimulation>().configuration, None);
+        let environment = SceneEnvironmentDescriptor {
+            simulation: Some(EnvironmentSimulation { hour: 6.0, ..default() }), ..default()
+        };
+        app.world_mut().resource_mut::<DynamicSceneEnvironmentPreview>().publish(other, environment.clone());
+        app.update();
+        assert_eq!(app.world().resource::<DynamicSceneWeatherClimate>().profile(), None);
+        app.world_mut().resource_mut::<DynamicSceneEnvironmentPreview>().publish(scene, environment.clone());
+        app.update();
+        assert_eq!(app.world().resource::<DynamicSceneWeatherClimate>().profile(), Some(UNIFORM_CLIMATE_PROFILE));
+        assert_eq!(app.world().resource::<ActiveEnvironmentSimulation>().configuration, environment.simulation);
+        app.world_mut().resource_mut::<DynamicSceneEnvironmentPreview>().clear();
+        app.update();
+        assert_eq!(app.world().resource::<DynamicSceneWeatherClimate>().profile(), None);
+        assert_eq!(app.world().resource::<ActiveEnvironmentSimulation>().configuration, None);
+    }
 
     #[derive(Resource, Default)] // 子加载探针证明同帧运行条件已经关闭整条准备链。
     struct DynamicPreparationProbe(bool); // true代表错误地继续运行了地形、水域等后续准备。

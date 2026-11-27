@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CelestialLightingProfile, SceneCelestialLightingOverrides, SceneEnvironmentDescriptor, SceneId,
-    SceneSkyMode, resolve,
+    SceneSkyMode, SceneWeatherDescriptor, resolve,
 };
 
 /// 旧工程未建立库时可引用的隐式默认套装身份。
@@ -30,7 +30,91 @@ impl SceneEnvironmentSource {
     }
 }
 
-/// 可复用于多个场景的天空、环境光和日月参数。天气身份仍由场景保存。
+/// 方案的初始日历与天气控制。时钟在采用后正常推进，保存的方案值不跟随运行时间变化。
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentSimulation {
+    pub hour: f32,
+    pub month: u8,
+    pub day: u8,
+    pub paused: bool,
+    /// 零为自动，一至五依次对应晴、阴、小雨、大雨和薄雾。
+    pub weather_mode_index: u8,
+    pub weather_transition: f32,
+    /// 晴天草尖基准摆幅，单位为米。
+    pub grass_wind_tip_strength: f32,
+}
+
+impl Default for EnvironmentSimulation {
+    fn default() -> Self {
+        Self {
+            hour: 12.0, month: 6, day: 15, paused: false,
+            weather_mode_index: 0, weather_transition: 1.0, grass_wind_tip_strength: 0.16,
+        }
+    }
+}
+
+impl EnvironmentSimulation {
+    pub fn validate(&self) -> Result<(), String> {
+        let days = match self.month { 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 };
+        if !self.hour.is_finite() || !(0.0..=24.0).contains(&self.hour)
+            || !(1..=12).contains(&self.month) || !(1..=days).contains(&self.day)
+        {
+            return Err("环境时间必须使用有效月份、日期和零至二十四点".into());
+        }
+        if self.weather_mode_index > 5 || !self.weather_transition.is_finite()
+            || !(0.0..=1.0).contains(&self.weather_transition)
+        {
+            return Err("环境天气模式或过渡进度无效".into());
+        }
+        // 与现有草顶点风路径共用三十五厘米安全摆幅。
+        if !self.grass_wind_tip_strength.is_finite()
+            || !(0.0..=0.35).contains(&self.grass_wind_tip_strength)
+        {
+            return Err("环境草尖摆幅必须在零至三十五厘米之间".into());
+        }
+        Ok(())
+    }
+}
+
+/// 当前主场景已解析的模拟参数；编辑器偏好与方案数据在这里汇合后供正式消费者只读。
+#[derive(Resource, Clone, Debug, Default)]
+pub struct ActiveEnvironmentSimulation {
+    pub configuration: Option<EnvironmentSimulation>,
+    owner: Option<(SceneId, SceneEnvironmentSource)>,
+    identity_revision: u64,
+}
+
+impl ActiveEnvironmentSimulation {
+    pub fn publish(
+        &mut self,
+        scene_id: SceneId,
+        source: SceneEnvironmentSource,
+        configuration: Option<EnvironmentSimulation>,
+    ) {
+        let owner = (scene_id, source);
+        if self.owner.as_ref() != Some(&owner) {
+            self.owner = Some(owner);
+            self.identity_revision = self.identity_revision.wrapping_add(1);
+        }
+        self.configuration = configuration;
+    }
+
+    pub fn clear(&mut self) {
+        if self.owner.take().is_some() {
+            self.identity_revision = self.identity_revision.wrapping_add(1);
+        }
+        self.configuration = None;
+    }
+
+    pub fn clear_for_scene(&mut self, scene_id: &SceneId) {
+        if self.owner.as_ref().is_some_and(|(owner, _)| owner == scene_id) { self.clear(); }
+    }
+
+    pub const fn identity_revision(&self) -> u64 { self.identity_revision }
+}
+
+/// 可复用于多个场景的天空、日月、时间、天气与植被风摆参数。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EnvironmentAppearance {
     pub sky_mode: SceneSkyMode,
@@ -41,6 +125,10 @@ pub struct EnvironmentAppearance {
     pub environment_specular_intensity: f32,
     pub skybox_yaw_degrees: f32,
     pub celestial_lighting: CelestialLightingProfile,
+    #[serde(default)]
+    pub simulation: EnvironmentSimulation,
+    #[serde(default)]
+    pub weather: SceneWeatherDescriptor,
 }
 
 impl Default for EnvironmentAppearance {
@@ -65,6 +153,8 @@ impl EnvironmentAppearance {
             environment_specular_intensity: scene.environment_specular_intensity,
             skybox_yaw_degrees: scene.skybox_yaw_degrees,
             celestial_lighting,
+            simulation: scene.simulation.unwrap_or_default(),
+            weather: scene.weather,
         }
     }
 
@@ -73,9 +163,11 @@ impl EnvironmentAppearance {
         Self::from_environment(&resolved.environment, resolved.celestial_lighting.clone())
     }
 
-    /// 将套装写入场景环境视觉字段，保留场景来源身份与天气配置。
+    /// 将整套环境写入场景，来源身份继续由场景选择管理。
     pub fn apply_to(&self, scene: &mut SceneEnvironmentDescriptor) {
         self.apply_sky(scene);
+        scene.simulation = Some(self.simulation);
+        scene.weather = self.weather;
         let celestial = &self.celestial_lighting;
         // 独立环境固定完整日月值，未来项目默认或共享套装变化不会渗入。
         scene.celestial_overrides = SceneCelestialLightingOverrides {
@@ -104,6 +196,8 @@ impl EnvironmentAppearance {
         let mut scene = SceneEnvironmentDescriptor::default();
         self.apply_sky(&mut scene);
         scene.validate()?;
+        self.simulation.validate()?;
+        self.weather.validate()?;
         self.celestial_lighting.validate()
     }
 }
@@ -198,7 +292,7 @@ pub struct ResolvedSceneEnvironment {
     pub missing_profile: Option<String>,
 }
 
-/// 离屏预览和正式运行时共用此解析，项目天气和世界调试不属于共享套装。
+/// 离屏预览和正式运行时共用整套环境来源解析。
 pub fn resolve_scene_environment(
     scene: &SceneEnvironmentDescriptor,
     legacy: &CelestialLightingProfile,
@@ -337,6 +431,7 @@ mod tests {
         let current =
             resolve_scene_environment(&scene, &restored.celestial_lighting, &restored.library);
         assert_eq!(scene.source, SceneEnvironmentSource::Legacy);
+        assert_eq!(scene.simulation, None);
         assert_eq!(
             current.environment.skybox_path.as_deref(),
             Some("textures/old.ktx2")
@@ -368,6 +463,10 @@ mod tests {
         let base = &project.celestial_lighting;
         add_profile(&mut project.library, "dawn", 350.0);
         add_profile(&mut project.library, "night", 95.0);
+        project.library.profiles_mut().get_mut("dawn").unwrap().appearance.simulation =
+            EnvironmentSimulation { hour: 6.0, month: 9, paused: true,
+                weather_mode_index: 3, weather_transition: 0.5, grass_wind_tip_strength: 0.3, ..Default::default() };
+        project.library.profiles_mut().get_mut("night").unwrap().appearance.simulation.hour = 22.0;
         project.library.default_profile_id = "dawn".to_owned();
         let inherited = SceneEnvironmentDescriptor::inheriting_default();
         let pinned = SceneEnvironmentDescriptor {
@@ -403,6 +502,9 @@ mod tests {
             6400.0
         );
         assert_eq!(resolved_local.environment.skybox_brightness, 350.0);
+        assert_eq!(resolved_default.environment.simulation.unwrap().hour, 22.0);
+        assert_eq!(resolved_pinned.environment.simulation.unwrap().hour, 6.0);
+        assert_eq!(resolved_local.environment.simulation, from_pinned.environment.simulation);
         assert_eq!(
             resolved_local.celestial_lighting.day_base_illuminance_lux,
             3500.0
@@ -459,5 +561,40 @@ mod tests {
         preview.clear();
         assert_ne!(preview.revision(), revision);
         assert_eq!(preview.environment_for(&scene), None);
+    }
+
+    #[test]
+    fn simulation_compatibility_and_validation_keep_saved_configuration_finite() {
+        let mut value = serde_json::to_value(EnvironmentAppearance::default()).unwrap();
+        value.as_object_mut().unwrap().remove("simulation");
+        value.as_object_mut().unwrap().remove("weather");
+        let restored: EnvironmentAppearance = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.simulation, EnvironmentSimulation::default());
+        assert!(restored.validate().is_ok());
+        for invalid in [EnvironmentSimulation { hour: f32::NAN, ..Default::default() },
+            EnvironmentSimulation { month: 2, day: 31, ..Default::default() },
+            EnvironmentSimulation { weather_mode_index: 6, ..Default::default() },
+            EnvironmentSimulation { weather_transition: 1.1, ..Default::default() },
+            EnvironmentSimulation { grass_wind_tip_strength: 0.36, ..Default::default() }]
+        {
+            assert!(invalid.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn simulation_owner_ignores_old_scene_cleanup_and_stable_publication() {
+        let scene = SceneId::parse("SCN-current").unwrap();
+        let other = SceneId::parse("SCN-old").unwrap();
+        let mut active = ActiveEnvironmentSimulation::default();
+        active.publish(scene.clone(), SceneEnvironmentSource::Shared("a".into()), Some(Default::default()));
+        let revision = active.identity_revision();
+        active.publish(scene.clone(), SceneEnvironmentSource::Shared("a".into()), Some(Default::default()));
+        active.clear_for_scene(&other);
+        assert_eq!(active.identity_revision(), revision);
+        assert!(active.configuration.is_some());
+        active.publish(scene.clone(), SceneEnvironmentSource::Shared("b".into()), Some(Default::default()));
+        assert_ne!(active.identity_revision(), revision);
+        active.clear_for_scene(&scene);
+        assert_eq!(active.configuration, None);
     }
 }

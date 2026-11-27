@@ -81,7 +81,8 @@ pub use boundary_assets::*; // F12与动态场景运行时共享边界文件和�
 pub use building_presets::*; // F12 与正式运行时共享同一建筑预设目录快照。
 pub use celestial_lighting::*; // 场景、氛围与编辑器共享同一套天体配置解析规则。
 pub use environment_library::{
-    DEFAULT_ENVIRONMENT_PROFILE_ID, DynamicSceneEnvironmentPreview, EnvironmentAppearance,
+    DEFAULT_ENVIRONMENT_PROFILE_ID, ActiveEnvironmentSimulation, DynamicSceneEnvironmentPreview,
+    EnvironmentAppearance, EnvironmentSimulation,
     ResolvedSceneEnvironment, SceneEnvironmentSource, WorldEnvironmentLibrary,
     WorldEnvironmentProfile, resolve_scene_environment,
 };

@@ -31,6 +31,7 @@ fn wind_response(wind: f32) -> f32 {
 pub(super) fn sync_vegetation_weather_wind(
     weather: Option<Res<WeatherOutput>>, // 独立场景测试未装天气插件时回退正式晴天。
     settings: Res<EnvironmentPreviewSettings>,         // F12拖动仅改变晴天基准摆幅而不直接争写GPU。
+    active: Option<Res<feathrise_scene_content::ActiveEnvironmentSimulation>>,
     time: Option<Res<Time>>,             // 渲染Globals使用的同一虚拟时间及回绕周期。
     mut phase: ResMut<VegetationWindPhase>, // 雨天变速时保持草树波形相位连续。
     interaction: Option<ResMut<GpuBladeInteraction>>, // 无Blade资源的场景插件测试安全跳过。
@@ -40,9 +41,10 @@ pub(super) fn sync_vegetation_weather_wind(
     }; // 先以只读方式比较，稳定帧不触发Bevy资源变更检测。
     let weather = weather.as_deref().copied().unwrap_or_default(); // 同帧天气输出或晴天安全默认值。
     let response = wind_response(weather.wind); // 草、树、灌木和目录Mesh共用同一风强曲线。
-    let base = if settings.grass_wind_tip_strength.is_finite() {
-        settings
-            .grass_wind_tip_strength
+    let requested = active.as_deref().and_then(|active| active.configuration)
+        .map_or(settings.grass_wind_tip_strength, |configuration| configuration.grass_wind_tip_strength);
+    let base = if requested.is_finite() {
+        requested
             .clamp(0.0, GPU_GRASS_MAX_WIND_TIP_STRENGTH) // 旧设置解释为晴天草尖基准值。
     } else {
         0.0 // 非有限旧存档不得污染顶点或GPU uniform。

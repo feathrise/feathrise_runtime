@@ -6,6 +6,8 @@
 pub mod skybox; // 场景作者动态天空/天空盒与 IBL 的异步加载、热更新、校验及回退。
 pub mod time;
 pub mod weather;
+mod environment_simulation;
+pub use environment_simulation::{ApplyEnvironmentSimulation, apply_environment_simulation};
 
 pub use skybox::{
     AuthoredSkyMode, AuthoredSkyboxPhase, AuthoredSkyboxRequest, AuthoredSkyboxStatus,

@@ -143,6 +143,8 @@ fn environment_profile_hot_edit_and_preview_release_keep_the_terrain_root() {
 
     let mut fixture = Fixture::new();
     fixture.app.init_resource::<DynamicSceneEnvironmentPreview>()
+        .init_resource::<feathrise_atmosphere::DynamicSceneWeatherClimate>()
+        .init_resource::<feathrise_scene_content::ActiveEnvironmentSimulation>()
         .add_systems(Update, super::sync_dynamic_environment.after(observe_dynamic_scene_assets));
     let world = fixture.app.world_mut();
     world.resource_mut::<Assets<SceneManifestAsset>>()

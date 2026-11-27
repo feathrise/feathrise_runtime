@@ -316,6 +316,9 @@ pub struct SceneEnvironmentDescriptor {
     pub skybox_yaw_degrees: f32,
     /// 场景所属正式天气区与气候配置；当前天气本身仍由天气系统和存档维护。
     pub weather: SceneWeatherDescriptor,
+    /// 旧场景缺省时沿用原世界时间与编辑器偏好；新方案保存完整模拟配置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simulation: Option<crate::EnvironmentSimulation>,
     /// 动态场景对全局太阳/月光基础值的逐属性覆盖；空结构表示完整跟随全局。
     #[serde(
         default,
@@ -336,6 +339,7 @@ impl Default for SceneEnvironmentDescriptor {
             environment_specular_intensity: DEFAULT_SCENE_ENVIRONMENT_SPECULAR_INTENSITY, // 新天空默认保留完整水面反射。
             skybox_yaw_degrees: 0.0, // 默认不改变立方体资产自身方向。
             weather: SceneWeatherDescriptor::default(), // 新场景只登记global/uniform中性身份。
+            simulation: None,
             celestial_overrides: SceneCelestialLightingOverrides::default(), // 新旧场景默认逐字段跟随全局配置。
         }
     }
@@ -388,6 +392,7 @@ impl SceneEnvironmentDescriptor {
             }
         }
         self.weather.validate()?; // 区域与气候必须来自同一套已登记正式配置。
+        if let Some(simulation) = self.simulation { simulation.validate()?; }
         self.celestial_overrides.validate()?; // 已声明的场景天体覆盖必须可安全进入光照与 Solari。
         Ok(()) // 图像是否确为Cube视图仍在资产加载完成后由统一天空运行时验证。
     }
@@ -412,6 +417,7 @@ struct SceneEnvironmentDescriptorSerde {
     environment_light_intensity: Option<f32>, // 旧格式的单一IBL强度仅供一次兼容迁移。
     skybox_yaw_degrees: f32,     // 方向字段保持原兼容行为。
     weather: SceneWeatherDescriptor, // 缺省与退役身份都只映射到中性天气配置。
+    simulation: Option<crate::EnvironmentSimulation>,
     celestial_overrides: SceneCelestialLightingOverrides, // 旧场景缺失字段时完整跟随全局。
 }
 
@@ -428,6 +434,7 @@ impl Default for SceneEnvironmentDescriptorSerde {
             environment_light_intensity: None, // 完全缺省时采用两个通道各自的新默认值。
             skybox_yaw_degrees: 0.0,       // 旧场景默认不旋转天空。
             weather: SceneWeatherDescriptor::default(), // 旧场景缺字段时同样采用中性身份。
+            simulation: None,
             celestial_overrides: SceneCelestialLightingOverrides::default(), // 不要求旧场景升级或写回新增字段。
         }
     }
@@ -452,6 +459,7 @@ impl From<SceneEnvironmentDescriptorSerde> for SceneEnvironmentDescriptor {
                 .unwrap_or(DEFAULT_SCENE_ENVIRONMENT_SPECULAR_INTENSITY), // 同一旧值复制到镜面通道，完整保存历史语义。
             skybox_yaw_degrees: source.skybox_yaw_degrees, // 旋转不参与IBL拆分。
             weather: source.weather, // 兼容名称已由枚举读取规范化，不保留第二套旧身份。
+            simulation: source.simulation,
             celestial_overrides: source.celestial_overrides, // 显式覆盖保留，缺失时继续为空继承结构。
         }
     }

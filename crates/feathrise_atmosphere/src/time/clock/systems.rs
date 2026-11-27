@@ -10,9 +10,12 @@ use crate::time::constants::GAME_TIME_SCALE; // 固定二十四倍时间倍率�
 pub(crate) fn advance_world_clock(
     time: Res<Time<Virtual>>,      // ESC、TAB、F1 等界面会统一暂停该虚拟时间。
     settings: Res<EnvironmentPreviewSettings>,   // F1世界时间暂停开关允许关闭面板后继续固定太阳轨迹。
+    active: Option<Res<feathrise_scene_content::ActiveEnvironmentSimulation>>,
     mut clock: ResMut<WorldClock>, // 写入本帧推进后的环境时刻和日期。
 ) {
-    if time.is_paused() || settings.world_time_paused {
+    let paused = active.as_deref().and_then(|active| active.configuration)
+        .map_or(settings.world_time_paused, |configuration| configuration.paused);
+    if time.is_paused() || paused {
         return; // 界面暂停或独立世界时间暂停都保持时钟不变，但后者不阻止角色与镜头继续运行。
     }
     clock.advance_seconds(time.delta_secs() * GAME_TIME_SCALE); // 每个现实秒推进二十四个游戏秒。
@@ -98,6 +101,28 @@ mod tests {
         let clock = app.world().resource::<WorldClock>(); // 读取规范化后的日期和时刻。
         assert_eq!((clock.month(), clock.day()), (6, 16)); // 二十四点哨兵必须推进到次日。
         assert_eq!(clock.hour_for_display(), 0.0); // 恢复后显示必须回到零点左端。
+    }
+
+    #[test]
+    fn active_environment_pause_takes_priority_and_legacy_returns_to_settings() {
+        use feathrise_scene_content::{ActiveEnvironmentSimulation, EnvironmentSimulation};
+        let mut app = App::new();
+        app.init_resource::<Time<Virtual>>().init_resource::<WorldClock>()
+            .insert_resource(EnvironmentPreviewSettings { world_time_paused: true, ..default() })
+            .init_resource::<ActiveEnvironmentSimulation>()
+            .add_systems(Update, advance_world_clock);
+        app.world_mut().resource_mut::<Time<Virtual>>().advance_by(Duration::from_secs(1));
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration = Some(EnvironmentSimulation::default());
+        app.update();
+        let advanced = app.world().resource::<WorldClock>().hour_for_display();
+        assert!(advanced > 12.0);
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration.as_mut().unwrap().paused = true;
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().hour_for_display(), advanced);
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration = None;
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().hour_for_display(), advanced);
+        assert!(app.world().resource::<EnvironmentPreviewSettings>().world_time_paused);
     }
 
 }

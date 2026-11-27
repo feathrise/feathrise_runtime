@@ -39,6 +39,22 @@ fn clear_weather_preserves_baseline_and_single_direction() {
     ); // 天气风向只做必要归一化，不再使用独立(0.8,0.6)。
 } // 完成默认兼容测试。
 
+#[test]
+fn active_environment_wind_uses_the_profile_without_overwriting_legacy_preferences() {
+    use feathrise_scene_content::{ActiveEnvironmentSimulation, EnvironmentSimulation};
+    let mut app = test_app();
+    app.init_resource::<ActiveEnvironmentSimulation>();
+    app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration = Some(EnvironmentSimulation {
+        grass_wind_tip_strength: 0.3, ..default()
+    });
+    app.update();
+    assert_eq!(app.world().resource::<GpuBladeInteraction>().wind_tip_strength(), 0.3);
+    assert_eq!(app.world().resource::<EnvironmentPreviewSettings>().grass_wind_tip_strength, 0.16);
+    app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration = None;
+    app.update();
+    assert_eq!(app.world().resource::<GpuBladeInteraction>().wind_tip_strength(), 0.16);
+}
+
 #[test] // 不变的天气和设置不得每帧重复标记全局GPU风场已变更。
 fn steady_weather_keeps_gpu_resource_unchanged() {
     let mut app = test_app(); // 保持晴天与基准设置不变。
