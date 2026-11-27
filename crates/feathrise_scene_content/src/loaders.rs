@@ -146,11 +146,31 @@ json_asset_loader!(
     WaterPresetCatalogAsset,
     "water_presets.json"
 );
-json_asset_loader!(
-    WorldEnvironmentLoader,
-    WorldEnvironmentAsset,
-    "world_environment.json"
-);
+/// 在资产加载任务中校验完整环境库，采用帧只发布已校验的共享索引。
+#[derive(Default, TypePath)]
+pub(crate) struct WorldEnvironmentLoader;
+
+impl AssetLoader for WorldEnvironmentLoader {
+    type Asset = WorldEnvironmentAsset;
+    type Settings = ();
+    type Error = BevyError;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &Self::Settings,
+        _load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let bytes = read_bounded(reader, MAX_SCENE_JSON_BYTES, "世界环境JSON").await?;
+        let asset: WorldEnvironmentAsset = serde_json::from_slice(&bytes)?;
+        asset.validate().map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+        Ok(asset)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["world_environment.json"]
+    }
+}
 /// 引用图的局部结构在 IO 线程拒绝；间接循环由完整后台实例图继续核验。
 #[derive(Default, TypePath)]
 pub(crate) struct SceneManifestLoader;

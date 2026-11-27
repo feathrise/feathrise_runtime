@@ -30,6 +30,7 @@ impl Plugin for WorldTimePlugin {
         crate::skybox::install_authored_environment_map_support(app); // 先建立补光比例派生缓存和共享黑Cube。
         // Bevy 0.20 的天空盒按真实主通道视口重建方向，继续兼容 DLSS 与固定渲染比例。
         app.init_resource::<feathrise_settings::EnvironmentPreviewSettings>()
+            .init_resource::<feathrise_scene_content::ActiveEnvironmentSimulation>()
             .init_resource::<WorldClock>() // 新游戏和旧存档缺省为六月十五日正午。
             .init_resource::<WorldEnvironmentModifiers>() // 未注册天气时使用中性修正，保证现有昼夜画面完全不变。
             .configure_sets(
@@ -43,6 +44,9 @@ impl Plugin for WorldTimePlugin {
                 )
                     .chain(), // 三个公开调度集保持推进、快照、最终光照的明确顺序。
             )
+            .add_systems(Update, crate::apply_environment_simulation
+                .in_set(crate::ApplyEnvironmentSimulation)
+                .before(WorldTimeSystemSet::Advance))
             .add_systems(
                 Update, // 新游戏重置在所有场景运行，自动推进只在玩法场景运行。
                 (

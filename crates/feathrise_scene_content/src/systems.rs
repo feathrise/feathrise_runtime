@@ -392,7 +392,7 @@ pub(crate) fn load_world_environment(mut commands: Commands, asset_server: Res<A
     commands.insert_resource(WorldEnvironmentRegistry::with_handle(handle)); // 文件缺失也不会让动态场景失去方向光。
 }
 
-/// 全局世界环境首次加载或热更后，仅在完整校验通过时原子采用六组属性。
+/// 全局世界环境首次加载或热更后，原子采用后台校验过的天体基准和共享套装。
 pub(crate) fn apply_world_environment(
     assets: Res<Assets<WorldEnvironmentAsset>>, // 只读取 AssetServer 已完成的完整 JSON 资产。
     mut events: MessageReader<AssetEvent<WorldEnvironmentAsset>>, // 稳定帧不轮询文件或重复校验。
@@ -410,13 +410,17 @@ pub(crate) fn apply_world_environment(
     let Some(asset) = assets.get(&registry.handle) else {
         return; // 移除事件由失败路径或后续重载处理，当前有效默认值保持不变。
     };
-    match asset.validate() {
+    // 套装校验已在 AssetLoader 完成。这里仅检查定长基准并共享索引，避免在采用帧遍历环境库。
+    match asset.validate_base() {
         Ok(()) => {
-            registry.celestial_lighting = asset.celestial_lighting.clone().normalized(); // 六组属性作为一个完整快照采用。
+            registry.celestial_lighting = asset.celestial_lighting.clone().normalized();
+            registry.library = asset.library.clone();
             registry.last_error = None; // 成功热更清除旧错误提示。
         }
         Err(error) => {
-            registry.celestial_lighting = Default::default(); // 无效文件明确回退编译期默认值，不沿用可能误导的旧草稿。
+            if registry.library.is_empty() {
+                registry.celestial_lighting = Default::default(); // 保持旧项目原有的编译期回退。
+            } // 已采用的有名套装和旧基准一起保留，坏热更不会让场景引用突然丢失。
             registry.last_error = Some(format!("全局世界环境配置无效：{error}")); // F12 保留可操作错误。
             error!("{}", registry.last_error.as_deref().unwrap_or_default()); // 日志与编辑器使用同一诊断。
         }
@@ -424,7 +428,7 @@ pub(crate) fn apply_world_environment(
     registry.revision = registry.revision.wrapping_add(1); // 成功与失败回退都要求动态场景重新解析最终配置。
 }
 
-/// 全局世界环境文件缺失或 IO 失败时使用编译期默认值并发布可见错误。
+/// 全局世界环境加载失败时保留上一次完整环境库，首载旧项目使用编译期默认值。
 pub(crate) fn warn_world_environment_load_failed(
     mut failures: MessageReader<AssetLoadFailedEvent<WorldEnvironmentAsset>>, // 只处理 AssetServer 明确失败事件。
     mut registry: Option<ResMut<WorldEnvironmentRegistry>>, // 独立系统测试允许缺少注册表。
@@ -435,7 +439,9 @@ pub(crate) fn warn_world_environment_load_failed(
             failure.path, failure.error
         ); // 保留真实路径与 IO 原因。
         if let Some(registry) = registry.as_deref_mut() {
-            registry.celestial_lighting = Default::default(); // 文件缺失也保持当前动态场景既有画面。
+            if registry.library.is_empty() {
+                registry.celestial_lighting = Default::default();
+            }
             registry.last_error = Some(message.clone()); // F12 可提示作者修复或保存新文件。
             registry.revision = registry.revision.wrapping_add(1); // 消费者同帧后续或下一帧采用明确默认快照。
         }

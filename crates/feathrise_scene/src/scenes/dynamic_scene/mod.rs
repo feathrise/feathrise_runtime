@@ -132,6 +132,7 @@ impl Plugin for DynamicScenePlugin {
         app.add_plugins(clipmap::ClipmapTerrainGridPlugin); // 必须晚于正式高度Shader注册，复用同一内置句柄。
         // 目录是全局服务，冷图切入不能清空，返回旧图也不能回滚；仅实例私有句柄表参加驻留。
         app.init_resource::<feathrise_scene_content::SceneContentRegistry>()
+            .init_resource::<feathrise_scene_content::ActiveEnvironmentSimulation>()
             .register_instance_resource::<feathrise_scene_content::SceneContentRegistry>()
             .init_instance_resource::<resources::DynamicSceneRuntimeState>()
             .init_instance_resource::<terrain_topology::TerrainTopologyRuntime>()
@@ -216,9 +217,11 @@ impl Plugin for DynamicScenePlugin {
             )
             .add_resident_systems(
                 Update,
-                systems::sync_dynamic_celestial_lighting
-                    .before(WorldTimeSystemSet::ApplyLighting)
-                    .run_if(in_state(ScenePhase::Active)), // 全局、场景或 F12 草稿变化同帧进入最终光照。
+                systems::sync_dynamic_environment
+                    .after(systems::observe_dynamic_scene_assets)
+                    .before(feathrise_atmosphere::ApplyEnvironmentSimulation)
+                    .before(WorldTimeSystemSet::Advance)
+                    .run_if(in_state(ScenePhase::Active)), // 仅玩法主场景采用环境，子场景继续共享主场景天空与时钟。
             )
             .add_resident_systems(
                 Update,

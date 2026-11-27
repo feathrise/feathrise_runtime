@@ -80,8 +80,11 @@ pub(crate) fn advance_weather_state(
     dynamic_climate: Res<DynamicSceneWeatherClimate>, // 动态场景只使用当前清单显式选择的气候。
     mut weather: ResMut<WeatherState>, // 写入稳定剩余、过渡进度、目标与随机序号。
     mut debug: ResMut<WeatherDebugOverride>, // 游戏恢复推进时释放自动模式的 F12 手动过渡预览。
+    active: Option<Res<feathrise_scene_content::ActiveEnvironmentSimulation>>,
 ) {
-    if !time.is_paused() {
+    let configured_transition = active.as_deref().and_then(|active| active.configuration)
+        .is_some_and(|configuration| configuration.weather_transition < 1.0);
+    if !time.is_paused() && !configured_transition {
         debug.release_automatic_preview(); // F12 关闭并恢复游戏后立刻回到状态机真实进度，强制天气模式仍保持。
     } // 暂停期间保留手动预览，使滑块可在同一帧连续检查天气形成过程。
     let Some(climate) = climate_profile_for_scene(scene.as_deref(), dynamic_climate.profile())
@@ -223,6 +226,34 @@ mod tests {
                 .preview_override_active()
         ); // 恢复后画面重新使用状态机真实过渡进度。
     } // 结束自动预览恢复测试。
+
+    #[test]
+    fn authored_transition_survives_playback_and_releases_with_the_scene() {
+        use feathrise_scene_content::{ActiveEnvironmentSimulation, EnvironmentSimulation};
+        let mut app = weather_test_app();
+        app.insert_resource(ActiveEnvironmentSimulation::default())
+            .add_systems(Update, crate::apply_environment_simulation.before(crate::WeatherSystemSet::Advance));
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration = Some(EnvironmentSimulation {
+            weather_transition: 0.25, ..default()
+        });
+        app.update();
+        app.world_mut().resource_mut::<Time<Virtual>>().advance_by(Duration::from_secs(1));
+        app.update();
+        // 方案中的比例是持久作者值，恢复播放不能按临时调试规则提前释放。
+        let debug = app.world().resource::<WeatherDebugOverride>();
+        assert!(debug.preview_override_active());
+        assert_eq!(debug.preview(), 0.25);
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration.as_mut().unwrap().weather_transition = 1.0;
+        app.update();
+        assert!(!app.world().resource::<WeatherDebugOverride>().preview_override_active());
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().configuration.as_mut().unwrap().weather_mode_index = 4;
+        app.update();
+        assert_eq!(app.world().resource::<WeatherDebugOverride>().forced(), Some(WeatherKind::HeavyRain));
+        app.world_mut().resource_mut::<ActiveEnvironmentSimulation>().clear();
+        app.update();
+        assert_eq!(app.world().resource::<WeatherDebugOverride>().forced(), None);
+        assert!(!app.world().resource::<WeatherDebugOverride>().preview_override_active());
+    }
 
     #[test] // 动态场景必须使用当前清单输入的气候，不能偷偷采用另一个场景配置。
     fn dynamic_scene_requires_and_uses_manifest_climate() {

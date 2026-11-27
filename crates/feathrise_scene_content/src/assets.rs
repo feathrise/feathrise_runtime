@@ -295,6 +295,12 @@ impl SceneSkyMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(from = "SceneEnvironmentDescriptorSerde")] // 读取时把旧单一IBL强度复制到两个新通道；保存只输出新字段。
 pub struct SceneEnvironmentDescriptor {
+    /// 旧清单缺少来源时保留原天空值和逐项天体继承。
+    #[serde(default, skip_serializing_if = "crate::SceneEnvironmentSource::is_legacy")]
+    pub source: crate::SceneEnvironmentSource,
+    /// 是否已经保存一份本场景专用数值。引用全局套装时暂存这些本地字段，切回时可恢复。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub local_environment_initialized: bool,
     /// 可见天空来源；旧场景缺少字段时默认动态天空。
     pub sky_mode: SceneSkyMode,
     /// 相对assets根的KTX2立方体纹理；动态模式只派生 IBL，天空盒模式还显示主 Cube。
@@ -310,6 +316,9 @@ pub struct SceneEnvironmentDescriptor {
     pub skybox_yaw_degrees: f32,
     /// 场景所属正式天气区与气候配置；当前天气本身仍由天气系统和存档维护。
     pub weather: SceneWeatherDescriptor,
+    /// 旧场景缺省时沿用原世界时间与编辑器偏好；新方案保存完整模拟配置。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simulation: Option<crate::EnvironmentSimulation>,
     /// 动态场景对全局太阳/月光基础值的逐属性覆盖；空结构表示完整跟随全局。
     #[serde(
         default,
@@ -321,6 +330,8 @@ pub struct SceneEnvironmentDescriptor {
 impl Default for SceneEnvironmentDescriptor {
     fn default() -> Self {
         Self {
+            source: crate::SceneEnvironmentSource::Legacy,
+            local_environment_initialized: false,
             sky_mode: SceneSkyMode::Dynamic, // 新旧场景都先使用可适配天气的动态天空。
             skybox_path: None,             // 新建场景不增加离线 Cube 或 IBL 依赖。
             skybox_brightness: DEFAULT_SCENE_SKYBOX_BRIGHTNESS, // 保留可直接启用的中性日间亮度。
@@ -328,14 +339,26 @@ impl Default for SceneEnvironmentDescriptor {
             environment_specular_intensity: DEFAULT_SCENE_ENVIRONMENT_SPECULAR_INTENSITY, // 新天空默认保留完整水面反射。
             skybox_yaw_degrees: 0.0, // 默认不改变立方体资产自身方向。
             weather: SceneWeatherDescriptor::default(), // 新场景只登记global/uniform中性身份。
+            simulation: None,
             celestial_overrides: SceneCelestialLightingOverrides::default(), // 新旧场景默认逐字段跟随全局配置。
         }
     }
 }
 
 impl SceneEnvironmentDescriptor {
+    /// 新建场景显式继承工程默认。旧清单缺省仍保留历史环境语义。
+    pub fn inheriting_default() -> Self {
+        Self {
+            source: crate::SceneEnvironmentSource::InheritDefault,
+            ..Self::default()
+        }
+    }
+
     /// 校验可由AssetServer安全加载并可进入渲染Uniform的天空参数。
     pub fn validate(&self) -> Result<(), String> {
+        if let crate::SceneEnvironmentSource::Shared(id) = &self.source {
+            crate::environment_library::validate_profile_id(id)?;
+        }
         if self.sky_mode == SceneSkyMode::Skybox && self.skybox_path.is_none() {
             return Err("天空盒模式必须先设置主KTX2资源；可清除资源并自动切回动态天空".to_owned()); // 禁止保存必然只能回退的半套天空盒配置。
         }
@@ -369,6 +392,7 @@ impl SceneEnvironmentDescriptor {
             }
         }
         self.weather.validate()?; // 区域与气候必须来自同一套已登记正式配置。
+        if let Some(simulation) = self.simulation { simulation.validate()?; }
         self.celestial_overrides.validate()?; // 已声明的场景天体覆盖必须可安全进入光照与 Solari。
         Ok(()) // 图像是否确为Cube视图仍在资产加载完成后由统一天空运行时验证。
     }
@@ -383,6 +407,8 @@ impl SceneEnvironmentDescriptor {
 #[derive(Deserialize)]
 #[serde(default)] // 任意历史版本缺少新增字段时都由明确默认值或旧字段迁移补齐。
 struct SceneEnvironmentDescriptorSerde {
+    source: crate::SceneEnvironmentSource,
+    local_environment_initialized: bool,
     sky_mode: SceneSkyMode,        // 旧场景缺失时由枚举默认值迁移为动态天空。
     skybox_path: Option<String>, // 旧场景没有路径时继续使用清屏色。
     skybox_brightness: f32,      // 天空盒模式实际使用该值，动态模式也无损保留以便切换。
@@ -391,12 +417,15 @@ struct SceneEnvironmentDescriptorSerde {
     environment_light_intensity: Option<f32>, // 旧格式的单一IBL强度仅供一次兼容迁移。
     skybox_yaw_degrees: f32,     // 方向字段保持原兼容行为。
     weather: SceneWeatherDescriptor, // 缺省与退役身份都只映射到中性天气配置。
+    simulation: Option<crate::EnvironmentSimulation>,
     celestial_overrides: SceneCelestialLightingOverrides, // 旧场景缺失字段时完整跟随全局。
 }
 
 impl Default for SceneEnvironmentDescriptorSerde {
     fn default() -> Self {
         Self {
+            source: crate::SceneEnvironmentSource::Legacy,
+            local_environment_initialized: false,
             sky_mode: SceneSkyMode::Dynamic, // 兼容所有尚未声明可见天空来源的旧清单。
             skybox_path: None,             // 与公开环境默认值保持一致。
             skybox_brightness: DEFAULT_SCENE_SKYBOX_BRIGHTNESS, // 旧环境缺少亮度时使用中性背景。
@@ -405,6 +434,7 @@ impl Default for SceneEnvironmentDescriptorSerde {
             environment_light_intensity: None, // 完全缺省时采用两个通道各自的新默认值。
             skybox_yaw_degrees: 0.0,       // 旧场景默认不旋转天空。
             weather: SceneWeatherDescriptor::default(), // 旧场景缺字段时同样采用中性身份。
+            simulation: None,
             celestial_overrides: SceneCelestialLightingOverrides::default(), // 不要求旧场景升级或写回新增字段。
         }
     }
@@ -414,6 +444,8 @@ impl From<SceneEnvironmentDescriptorSerde> for SceneEnvironmentDescriptor {
     fn from(source: SceneEnvironmentDescriptorSerde) -> Self {
         let legacy = source.environment_light_intensity; // 同一个旧值可被两个新通道分别兜底。
         Self {
+            source: source.source,
+            local_environment_initialized: source.local_environment_initialized,
             sky_mode: source.sky_mode, // 显式模式原样采用，缺失时已在兼容形状中补为动态。
             skybox_path: source.skybox_path, // 路径无需迁移。
             skybox_brightness: source.skybox_brightness, // 天空盒亮度保持独立作者值，动态模式也无损保留以便切换。
@@ -427,6 +459,7 @@ impl From<SceneEnvironmentDescriptorSerde> for SceneEnvironmentDescriptor {
                 .unwrap_or(DEFAULT_SCENE_ENVIRONMENT_SPECULAR_INTENSITY), // 同一旧值复制到镜面通道，完整保存历史语义。
             skybox_yaw_degrees: source.skybox_yaw_degrees, // 旋转不参与IBL拆分。
             weather: source.weather, // 兼容名称已由枚举读取规范化，不保留第二套旧身份。
+            simulation: source.simulation,
             celestial_overrides: source.celestial_overrides, // 显式覆盖保留，缺失时继续为空继承结构。
         }
     }
